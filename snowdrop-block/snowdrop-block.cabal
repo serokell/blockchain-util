@@ -1,0 +1,75 @@
+name:           snowdrop-block
+version:        0.1.0.0
+description:    Please see the README on Github at <https://github.com/githubuser/blockchain-util#readme>
+homepage:       https://github.com/githubuser/blockchain-util#readme
+bug-reports:    https://github.com/githubuser/blockchain-util/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+build-type:     Simple
+cabal-version:  >= 1.10
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/blockchain-util
+
+library
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , containers
+    , data-default
+      -- since 6.3 they use their own Buildable, contradicting with universum
+    , formatting < 6.3
+    , mtl
+    , snowdrop-core
+    , snowdrop-util
+    , time
+    , hashable-time
+    , text-format
+    , universum >= 1.1.0
+
+  exposed-modules:
+      Snowdrop.Block
+
+  other-modules:
+      Snowdrop.Block.Types
+      Snowdrop.Block.Configuration
+      Snowdrop.Block.StateConfiguration
+      Snowdrop.Block.Fork
+      Snowdrop.Block.Application
+      Snowdrop.Block.State
+      Snowdrop.Block.OSParams
+
+  default-language: Haskell2010
+  ghc-options:         -Wall
+                       -fno-warn-orphans
+  default-extensions:   DeriveDataTypeable
+                        DeriveGeneric
+                        GeneralizedNewtypeDeriving
+                        StandaloneDeriving
+                        FlexibleContexts
+                        FlexibleInstances
+                        MultiParamTypeClasses
+                        FunctionalDependencies
+                        DefaultSignatures
+                        NoImplicitPrelude
+                        OverloadedStrings
+                        RecordWildCards
+                        TypeApplications
+                        TupleSections
+                        ViewPatterns
+                        LambdaCase
+                        MultiWayIf
+                        ConstraintKinds
+                        UndecidableInstances
+                        BangPatterns
+                        TemplateHaskell
+                        ScopedTypeVariables
+                        TypeFamilies
+                        GADTs
+                        MonadFailDesugaring
+                        TypeOperators

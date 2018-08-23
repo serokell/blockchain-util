@@ -1,0 +1,145 @@
+name:           snowdrop-core
+version:        0.1.0.0
+description:    Please see the README on Github at <https://github.com/githubuser/blockchain-util#readme>
+homepage:       https://github.com/githubuser/blockchain-util#readme
+bug-reports:    https://github.com/githubuser/blockchain-util/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+build-type:     Simple
+cabal-version:  >= 1.10
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/blockchain-util
+
+library
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+    , async
+    , autoexporter
+    , bytestring
+    , conduit
+    , containers
+    , contravariant
+    , data-default
+    , exceptions
+      -- since 6.3 they use their own Buildable, contradicting with universum
+    , formatting < 6.3
+    , free
+    , fmt
+    , lens
+    , lifted-async
+    , log-warper
+    , loot-base
+    , loot-log
+    , monad-control
+    , mtl
+    , random
+    , reflection
+    , snowdrop-util
+    , stm
+    , text
+    , text-format
+    , template-haskell
+    , transformers
+    , transformers-base
+    , universum >= 1.1.0
+    , unliftio-core
+    , unordered-containers
+    , yaml
+
+  exposed-modules:
+      Snowdrop.Core
+
+  other-modules:
+      Snowdrop.Core.BaseM
+      Snowdrop.Core.ChangeSet
+      Snowdrop.Core.ChangeSet.Type
+      Snowdrop.Core.ChangeSet.ValueOp
+      Snowdrop.Core.ERoComp
+      Snowdrop.Core.ERoComp.Helpers
+      Snowdrop.Core.ERoComp.Types
+      Snowdrop.Core.ERwComp
+      Snowdrop.Core.Expander
+      Snowdrop.Core.Prefix
+      Snowdrop.Core.Transaction
+      Snowdrop.Core.Validator
+      Snowdrop.Core.Validator.Basic
+      Snowdrop.Core.Validator.Types
+
+  default-language: Haskell2010
+  ghc-options:         -Wall
+                       -fno-warn-orphans
+  default-extensions:   DeriveDataTypeable
+                        DeriveGeneric
+                        GeneralizedNewtypeDeriving
+                        StandaloneDeriving
+                        FlexibleContexts
+                        FlexibleInstances
+                        MultiParamTypeClasses
+                        FunctionalDependencies
+                        DefaultSignatures
+                        NoImplicitPrelude
+                        OverloadedStrings
+                        RecordWildCards
+                        TypeApplications
+                        TupleSections
+                        ViewPatterns
+                        LambdaCase
+                        MultiWayIf
+                        ConstraintKinds
+                        UndecidableInstances
+                        BangPatterns
+                        TemplateHaskell
+                        ScopedTypeVariables
+                        TypeFamilies
+                        GADTs
+                        MonadFailDesugaring
+                        TypeOperators
+
+test-suite snowdrop-core-test
+  type: exitcode-stdio-1.0
+  main-is: Test.hs
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , QuickCheck
+    , bytestring
+    , containers
+    , data-default
+    , dlist
+    , free
+    , lens
+    , loot-log
+    , hedgehog
+    , hspec
+    , mtl
+    , tasty
+    , tasty-hedgehog
+    , universum
+    , snowdrop-core
+    , snowdrop-util
+  other-modules:
+      Spec
+      Test.Snowdrop.Core.ChangeSet
+      Test.Snowdrop.Core.Executor
+      Test.Snowdrop.Core.Free
+      Test.Snowdrop.Core.Types
+  default-language: Haskell2010
+  default-extensions:   NoImplicitPrelude
+                        OverloadedStrings
+                        TemplateHaskell
+                        TypeFamilies
+                        TypeApplications
+                        GeneralizedNewtypeDeriving
+                        FlexibleContexts
+                        FlexibleInstances
+                        MultiParamTypeClasses
+  build-tools: cpphs >= 1.19
+  ghc-options: -pgmP cpphs -optP --cpp

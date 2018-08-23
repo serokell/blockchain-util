@@ -1,0 +1,58 @@
+resolver: lts-11.17
+
+packages:
+- snowdrop-block
+- snowdrop-core
+- snowdrop-execution
+- snowdrop-util
+
+extra-deps:
+- tasty-hedgehog-0.2.0.0
+- pretty-tree-0.1.0.0
+- time-units-1.0.0
+- componentm-0.0.0.2
+- serokell-util-0.8.0
+- teardown-0.5.0.0
+- universum-1.1.1
+
+- git: https://github.com/serokell/lootbox.git
+  commit: 15b4f1c5db6d25fb241031e82f771fa89c4f29b0
+  subdirs:
+    - code/base
+    - code/log
+    - code/network
+    - code/prelude
+
+- git: git@github.com:serokell/auth-data-structures.git
+  commit: c46d81fac79bbc1e4efcc6c4568a1500b273bd60
+
+# Forced by lootbox #
+- base-noprelude-4.10.1.0
+- serialise-0.2.0.0
+- vinyl-0.8.1.1
+
+- git: https://github.com/int-index/caps
+  commit: 2f46fc6d5480bdef0a17f64359ad6eb29510dba4
+
+# for caps
+- git: https://github.com/mokus0/dependent-sum
+  commit: f8909cb323b4ffa63af6c4e7cb3a9745e6199080
+
+# for serialise
+- cborg-0.2.0.0
+
+# for universum (greater versions conflict)
+- formatting-6.2.5
+
+# in lts, but required for impl, otherwise impl compilation
+# fails with "shadowed package" error.
+# - parsec-3.1.13.0
+
+# Because it fixes CI (ask @yorick)
+- yaml-0.8.32
+
+ghc-options:
+    snowdrop-block:      -Werror
+    snowdrop-core:       -Werror
+    snowdrop-execution:  -Werror
+    snowdrop-util:       -Werror
