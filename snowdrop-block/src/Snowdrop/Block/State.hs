@@ -13,6 +13,7 @@ import           Universum
 
 import qualified Data.ByteString as BS
 import           Data.Default (def)
+import           Data.Default (Default)
 import qualified Data.Map as M
 import qualified Data.Text.Buildable
 import           Formatting (bprint, build, (%))
@@ -21,11 +22,14 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..))
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx,
-                                ChgAccumModifier (..), ERwComp, HasKeyValue, IdSumPrefixed (..),
-                                StateModificationException, StatePException (..), StateTx (..),
-                                Undo (..), Validator, ValidatorExecException, ValueOp (..),
-                                liftERoComp, mappendChangeSet, modifyRwCompChgAccum, queryOne,
-                                queryOneExists, runValidator)
+                                ChgAccumModifier (..), ERwComp, Expander (..), HasKeyValue,
+                                IdSumPrefixed (..), StateModificationException,
+                                StatePException (..), StateTx (..), StateTxType, Undo (..),
+                                Validator, ValidatorExecException, ValueOp (..), liftERoComp,
+                                mappendChangeSet, modifyRwCompChgAccum, queryOne, queryOneExists,
+                                runValidator)
+import           Snowdrop.Execution (ExpandException, RestrictCtx, RestrictionInOutException,
+                                     expandUnionRawTxs)
 import           Snowdrop.Util
 
 data BlockStateException id
@@ -53,7 +57,7 @@ data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-  :: forall header rawPayload blockRef e id proof value ctx .
+  :: forall header rawBlock rawPayload blockRef e id proof value rawTx ctx .
     ( HasKeyValue id value TipKey (TipValue blockRef)
     , HasKeyValue id value (BlockRef blockRef) (Blund header rawPayload (Undo id value))
     , HasExceptions e
@@ -62,18 +66,30 @@ inmemoryBlkStateConfiguration
         , ValidatorExecException
         , StateModificationException id
         , CSMappendException id
+        , RestrictionInOutException
+        , ExpandException
         ]
     , Ord id
     , Ord (BlockRef blockRef)
     , IdSumPrefixed id
     , HasLens ctx (ChgAccumCtx ctx)
+    , HasLens ctx RestrictCtx
+    , HasGetter rawBlock [rawTx]
+    , HasGetter rawBlock header
+    , Default (ChgAccum ctx)
     )
     => BlkConfiguration header [StateTx id proof value] blockRef
     -> Validator e id proof value ctx
-    -> BlkStateConfiguration header [StateTx id proof value] rawPayload (Undo id value) blockRef (ERwComp e id value ctx (ChgAccum ctx))
-inmemoryBlkStateConfiguration cfg validator =
+    -> (rawTx -> (StateTxType, proof))
+    -> Expander e id proof value ctx rawTx
+    -> BlkStateConfiguration header [StateTx id proof value] rawBlock rawPayload (Undo id value) blockRef (ERwComp e id value ctx (ChgAccum ctx))
+inmemoryBlkStateConfiguration cfg validator mkProof expander =
     BlkStateConfiguration {
       bscConfig = cfg
+    , bscExpand = \rawBlock -> do
+        blkPayload <- liftERoComp $ expandUnionRawTxs mkProof expander (gett rawBlock)
+        let blkHeader = gett rawBlock
+        pure Block {..}
     , bscApplyPayload = \txs -> do
           undos <-
             forM txs $ \tx -> do

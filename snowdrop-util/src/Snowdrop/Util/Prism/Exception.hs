@@ -9,6 +9,7 @@ module Snowdrop.Util.Prism.Exception
 
     , eitherThrow
     , maybeThrow
+    , maybeThrowLocal
     , throwLocalError
     ) where
 
@@ -38,6 +39,10 @@ eitherThrow (Right a) = pure a
 maybeThrow :: MonadError e m => e -> Maybe a -> m a
 maybeThrow e Nothing  = throwError e
 maybeThrow _ (Just a) = pure a
+
+maybeThrowLocal :: forall e1 e m a . (HasReview e e1, MonadError e m) => e1 -> Maybe a -> m a
+maybeThrowLocal e Nothing  = throwError (inj e)
+maybeThrowLocal _ (Just a) = pure a
 
 throwLocalError :: forall e1 e m a . (HasReview e e1, MonadError e m) => e1 -> m a
 throwLocalError = throwError . inj

@@ -4,6 +4,7 @@ module Snowdrop.Execution.Mempool.Core
        ( Mempool
        , MempoolConfig (..)
        , MempoolState (..)
+       , ExpanderRawTx
        , msTxsL
        , RwActionWithMempool
        , defaultMempoolConfig
@@ -117,4 +118,3 @@ createMempool = Mempool <$> atomically (newTVar def)
 
 getMempoolTxs :: (Default chgAccum, MonadIO m) => Mempool id value chgAccum rawtx -> m [(rawtx, Undo id value)]
 getMempoolTxs Mempool{..} = msTxs . vsData <$> atomically (readTVar mempoolState)
-
