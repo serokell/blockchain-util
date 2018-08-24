@@ -58,14 +58,14 @@ instance Buildable (ForkVerificationException blockRef) where
 --  4. loads at most `bcMaxForkDepth` blocks from block storage, starting from tip block and ending with block, referencing LCA (if more than `bcMaxForkDepth` need to be loaded, fails);
 --  5. evaluates `bcIsBetterThan` for loaded part of currently adopted "best" chain and fork, returns `ApplyFork` iff evaluation results in `True`.
 verifyFork
-    :: forall header payload rawPayload undo blockRef bdata e m .
+    :: forall header payload rawBlock rawPayload undo blockRef bdata e m .
        ( MonadError e m
        , Eq blockRef
        , HasBlock header payload bdata
        , HasGetter bdata rawPayload
        , HasException e (ForkVerificationException blockRef)
        )
-    => BlkStateConfiguration header payload rawPayload undo blockRef m
+    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
     -> OSParams
     -> OldestFirst NonEmpty bdata
     -> m (ForkVerResult header payload rawPayload undo blockRef)
@@ -109,10 +109,10 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst blks)
         | otherwise = throwLocalError @(ForkVerificationException blockRef) OriginOfBlockchainReached
 
 iterateChain
-    :: forall header payload rawPayload undo blockRef m .
+    :: forall header payload rawBlock rawPayload undo blockRef m .
     ( Monad m
     )
-    => BlkStateConfiguration header payload rawPayload undo blockRef m
+    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
     -> Int
     -> m (NewestFirst [] (Blund header rawPayload undo))
 iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDepth

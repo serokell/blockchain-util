@@ -27,6 +27,7 @@ library
     , mtl
     , snowdrop-core
     , snowdrop-util
+    , snowdrop-execution
     , time
     , hashable-time
     , text-format

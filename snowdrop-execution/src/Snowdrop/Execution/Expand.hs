@@ -4,7 +4,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Snowdrop.Execution.Expand
-       ( expandRawTxs
+       ( ExpandException (..)
+       , expandRawTxs
        , expandUnionRawTxs
        ) where
 
@@ -12,12 +13,15 @@ import           Universum
 
 import           Data.Default (Default (def))
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+import qualified Data.Text.Buildable
+import           Formatting (bprint, build, (%))
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..),
                                 DiffChangeSet (..), ERoComp, Expander (..), IdSumPrefixed (..),
-                                SeqExpanders (..), SeqExpanders', StateTx (..), StateTxType,
-                                mappendChangeSet, withModifiedAccumCtx)
+                                PreExpander (..), PreExpanderSeq (..), PreExpandersSeq',
+                                StateTx (..), StateTxType, mappendChangeSet, withModifiedAccumCtx)
 import           Snowdrop.Execution.DbActions (SumChangeSet, accumToDiff, mappendStOrThrow,
                                                modifySumChgSet)
 import           Snowdrop.Execution.Restrict (RestrictCtx, RestrictionInOutException, restrictCS,
@@ -29,6 +33,14 @@ data RawTxState id value = RawTxState
     { rtsSum      :: SumChangeSet id value -- mappends of all previous expanders for this tx
     , rtsExpState :: SumChangeSet id value -- mappends of all previous expanders for all previous txs
     }
+
+data ExpandException
+    = NoExpanderForTransactionType StateTxType
+    deriving (Show)
+
+instance Buildable ExpandException where
+    build = \case
+        NoExpanderForTransactionType stateTxType -> bprint ("No expander found for transaction type"%build)  stateTxType
 
 -- | We have severals txs to expand using sequence of expanders.
 -- We may run them *sequentually*: sequence of expanders is run on each tx.
@@ -79,27 +91,27 @@ expandRawTxs
     )
     => (rawTx -> (StateTxType, proof))
     -> [rawTx]
-    -> SeqExpanders e id proof value ctx rawTx
+    -> PreExpanderSeq e id proof value ctx rawTx
     -> ERoComp e id value ctx [StateTx id proof value]
-expandRawTxs mkProof rawTxs (getSeqExpanders -> exps) =
+expandRawTxs mkProof rawTxs (getSeqExpanders -> expander) =
     -- Check whether expanding can be run in parallel.
-    if checkParallelization exps then
-        runExpandersInParallel (squashSeqExpanders exps) $ take (length rawTxs) $ repeat (RawTxState def def)
+    if checkParallelization expander then
+        runExpandersInParallel (squashSeqExpanders expander) $ take (length rawTxs) $ repeat (RawTxState def def)
     else
-        runSeqExpandersSequentially mkProof (zip rawTxs $ repeat exps)
+        runSeqExpandersSequentially mkProof (zip rawTxs $ repeat expander)
   where
-    intersectsInpOut :: Expander e id proof value ctx rawTx -> Expander e id proof value ctx rawTx -> Bool
+    intersectsInpOut :: PreExpander e id proof value ctx rawTx -> PreExpander e id proof value ctx rawTx -> Bool
     intersectsInpOut e1 e2 = not $ S.null $ S.intersection (inpSet e1) (outSet e2)
 
     -- Check that (inpSet E_i) ∩ (outSet E_j) = ∅ for j >= i, for 0 <= i, j < numbers of expanders.
-    checkParallelization :: SeqExpanders' e id proof value ctx rawTx -> Bool
+    checkParallelization :: PreExpandersSeq' e id proof value ctx rawTx -> Bool
     checkParallelization (x :| []) = intersectsInpOut x x
     checkParallelization (x :| xs) =
         if any (intersectsInpOut x) (x:xs) then False
         else checkParallelization $ NE.fromList xs
 
     runExpandersInParallel
-        :: SeqExpanders' e id proof value ctx rawTx
+        :: PreExpandersSeq' e id proof value ctx rawTx
         -> [RawTxState id value]
         -> ERoComp e id value ctx [StateTx id proof value]
     runExpandersInParallel (ex:|xs) prevRawTxStates =
@@ -151,18 +163,25 @@ expandUnionRawTxs
   :: forall rawTx e id proof value ctx .
     ( Ord id
     , IdSumPrefixed id
-    , HasExceptions e [CSMappendException id, RestrictionInOutException]
+    , HasExceptions e [CSMappendException id, RestrictionInOutException, ExpandException]
     , HasLens ctx (ChgAccumCtx ctx)
     , HasLens ctx RestrictCtx
     , Default (ChgAccum ctx)
     )
-    => (rawTx -> (StateTxType, proof, SeqExpanders e id proof value ctx rawTx))
+    => (rawTx -> (StateTxType, proof))
+    -> Expander e id proof value ctx rawTx
     -> [rawTx]
     -> ERoComp e id value ctx [StateTx id proof value]
-expandUnionRawTxs f txs = do
-    let seqExps = zip txs (map (getSeqExpanders . view _3 . f) txs)
-    let mkProof = (view _1 &&& view _2) . f
-    runSeqExpandersSequentially mkProof seqExps
+expandUnionRawTxs mkProof expander txs = do
+    expanders <- traverse toTxWithExp txs
+    runSeqExpandersSequentially mkProof expanders
+      where
+        toTxWithExp :: rawTx -> ERoComp e id value ctx (rawTx, (PreExpandersSeq' e id proof value ctx rawTx))
+        toTxWithExp tx = let
+            (stateTxType, _) = mkProof tx
+          in do
+            seqExpanders <- maybeThrowLocal (NoExpanderForTransactionType stateTxType) (M.lookup stateTxType (unExpander expander))
+            pure (tx, getSeqExpanders seqExpanders)
 
 runSeqExpandersSequentially
   :: forall rawTx e id proof value ctx .
@@ -174,20 +193,20 @@ runSeqExpandersSequentially
     , Default (ChgAccum ctx)
     )
     => (rawTx -> (StateTxType, proof))
-    -> [(rawTx, SeqExpanders' e id proof value ctx rawTx)]
+    -> [(rawTx, PreExpandersSeq' e id proof value ctx rawTx)]
     -> ERoComp e id value ctx [StateTx id proof value]
 runSeqExpandersSequentially mkProof txWithExp =
     reverse <$> evalStateT (foldM runExps [] txWithExp) def
   where
     runExps :: [StateTx id proof value]
-            -> (rawTx, SeqExpanders' e id proof value ctx rawTx)
+            -> (rawTx, PreExpandersSeq' e id proof value ctx rawTx)
             -> StateT (SumChangeSet id value) (ERoComp e id value ctx) [StateTx id proof value]
     runExps txs rtx = do
         chgAcc <- get
         stx <- lift $ withModifiedAccumCtx (accumToDiff chgAcc) (runSeqExpandersForTx rtx)
         mappendStOrThrow @e (txBody stx) $> (stx : txs)
 
-    runSeqExpandersForTx :: (rawTx, SeqExpanders' e id proof value ctx rawTx) -> ERoComp e id value ctx (StateTx id proof value)
+    runSeqExpandersForTx :: (rawTx, PreExpandersSeq' e id proof value ctx rawTx) -> ERoComp e id value ctx (StateTx id proof value)
     runSeqExpandersForTx (tx, sexp) = (uncurry StateTx) (mkProof tx) . accumToDiff <$> foldM (applyExpander tx) def sexp
 
 applyExpander
@@ -198,7 +217,7 @@ applyExpander
        )
     => rawTx
     -> SumChangeSet id value
-    -> Expander e id proof value ctx rawTx
+    -> PreExpander e id proof value ctx rawTx
     -> ERoComp e id value ctx (SumChangeSet id value)
 applyExpander tx sumCS ex = do
     DiffChangeSet diffCS <- restrictDbAccess (inpSet ex) $ expanderAct ex tx
@@ -211,10 +230,10 @@ applyExpander tx sumCS ex = do
 
 mappendExpander
     :: (HasException e (CSMappendException id), Ord id)
-    => Expander e id proof value ctx rawTx
-    -> Expander e id proof value ctx rawTx
-    -> Expander e id proof value ctx rawTx
-mappendExpander a b = Expander
+    => PreExpander e id proof value ctx rawTx
+    -> PreExpander e id proof value ctx rawTx
+    -> PreExpander e id proof value ctx rawTx
+mappendExpander a b = PreExpander
     (inpSet a `S.union` inpSet b)
     (outSet a `S.union` outSet b)
     act
@@ -227,7 +246,7 @@ mappendExpander a b = Expander
 
 squashSeqExpanders
     :: (Ord id, HasException e (CSMappendException id))
-    => SeqExpanders' e id proof value ctx rawTx -> SeqExpanders' e id proof value ctx rawTx
+    => PreExpandersSeq' e id proof value ctx rawTx -> PreExpandersSeq' e id proof value ctx rawTx
 squashSeqExpanders (x:|[]) = one x
 squashSeqExpanders (a:|b:xs) =
     if inpOutIntersection then NE.cons a (squashSeqExpanders (b :| xs))
