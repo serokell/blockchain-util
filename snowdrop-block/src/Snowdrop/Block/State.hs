@@ -53,7 +53,7 @@ data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-  :: forall header rawPayload blockRef e id proof value ctx .
+  :: forall header rawPayload blockRef e id proof value ctx payload .
     ( HasKeyValue id value TipKey (TipValue blockRef)
     , HasKeyValue id value (BlockRef blockRef) (Blund header rawPayload (Undo id value))
     , HasExceptions e
@@ -67,16 +67,17 @@ inmemoryBlkStateConfiguration
     , Ord (BlockRef blockRef)
     , IdSumPrefixed id
     , HasLens ctx (ChgAccumCtx ctx)
+    , HasGetter payload [StateTx id proof value]
     )
-    => BlkConfiguration header [StateTx id proof value] blockRef
+    => BlkConfiguration header payload blockRef
     -> Validator e id proof value ctx
-    -> BlkStateConfiguration header [StateTx id proof value] rawPayload (Undo id value) blockRef (ERwComp e id value ctx (ChgAccum ctx))
+    -> BlkStateConfiguration header payload rawPayload (Undo id value) blockRef (ERwComp e id value ctx (ChgAccum ctx))
 inmemoryBlkStateConfiguration cfg validator =
     BlkStateConfiguration {
       bscConfig = cfg
     , bscApplyPayload = \txs -> do
           undos <-
-            forM txs $ \tx -> do
+            forM (gett txs) $ \tx -> do
               liftERoComp $ runValidator validator tx
               modifyRwCompChgAccum (CAMChange $ txBody tx)
           let mergeUndos (Undo cs1 sn1) (Undo cs2 _) = flip Undo sn1 <$> mappendChangeSet cs1 cs2
