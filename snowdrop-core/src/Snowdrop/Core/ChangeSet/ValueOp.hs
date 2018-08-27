@@ -3,10 +3,10 @@
 {-# LANGUAGE DeriveTraversable #-}
 
 module Snowdrop.Core.ChangeSet.ValueOp
-    (
-      ValueOp (..)
-    , ValueOpEx (..)
-    ) where
+       (
+         ValueOp (..)
+       , ValueOpEx (..)
+       ) where
 
 import           Universum hiding (head, init, last)
 

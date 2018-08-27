@@ -44,18 +44,24 @@ instance Buildable id => Buildable (StructuralValidationException id) where
             -- this is an error as soon as we have separated 'New' and 'Upd'
             -- 'ValueOp's.
 
-csRemoveExist :: (Ord id, HasException e (StructuralValidationException id)) => PreValidator e id proof value ctx
+csRemoveExist
+    :: (Ord id, HasException e (StructuralValidationException id))
+    => PreValidator e id proof value ctx
 csRemoveExist = PreValidator $ \(csRemove . txBody -> inRefs) -> do
     ins <- query inRefs
     validateAll (inj . DpRemoveDoesntExist) (flip M.member ins) inRefs
 
-csNewNotExist :: (Ord id, HasException e (StructuralValidationException id)) => PreValidator e id proof value ctx
+csNewNotExist
+    :: (Ord id, HasException e (StructuralValidationException id))
+    => PreValidator e id proof value ctx
 csNewNotExist = PreValidator $ \tx -> do
     let ks = M.keysSet (csNew (txBody tx))
     mp <- query ks
     validateAll (inj . DpAddExist) (not . flip M.member mp) ks
 
-structuralPreValidator :: (Ord id, HasException e (StructuralValidationException id)) => PreValidator e id proof value ctx
+structuralPreValidator
+    :: (Ord id, HasException e (StructuralValidationException id))
+    => PreValidator e id proof value ctx
 structuralPreValidator = csRemoveExist <> csNewNotExist
 
 data RedundantIdException = RedundantIdException (NonEmpty Prefix)
@@ -66,15 +72,16 @@ instance Buildable RedundantIdException where
         bprint ("encountered unexpected prefixes: "%listF ", " build) (toList pref)
 
 redundantIdsPreValidator
-  :: forall e id proof value ctx.
-    ( IdSumPrefixed id
-    , HasException e RedundantIdException
-    )
+    :: forall e id proof value ctx.
+       ( IdSumPrefixed id
+       , HasException e RedundantIdException
+       )
     => [Prefix]
     -> PreValidator e id proof value ctx
 redundantIdsPreValidator prefixes = PreValidator $ \statetx -> do
     let prefixesSet = S.fromList prefixes
-    let obtainedPrefixesSet = S.fromList $ (idSumPrefix . fst) <$> (changeSetToList $ txBody statetx)
+    let obtainedPrefixesSet = S.fromList $ (idSumPrefix . fst)
+                                        <$> (changeSetToList $ txBody statetx)
     let rest = obtainedPrefixesSet `S.difference` prefixesSet
     unless (S.null rest) $
         throwLocalError $ RedundantIdException $ NE.fromList $ S.toList rest
@@ -91,15 +98,19 @@ data StateTxValidationException
     = InputDoesntExist
     | InputNotSigned
 
-inputsExist :: (Ord id, HasException e StateTxValidationException) => PreValidator e id proof value ctx
+inputsExist
+    :: (Ord id, HasException e StateTxValidationException)
+    => PreValidator e id proof value ctx
 inputsExist = PreValidator $ \(csRemove . txBody -> inRefs) -> do
     ins <- query inRefs
     validateIff InputDoesntExist (all (flip M.member ins) inRefs)
 
-inputsSigned :: (Ord id, HasException e StateTxValidationException) => PreValidator e id proof (proof -> Bool, value) ctx
+inputsSigned
+    :: (Ord id, HasException e StateTxValidationException)
+    => PreValidator e id proof (proof -> Bool, value) ctx
 inputsSigned = PreValidator $ \tx -> do
     let inRefs = csRemove $ txBody tx
-        proof = txProof tx
+        proof  = txProof tx
     ins <- query inRefs
     validateIff InputNotSigned (all (($ proof) . fst) ins)
 

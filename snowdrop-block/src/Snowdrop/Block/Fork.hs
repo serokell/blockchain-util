@@ -28,18 +28,18 @@ import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (
 import           Snowdrop.Util
 
 data ForkVerResult header payload rawPayload undo blockRef
-  = ApplyFork
+    = ApplyFork
       { fvrToApply    :: OldestFirst NonEmpty header
       , fvrToRollback :: NewestFirst [] (Blund header rawPayload undo)
       , fvrLCA        :: Maybe blockRef
       }
-  | RejectFork
+    | RejectFork
 
 data ForkVerificationException blockRef
     = BlocksNotConsistent
-    -- Exception will be thrown when parent of alt chain doesn't belong to our chain
+    -- | Exception will be thrown when parent of alt chain doesn't belong to our chain
     | UnkownForkOrigin
-    -- Exception will be thrown when the first block of alt chain belongs to our chain
+    -- | Exception will be thrown when the first block of alt chain belongs to our chain
     | InvalidForkOrigin
     | TooDeepFork
     | OriginOfBlockchainReached
@@ -47,16 +47,20 @@ data ForkVerificationException blockRef
     deriving Show
 
 instance Buildable (ForkVerificationException blockRef) where
-    build _ =
-        bprint ("Non eligible to forge")
+    build _ = bprint ("Non eligible to forge")
 
--- | Function `verifyFork` verifies fork validity (applicability instead of currently adopted blockchain).
+-- | Function `verifyFork` verifies fork validity
+-- (applicability instead of currently adopted blockchain).
 --
---  1. checks that fork is a valid consistent chain: each block is valid with respect to integrity check `bcBlkVerify`, each subsequent block contains previous block reference;
+--  1. checks that fork is a valid consistent chain: each block is valid with respect to integrity
+--  check `bcBlkVerify`, each subsequent block contains previous block reference;
 --  2. checks that block, which preceedes the first block of fork, an LCA, exists in block storage;
 --  3. checks that first block of fork doesn't exist in block storage;
---  4. loads at most `bcMaxForkDepth` blocks from block storage, starting from tip block and ending with block, referencing LCA (if more than `bcMaxForkDepth` need to be loaded, fails);
---  5. evaluates `bcIsBetterThan` for loaded part of currently adopted "best" chain and fork, returns `ApplyFork` iff evaluation results in `True`.
+--  4. loads at most `bcMaxForkDepth` blocks from block storage,
+--  starting from tip block and ending with block,
+--  referencing LCA (if more than `bcMaxForkDepth` need to be loaded, fails);
+--  5. evaluates `bcIsBetterThan` for loaded part of currently adopted "best" chain and fork,
+--  returns `ApplyFork` iff evaluation results in `True`.
 verifyFork
     :: forall header payload rawBlock rawPayload undo blockRef e m .
        ( MonadError e m
@@ -71,36 +75,40 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
     let lcaRefMb = unPrevBlockRef $ bcPrevBlockRef bscConfig $ head altHeaders
     let firstBlockRef = unCurrentBlockRef $ bcBlockRef bscConfig $ head altHeaders
 
-    -- | At the beginning lcaRef doesn't exists since blockchain is empty
+    -- At the beginning lcaRef doesn't exists since blockchain is empty
     case lcaRefMb of
         Just lcaRef -> unlessM (bscBlockExists lcaRef) $
                             throwLocalError @(ForkVerificationException blockRef) UnkownForkOrigin
         Nothing     -> pure ()
     whenM (bscBlockExists firstBlockRef) $
         throwLocalError @(ForkVerificationException blockRef) InvalidForkOrigin
-    tip <- bscGetTip
+    tip      <- bscGetTip
     curChain <- loadBlocksFromTo (bcMaxForkDepth bscConfig) lcaRefMb tip
     let altHeaders' :: OldestFirst [] header
         altHeaders' = oldestFirstFContainer NE.toList fork
-    let curHeaders = fmap (blkHeader . buBlock) (toOldestFirst curChain)
+    let curHeaders  = fmap (blkHeader . buBlock) (toOldestFirst curChain)
     pure $
       if bcIsBetterThan bscConfig altHeaders' curHeaders &&
-          bcValidateFork bscConfig osParams altHeaders' then
-          ApplyFork fork curChain lcaRefMb
+         bcValidateFork bscConfig osParams altHeaders'
+      then ApplyFork fork curChain lcaRefMb
       else RejectFork
   where
     loadBlocksFromTo
         :: Int -> Maybe blockRef -> Maybe blockRef
         -> m (NewestFirst [] (Blund header rawPayload undo))
     loadBlocksFromTo maxForkDepth toMb fromMb
-        | toMb == fromMb        = pure $ NewestFirst []
-        | maxForkDepth <= 0 = throwLocalError @(ForkVerificationException blockRef) TooDeepFork
+        | toMb == fromMb      = pure $ NewestFirst []
+        | maxForkDepth <= 0   = throwLocalError @(ForkVerificationException blockRef) TooDeepFork
         | Just from <- fromMb = bscGetBlund from >>= \case
             Just b  ->
                 newestFirstFContainer (b:) <$>
-                    loadBlocksFromTo (maxForkDepth - 1) toMb (unPrevBlockRef $ bcPrevBlockRef bscConfig (blkHeader $ buBlock b))
+                    loadBlocksFromTo
+                      (maxForkDepth - 1)
+                      toMb
+                      (unPrevBlockRef $ bcPrevBlockRef bscConfig (blkHeader $ buBlock b))
             Nothing -> throwLocalError $ BlockDoesntExistInChain from
-        | otherwise = throwLocalError @(ForkVerificationException blockRef) OriginOfBlockchainReached
+        | otherwise =
+            throwLocalError @(ForkVerificationException blockRef) OriginOfBlockchainReached
 
 iterateChain
     :: forall header payload rawBlock rawPayload undo blockRef m .
@@ -114,12 +122,13 @@ iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDep
     loadBlock :: Int -> Maybe blockRef -> m (NewestFirst [] (Blund header rawPayload undo))
     loadBlock _ Nothing = pure $ NewestFirst []
     loadBlock depth (Just blockRef)
-      | depth <= 0 = pure $ NewestFirst []
-      | otherwise = bscGetBlund blockRef >>= \case
-          Nothing -> pure $ NewestFirst []
-          Just b  ->
-              newestFirstFContainer (b:) <$>
-                  loadBlock (depth - 1) (unPrevBlockRef . (bcPrevBlockRef bscConfig) . blkHeader . buBlock $ b)
+        | depth <= 0 = pure $ NewestFirst []
+        | otherwise = bscGetBlund blockRef >>= \case
+            Nothing -> pure $ NewestFirst []
+            Just b  -> newestFirstFContainer (b:) <$>
+                loadBlock
+                  (depth - 1)
+                  (unPrevBlockRef . (bcPrevBlockRef bscConfig) . blkHeader . buBlock $ b)
 
 -- TODO this function may be needed in future
 
@@ -132,7 +141,9 @@ iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDep
 --     => Int
 --     -> BlockContainerD blockRef bdata1 payload
 --     -> BlockContainerD blockRef bdata2 payload
---     -> Maybe (blockRef, BlockContainerM blockRef bdata1 payload, BlockContainerM blockRef bdata2 payload)
+--     -> Maybe (blockRef,
+--               BlockContainerM blockRef bdata1 payload,
+--               BlockContainerM blockRef bdata2 payload)
 -- findLCA maxDepth cont1 cont2 = do
 --     (lca, dropTail lca -> cont2) <- lcaM
 --     (_, dropTail lca -> cont1) <- find ((==) lca . fst) refs1

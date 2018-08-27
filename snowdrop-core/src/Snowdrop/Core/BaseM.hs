@@ -3,13 +3,13 @@
 {-# LANGUAGE Rank2Types          #-}
 
 module Snowdrop.Core.BaseM
-    (
-      BaseMConstraint
-    , BaseM (..)
-    , Concurrently (..)
-    , Race (..)
-    , Effectful (..)
-    ) where
+       (
+         BaseMConstraint
+       , BaseM (..)
+       , Concurrently (..)
+       , Race (..)
+       , Effectful (..)
+       ) where
 
 import           Universum hiding (log)
 
@@ -50,13 +50,19 @@ instance Race e m => Race e (ReaderT ctx m) where
 
 instance Concurrently m => Concurrently (ReaderT ctx m) where
     -- TODO implement other methods of type class as well
-    concurrentlySgImpl f ma mb = ReaderT $ \ctx -> concurrentlySgImpl f (runReaderT ma ctx) (runReaderT mb ctx)
+    concurrentlySgImpl f ma mb = ReaderT $
+        \ctx -> concurrentlySgImpl f (runReaderT ma ctx) (runReaderT mb ctx)
     concurrently ma mb = ReaderT $ \ctx -> concurrently (runReaderT ma ctx) (runReaderT mb ctx)
 
 instance Effectful eff m => Effectful eff (ReaderT ctx m) where
     effect = lift . effect
 
-type BaseMConstraint e eff ctx m = (Effectful eff m, Concurrently m, MonadReader ctx m, MonadError e m, Race e m, Log.MonadLogging m, Log.ModifyLogName m)
+type BaseMConstraint e eff ctx m = (Effectful eff m,
+                                    Concurrently m,
+                                    MonadReader ctx m,
+                                    MonadError e m, Race e m,
+                                    Log.MonadLogging m,
+                                    Log.ModifyLogName m)
 
 -- | Base execution monad.
 -- Notice, `BaseM` is not existential type, one would look like:

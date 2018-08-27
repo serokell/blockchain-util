@@ -40,8 +40,8 @@ instance Default RestrictCtx where
 
 restrictDbAccess
     :: forall e id value ctx a .
-    ( HasLens ctx RestrictCtx
-    )
+       ( HasLens ctx RestrictCtx
+       )
     => Set Prefix
     -> ERoComp e id value ctx a
     -> ERoComp e id value ctx a
@@ -52,10 +52,10 @@ restrictDbAccess ps = local (lensFor @ctx @RestrictCtx %~ modCtx)
 
 restrictCS
     :: forall e id value m .
-    ( MonadError e m
-    , HasException e RestrictionInOutException
-    , IdSumPrefixed id
-    )
+       ( MonadError e m
+       , HasException e RestrictionInOutException
+       , IdSumPrefixed id
+       )
     => Set Prefix
     -> ChangeSet id value
     -> m ()
@@ -63,7 +63,10 @@ restrictCS out cs = throwResInpOutEx OutRestrictionException out (M.keysSet $ ch
 
 throwResInpOutEx
     :: forall e id m .
-    ( MonadError e m, HasException e RestrictionInOutException, IdSumPrefixed id)
+       ( MonadError e m
+       , HasException e RestrictionInOutException
+       , IdSumPrefixed id
+       )
     => (Set Prefix -> RestrictionInOutException)
     -> Set Prefix
     -> Set id
@@ -71,5 +74,6 @@ throwResInpOutEx
 throwResInpOutEx ex restSet sids = do
     let prefixes = S.fromList $ map idSumPrefix $ S.toList sids
     let diff = prefixes `S.difference` restSet
-    if S.null diff then pure ()
+    if S.null diff
+    then pure ()
     else throwLocalError $ ex diff

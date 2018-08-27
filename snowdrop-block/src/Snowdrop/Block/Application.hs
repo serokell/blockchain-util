@@ -70,11 +70,11 @@ expandAndApplyBlock checkBIV osParams bsc rawBlk = do
     applyBlockImpl checkBIV osParams bsc (gett rawBlk) blk
 
 applyBlockImpl
-    :: forall header payload rawPayload rawBlock undo blockRef e m
-    . ( MonadError e m
-      , Eq blockRef
-      , HasException e (BlockApplicationException blockRef)
-      )
+    :: forall header payload rawPayload rawBlock undo blockRef e m .
+       ( MonadError e m
+       , Eq blockRef
+       , HasException e (BlockApplicationException blockRef)
+       )
     => Bool
     -> OSParams
     -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
@@ -94,7 +94,9 @@ applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawPayload blk@Blo
     else
         throwLocalError $ TipMismatched prev tip
 
--- | Function `tryApplyFork` uses `verifyFork` from `Snowdrop.Block.Fork` in order to verify block sequence and decide on whether proposed chain is better than currently adopted "best" chain.
+-- | Function `tryApplyFork` uses `verifyFork` from `Snowdrop.Block.Fork` in order to verify
+-- block sequence and decide on whether proposed chain is better
+-- than currently adopted "best" chain.
 --
 -- If `verifyFork` returns `ApplyFork`:
 --
@@ -125,10 +127,11 @@ tryApplyFork bcs@(BlkStateConfiguration {..}) osParams (OldestFirst rawBlocks) =
     -- fork <- traverse toFork (unOldestFirst rawBlocks)
     verifyFork bcs osParams (OldestFirst $ NE.map gett rawBlocks) >>= \case
         RejectFork     -> pure False
-        ApplyFork {..} -> do
+        ApplyFork{..} -> do
             forM_ (unNewestFirst fvrToRollback) $ \blund -> do
                 bscApplyUndo (buUndo blund)
-                bscRemoveBlund $ unCurrentBlockRef $ bcBlockRef bscConfig (blkHeader $ buBlock blund)
+                bscRemoveBlund $ unCurrentBlockRef $
+                    bcBlockRef bscConfig (blkHeader $ buBlock blund)
             bscSetTip fvrLCA
             mapM_ (applyBlock osParams bcs) $ NE.toList rawBlocks
             pure True
@@ -154,10 +157,14 @@ tryApplyFork bcs@(BlkStateConfiguration {..}) osParams (OldestFirst rawBlocks) =
 --
 -- -------------------------
 --
--- Also, what's the model of accounting? If Id ~> Value is upayloado, we need to maintain accounts somehow. How?
---   ^ This is precisely doing some (Id ~> Value) transition in addition to what's state in transaction.
---     Perhaps it can be expressed via appropriate transaction type? I.e. do a straightforward transition in-memory
--- This is easy, only thing we need to ensure is that each transaction shall be a O(|payload size|) change of state
+-- Also, what's the model of accounting? If Id ~> Value is upayloado,
+-- we need to maintain accounts somehow. How?
+--   ^ This is precisely doing some (Id ~> Value) transition in addition to what's state
+--   in transaction. Perhaps it can be expressed via appropriate transaction type?
+--   I.e. do a straightforward transition in-memory
+-- This is easy, only thing we need to ensure is that each transaction
+-- shall be a O(|payload size|) change of state
 --
 -- But Block boundary payload can not always be processed in O(|payload size|)!
--- We may do more elaborate analysis per payload type and explicitly distinguish transactions for block boundaries for blocks `8k`, `10k` (or few other interesting blocks)
+-- We may do more elaborate analysis per payload type and explicitly distinguish transactions
+-- for block boundaries for blocks `8k`, `10k` (or few other interesting blocks)

@@ -1,10 +1,9 @@
 module Snowdrop.Core.ERwComp
-    (
-        ERwComp
-      , runERwComp
-      , modifyRwCompChgAccum
-      , liftERoComp
-    ) where
+       ( ERwComp
+       , runERwComp
+       , modifyRwCompChgAccum
+       , liftERoComp
+       ) where
 
 import           Universum
 

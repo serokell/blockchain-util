@@ -18,7 +18,6 @@ import           Snowdrop.Util
 
 --  'Int' is used in types for simplicity.
 
-
 changeSetTests :: [TestTree]
 changeSetTests =
     [ testProperty "ValueOpEx Semigroup associativity law" prop_valueOpExAss

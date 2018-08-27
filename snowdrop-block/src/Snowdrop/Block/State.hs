@@ -57,7 +57,7 @@ data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-  :: forall header rawBlock rawPayload blockRef e id proof value ctx payload rawTx .
+    :: forall header rawBlock rawPayload blockRef e id proof value ctx payload rawTx .
     ( HasKeyValue id value TipKey (TipValue blockRef)
     , HasKeyValue id value (BlockRef blockRef) (Blund header rawPayload (Undo id value))
     , HasExceptions e
@@ -83,7 +83,14 @@ inmemoryBlkStateConfiguration
     -> (rawTx -> (StateTxType, proof))
     -> Expander e id proof value ctx rawTx
     -> (rawBlock -> [StateTx id proof value] -> Block header payload)
-    -> BlkStateConfiguration header payload rawBlock rawPayload (Undo id value) blockRef (ERwComp e id value ctx (ChgAccum ctx))
+    -> BlkStateConfiguration
+         header
+         payload
+         rawBlock
+         rawPayload
+         (Undo id value)
+         blockRef
+         (ERwComp e id value ctx (ChgAccum ctx))
 inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
     BlkStateConfiguration {
       bscConfig = cfg
@@ -91,29 +98,29 @@ inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
         blkPayload <- liftERoComp $ expandUnionRawTxs mkProof expander (gett rawBlock)
         pure (mkBlock rawBlock blkPayload)
     , bscApplyPayload = \txs -> do
-          undos <-
-            forM (gett txs) $ \tx -> do
-              liftERoComp $ runValidator validator tx
-              modifyRwCompChgAccum (CAMChange $ txBody tx)
-          let mergeUndos (Undo cs1 sn1) (Undo cs2 _) = flip Undo sn1 <$> mappendChangeSet cs1 cs2
-          case undos of
+        undos <- forM (gett txs) $ \tx -> do
+            liftERoComp $ runValidator validator tx
+            modifyRwCompChgAccum (CAMChange $ txBody tx)
+        let mergeUndos (Undo cs1 sn1) (Undo cs2 _) = flip Undo sn1 <$> mappendChangeSet cs1 cs2
+        case undos of
             []     -> pure $ Undo def BS.empty
             f:rest -> either throwLocalError pure $ foldM mergeUndos f rest
     , bscApplyUndo = void . modifyRwCompChgAccum . CAMRevert
     , bscStoreBlund = \blund -> do
-          let blockRef = unCurrentBlockRef $ bcBlockRef cfg (blkHeader $ buBlock blund)
-          let chg = ChangeSet $ M.singleton (inj $ BlockRef blockRef) (New $ inj blund)
-          void $ modifyRwCompChgAccum $ CAMChange chg
+        let blockRef = unCurrentBlockRef $ bcBlockRef cfg (blkHeader $ buBlock blund)
+        let chg = ChangeSet $ M.singleton (inj $ BlockRef blockRef) (New $ inj blund)
+        void $ modifyRwCompChgAccum $ CAMChange chg
     , bscRemoveBlund = \blockRef ->
-        void $ modifyRwCompChgAccum $ CAMRevert $ Undo (ChangeSet $ M.singleton (inj $ BlockRef blockRef) Rem) BS.empty
+        void $ modifyRwCompChgAccum $
+            CAMRevert $ Undo (ChangeSet $ M.singleton (inj $ BlockRef blockRef) Rem) BS.empty
     , bscGetBlund = liftERoComp . queryOne . BlockRef
     , bscBlockExists = liftERoComp . queryOneExists . BlockRef
-    , bscGetTip = liftERoComp (queryOne TipKey)
-                    >>= maybe (throwLocalError @(BlockStateException id) TipNotFound) (pure . unTipValue)
+    , bscGetTip = liftERoComp (queryOne TipKey) >>=
+        maybe (throwLocalError @(BlockStateException id) TipNotFound) (pure . unTipValue)
     , bscSetTip = \newTip' -> do
-          let newTip = inj $ TipValue newTip'
-          let tipChg = \cons -> ChangeSet $ M.singleton (inj TipKey) (cons newTip)
-          oldTipMb <- liftERoComp $ queryOne TipKey
-          -- TODO check that tip corresponds to blund storage
-          void . modifyRwCompChgAccum . CAMChange . tipChg $ maybe New (const Upd) oldTipMb
+        let newTip = inj $ TipValue newTip'
+        let tipChg = \cons -> ChangeSet $ M.singleton (inj TipKey) (cons newTip)
+        oldTipMb <- liftERoComp $ queryOne TipKey
+        -- TODO check that tip corresponds to blund storage
+        void . modifyRwCompChgAccum . CAMChange . tipChg $ maybe New (const Upd) oldTipMb
     }

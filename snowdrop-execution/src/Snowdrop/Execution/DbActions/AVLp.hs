@@ -2,21 +2,21 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 module Snowdrop.Execution.DbActions.AVLp
-    (
-      AVLCacheT (..)
-    , AVLChgAccum
-    , avlServerDbActions
-    , avlClientDbActions
-    , AVLServerState
-    , RootHash
-    , initAVLPureStorage
-    , ClientError (..)
-    , deserialiseM
-    ) where
+       (
+         AVLCacheT (..)
+       , AVLChgAccum
+       , avlServerDbActions
+       , avlClientDbActions
+       , AVLServerState
+       , RootHash
+       , initAVLPureStorage
+       , ClientError (..)
+       , deserialiseM
+       ) where
 
 import           Universum
-
 
 import           Control.Monad.Free (Free (Free))
 import qualified Data.ByteString as BS
@@ -48,11 +48,11 @@ type AvlHashable h = (Ord h, Show h, Typeable h, Serialisable h)
 -- | Data type for tracking keys which were requested
 -- from access actions
 data AMSRequested k
-  = AMSWholeTree
-  -- ^ Constructor, identifying that all keys of tree were requested
-  -- (which happens with current implementation of iteration)
-  | AMSKeys (Set k)
-  -- ^ Constructor, containing set of keys that were requested
+    = AMSWholeTree
+    -- ^ Constructor, identifying that all keys of tree were requested
+    -- (which happens with current implementation of iteration)
+    | AMSKeys (Set k)
+    -- ^ Constructor, containing set of keys that were requested
 
 instance Ord k => Semigroup (AMSRequested k) where
     AMSWholeTree <> _ = AMSWholeTree
@@ -65,16 +65,16 @@ instance Ord k => Monoid (AMSRequested k) where
 
 -- | Data type used as state of `avlStateDbActions`
 data AVLServerState h k = AMS
-  { amsRootHash  :: RootHash h -- ^ Root hash of tree kept in storage
-  , amsState     :: AVLPureStorage h -- ^ Storage of whole AVL tree (including old nodes)
-  , amsRequested :: AMSRequested k
-  -- ^ Set of keys that were requested since the last `apply` operation.
-  -- Note, that keys which were requested with `RememberForProof False` passed to
-  -- `avlServerDbActions` are not being added to this set.
-  }
+    { amsRootHash  :: RootHash h -- ^ Root hash of tree kept in storage
+    , amsState     :: AVLPureStorage h -- ^ Storage of whole AVL tree (including old nodes)
+    , amsRequested :: AMSRequested k
+    -- ^ Set of keys that were requested since the last `apply` operation.
+    -- Note, that keys which were requested with `RememberForProof False` passed to
+    -- `avlServerDbActions` are not being added to this set.
+    }
 
 newtype RootHash h = RootHash { unRootHash :: h }
-  deriving (Eq, Serialisable)
+    deriving (Eq, Serialisable)
 
 instance HasGetter (AVLServerState h k) (RootHash h) where
     gett = amsRootHash
@@ -88,49 +88,55 @@ newtype AVLPureStorage h = AVLPureStorage { unAVLPureStorage :: Map h ByteString
 -- | Accumulator for changes emerging from `save` operations
 -- being performed on AVL tree
 newtype AVLCache h = AVLCache { unAVLCache :: Map h ByteString }
-  deriving (Default, Semigroup, Monoid)
+    deriving (Default, Semigroup, Monoid)
 
 -- | Monad transformer for caching `save` operations resulting from AVL+ actions
 newtype AVLCacheT h m a = AVLCacheT (StateT (AVLCache h) m a)
-  deriving (Functor, Applicative, Monad, MonadThrow, MonadCatch, MonadState (AVLCache h), MonadTrans)
+    deriving (Functor, Applicative, Monad, MonadThrow,
+              MonadCatch, MonadState (AVLCache h), MonadTrans)
 
-runAVLCacheT :: MonadThrow m => AVLCacheT h (ReaderT ctx m) a -> AVLCache h -> ctx -> m (a, AVLCache h)
+runAVLCacheT
+    :: MonadThrow m
+    => AVLCacheT h (ReaderT ctx m) a
+    -> AVLCache h
+    -> ctx
+    -> m (a, AVLCache h)
 runAVLCacheT (AVLCacheT ma) initSt ctx = runReaderT (runStateT ma initSt) ctx
 
 instance (Show h, Show k, Show v) => Buildable (AVL.Map h k v) where
-  build = Buildable.build . AVL.showMap
+    build = Buildable.build . AVL.showMap
 
 instance (Show h, Show k, Show v) => Buildable (AVL.Proof h k v) where
-  build (AVL.Proof tree) = Buildable.build tree
+    build (AVL.Proof tree) = Buildable.build tree
 
 deserialiseM :: (MonadThrow m, Serialisable v) => ByteString -> m v
-deserialiseM = either (throwM . DbProtocolError . ("Deserialisation error "<>) . toText) pure . deserialise
+deserialiseM =
+    either (throwM . DbProtocolError . ("Deserialisation error "<>) . toText) pure . deserialise
 
 type RetrieveF h m = h -> m (Maybe ByteString)
 
 -- TODO replace with AVL.KVRetrieveM after this type is introduced into library
 class Monad m => RetrieveImpl m h where
-  retrieveImpl :: RetrieveF h m
+    retrieveImpl :: RetrieveF h m
 
 instance Monad m => RetrieveImpl (ReaderT (RetrieveF h m) m) h where
-  retrieveImpl k = ask >>= lift . ($ k)
+    retrieveImpl k = ask >>= lift . ($ k)
 
 instance (Monad m, AvlHashable h) => RetrieveImpl (ReaderT (AVLServerState h k) m) h where
-  retrieveImpl k = asks ( M.lookup k . unAVLPureStorage . gett )
+    retrieveImpl k = asks ( M.lookup k . unAVLPureStorage . gett )
 
 instance (Monad m, AvlHashable h) => RetrieveImpl (ReaderT (AVLPureStorage h) m) h where
-  retrieveImpl k = asks ( M.lookup k . unAVLPureStorage )
+    retrieveImpl k = asks ( M.lookup k . unAVLPureStorage )
 
 instance (MonadThrow m, AvlHashable h, RetrieveImpl m h) => KVStoreMonad h (AVLCacheT h m) where
-  retrieve k = checkInAccum >>= deserialiseM
-    where
-      checkInAccum = M.lookup k . unAVLCache <$> get >>= maybe checkInState pure
-      checkInState = lift (retrieveImpl k) >>= maybe (throwM $ AVL.NotFound k) pure
-  store k v = modify' $ AVLCache . M.insert k (serialise v) . unAVLCache
+    retrieve k = checkInAccum >>= deserialiseM
+      where
+        checkInAccum = M.lookup k . unAVLCache <$> get >>= maybe checkInState pure
+        checkInState = lift (retrieveImpl k) >>= maybe (throwM $ AVL.NotFound k) pure
+    store k v = modify' $ AVLCache . M.insert k (serialise v) . unAVLCache
 
 -- | Change accumulator type for AVL tree.
-data AVLChgAccum' h k v =
-  AVLChgAccum
+data AVLChgAccum' h k v = AVLChgAccum
     { acaMap     :: AVL.Map h k v
     -- ^ AVL map, which contains avl tree with most-recent updates
     , acaStorage :: AVLCache h
@@ -147,9 +153,18 @@ type AVLChgAccum h k v = Maybe (AVLChgAccum' h k v)
 saveAVL :: forall h k v m . (AVL.Stores h k v m, MonadCatch m) => AVL.Map h k v -> m (RootHash h)
 saveAVL avl = AVL.save avl $> avlRootHash avl
 
-resolveAvlCA :: AvlHashable h => HasGetter state (RootHash h) => state -> AVLChgAccum h k v -> AVLChgAccum' h k v
+resolveAvlCA
+    :: AvlHashable h
+    => HasGetter state (RootHash h)
+    => state
+    -> AVLChgAccum h k v
+    -> AVLChgAccum' h k v
 resolveAvlCA _ (Just cA) = cA
-resolveAvlCA st  _ = AVLChgAccum { acaMap = pure $ unRootHash $ gett st, acaStorage = mempty, acaTouched = mempty }
+resolveAvlCA st  _ = AVLChgAccum
+    { acaMap = pure $ unRootHash $ gett st
+    , acaStorage = mempty
+    , acaTouched = mempty
+    }
 
 materialize :: forall h k v m . AVL.Stores h k v m => AVL.Map h k v -> m (AVL.Map h k v)
 materialize initAVL = flip AVL.openAndM initAVL $ \case
@@ -158,7 +173,13 @@ materialize initAVL = flip AVL.openAndM initAVL $ \case
 
 initAVLPureStorage
     :: forall k v m h .
-    ( MonadIO m, MonadCatch m, MonadThrow m, KVConstraint k v, AvlHashable h, AVL.Hash h k v, Serialisable (MapLayer h k v h))
+       ( MonadIO m
+       , MonadCatch m
+       , MonadThrow m
+       , KVConstraint k v
+       , AvlHashable h
+       , AVL.Hash h k v
+       , Serialisable (MapLayer h k v h))
     => Map k v -> m (AVLServerState h k)
 initAVLPureStorage (M.toList -> kvs) = reThrowAVLEx @k $ do
     (rootH, AVLPureStorage . unAVLCache -> st) <-
@@ -169,18 +190,20 @@ initAVLPureStorage (M.toList -> kvs) = reThrowAVLEx @k $ do
     putStrLn $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)
     pure $ AMS { amsRootHash = rootH, amsState = st, amsRequested = mempty }
 
-type KVConstraint k v = (IdSumPrefixed k, Typeable k, Ord k, Show k, Serialisable k, Serialisable v, Show v, Eq v)
+type KVConstraint k v = (IdSumPrefixed k, Typeable k, Ord k, Show k,
+                         Serialisable k, Serialisable v, Show v, Eq v)
 
 instance (AvlHashable h, MonadCatch m) => RetrieveImpl (ReaderT (ClientTempState h k v m) m) h where
-  retrieveImpl k = asks ctRetrieve >>= lift . either (runReaderT $ retrieveImpl k) (runReaderT $ retrieveImpl k)
+    retrieveImpl k = asks ctRetrieve >>=
+        lift . either (runReaderT $ retrieveImpl k) (runReaderT $ retrieveImpl k)
 
 data ClientTempState h k v n = ClientTempState
-  { ctRetrieve :: Either (AVLPureStorage h) (RetrieveF h n)
-  , ctRootHash :: RootHash h
-  }
+    { ctRetrieve :: Either (AVLPureStorage h) (RetrieveF h n)
+    , ctRootHash :: RootHash h
+    }
 
 data ClientError = BrokenProofError | UnexpectedRootHash
-  deriving Show
+    deriving Show
 
 instance Exception ClientError
 
@@ -189,43 +212,45 @@ clientModeToTempSt
     ( MonadCatch m, AvlHashable h, AVL.Hash h k v, MonadIO n, MonadCatch n
     , KVConstraint k v, Serialisable (MapLayer h k v h))
     => RetrieveF h n -> ClientMode (AVL.Proof h k v) -> RootHash h -> m (ClientTempState h k v n)
-clientModeToTempSt _ (ProofMode p@(AVL.Proof avl)) rootH = flip ClientTempState rootH <$> fmap Left convert
+clientModeToTempSt _ (ProofMode p@(AVL.Proof avl)) rootH =
+    flip ClientTempState rootH <$> fmap Left convert
   where
     convert = do
-      when (not $ AVL.checkProof (unRootHash rootH) p) $ throwM BrokenProofError
-      AVLPureStorage . unAVLCache . snd  <$>
-        runAVLCacheT (saveAVL avl) def (AVLPureStorage @h def)
+        when (not $ AVL.checkProof (unRootHash rootH) p) $ throwM BrokenProofError
+        AVLPureStorage . unAVLCache . snd  <$>
+            runAVLCacheT (saveAVL avl) def (AVLPureStorage @h def)
 clientModeToTempSt retrieveF RemoteMode rootH = pure $ ClientTempState (Right retrieveF) rootH
 
 instance HasGetter (ClientTempState h k v n) (RootHash h) where
-  gett = ctRootHash
+    gett = ctRootHash
 
 avlClientDbActions
-  :: forall k v m h n.
-      ( KVConstraint k v
-      , MonadIO m
-      , MonadCatch m
-      , AvlHashable h
-      , AVL.Hash h k v
-      , MonadIO n
-      , MonadCatch n
-      , RetrieveImpl (ReaderT (ClientTempState h k v n) m) h
-      , Serialisable (MapLayer h k v h)
-      )
-  => RetrieveF h n
-  -> RootHash h
-  -> n (ClientMode (AVL.Proof h k v) -> DbModifyActions (AVLChgAccum h k v) k v m ())
+    :: forall k v m h n.
+       ( KVConstraint k v
+       , MonadIO m
+       , MonadCatch m
+       , AvlHashable h
+       , AVL.Hash h k v
+       , MonadIO n
+       , MonadCatch n
+       , RetrieveImpl (ReaderT (ClientTempState h k v n) m) h
+       , Serialisable (MapLayer h k v h)
+       )
+    => RetrieveF h n
+    -> RootHash h
+    -> n (ClientMode (AVL.Proof h k v) -> DbModifyActions (AVLChgAccum h k v) k v m ())
 avlClientDbActions retrieveF = fmap mkActions . newTVarIO
   where
     mkActions
-      :: TVar (RootHash h)
-      -> ClientMode (AVL.Proof h k v)
-      -> DbModifyActions (AVLChgAccum h k v) k v m ()
-    mkActions var ctMode = DbModifyActions (mkAccessActions var ctMode) (reThrowAVLEx @k . apply var)
+        :: TVar (RootHash h)
+        -> ClientMode (AVL.Proof h k v)
+        -> DbModifyActions (AVLChgAccum h k v) k v m ()
+    mkActions var ctMode =
+        DbModifyActions (mkAccessActions var ctMode) (reThrowAVLEx @k . apply var)
     mkAccessActions
-      :: TVar (RootHash h)
-      -> ClientMode (AVL.Proof h k v)
-      -> DbAccessActions (AVLChgAccum h k v) k v m
+        :: TVar (RootHash h)
+        -> ClientMode (AVL.Proof h k v)
+        -> DbAccessActions (AVLChgAccum h k v) k v m
     mkAccessActions var ctMode =
         DbAccessActions
           -- adding keys to amsRequested
@@ -243,9 +268,9 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
 
 reThrowAVLEx :: forall k m a . (MonadCatch m, Show k, Typeable k) => m a -> m a
 reThrowAVLEx m =
-  m `catch` (\(e :: ClientError) -> throwM $ DbProtocolError $ show e)
-    `catch` (\(e :: AVL.DeserialisationError) -> throwM $ DbProtocolError $ show e)
-    `catch` (\(e :: AVL.NotFound k) -> throwM $ DbProtocolError $ show e)
+    m `catch` (\(e :: ClientError) -> throwM $ DbProtocolError $ show e)
+      `catch` (\(e :: AVL.DeserialisationError) -> throwM $ DbProtocolError $ show e)
+      `catch` (\(e :: AVL.NotFound k) -> throwM $ DbProtocolError $ show e)
 
 avlServerDbActions
     :: forall k v m h n .
@@ -262,15 +287,21 @@ avlServerDbActions
 avlServerDbActions = fmap mkActions . newTVarIO
   where
     retrieveHash var h = atomically $ M.lookup h . unAVLPureStorage . amsState <$> readTVar var
-    mkActions var = (\recForProof -> DbModifyActions (mkAccessActions var recForProof) (reThrowAVLEx @k . apply var), retrieveHash var)
+    mkActions var = (\recForProof ->
+                        DbModifyActions
+                          (mkAccessActions var recForProof)
+                          (reThrowAVLEx @k . apply var),
+                        retrieveHash var)
     mkAccessActions var recForProof =
         DbAccessActions
           -- adding keys to amsRequested
-          (\cA req -> liftIO $ reThrowAVLEx @k $ query cA req =<< atomically (retrieveAMS var recForProof $ AMSKeys req ))
+          (\cA req -> liftIO $ reThrowAVLEx @k $ query cA req =<<
+            atomically (retrieveAMS var recForProof $ AMSKeys req ))
           (\cA cs -> liftIO $ reThrowAVLEx @k $ modAccum cA cs =<< atomically (readTVar var))
           -- setting amsRequested to AMSWholeTree as iteration with
           -- current implementation requires whole tree traversal
-          (\cA p b f -> liftIO $ reThrowAVLEx @k $ iter cA p b f =<< atomically (retrieveAMS var recForProof AMSWholeTree ))
+          (\cA p b f -> liftIO $ reThrowAVLEx @k $ iter cA p b f =<<
+            atomically (retrieveAMS var recForProof AMSWholeTree ))
 
     retrieveAMS var (RememberForProof True) amsReq = do
         ams <- readTVar var
@@ -279,41 +310,49 @@ avlServerDbActions = fmap mkActions . newTVarIO
 
     apply :: TVar (AVLServerState h k) -> AVLChgAccum h k v -> m (AVL.Proof h k v)
     apply var (Just (AVLChgAccum accAvl acc accTouched)) =
-        liftIO $ applyDo >>= \oldAms ->
-          fst <$> runAVLCacheT (computeProof (amsRootHash oldAms) (amsRequested oldAms)) def (amsState oldAms)
+        liftIO $ applyDo >>= \oldAms -> fst <$>
+            runAVLCacheT
+              (computeProof (amsRootHash oldAms) (amsRequested oldAms))
+              def
+              (amsState oldAms)
       where
         applyDo :: IO (AVLServerState h k)
         applyDo = atomically $ do
-          ams <- readTVar var
-          (h', acc') <- runAVLCacheT (saveAVL accAvl) acc (amsState ams)
-          let newState =
-                AMS { amsRootHash = h'
-                    , amsState = AVLPureStorage $ unAVLCache acc' <> unAVLPureStorage (amsState ams)
-                    , amsRequested = mempty
-                    }
-          writeTVar var newState $> ams
+            ams <- readTVar var
+            (h', acc') <- runAVLCacheT (saveAVL accAvl) acc (amsState ams)
+            let newState = AMS {
+                  amsRootHash = h'
+                , amsState = AVLPureStorage $ unAVLCache acc' <> unAVLPureStorage (amsState ams)
+                , amsRequested = mempty
+                }
+            writeTVar var newState $> ams
 
-        computeProof :: RootHash h -> AMSRequested k -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h k v)
+        computeProof
+            :: RootHash h
+            -> AMSRequested k
+            -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h k v)
         computeProof (mkAVL -> oldAvl) requested =
             case requested of
-              AMSWholeTree -> computeProofWhole
-              AMSKeys ks   -> computeProofKeys ks
+                AMSWholeTree -> computeProofWhole
+                AMSKeys ks   -> computeProofKeys ks
           where
             computeProofWhole :: AVLCacheT h (ReaderT (AVLPureStorage h ) IO) (AVL.Proof h k v)
             computeProofWhole = AVL.Proof <$> materialize oldAvl
 
-            computeProofKeys :: Set k -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h k v)
+            computeProofKeys
+                :: Set k
+                -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h k v)
             computeProofKeys ks = do
-              (avl', allTouched) <- foldM computeTouched (oldAvl, mempty) ks
-              AVL.prune (allTouched <> accTouched) =<< materialize avl'
+                (avl', allTouched) <- foldM computeTouched (oldAvl, mempty) ks
+                AVL.prune (allTouched <> accTouched) =<< materialize avl'
 
             computeTouched
-              :: (AVL.Map h k v, Set h)
-              -> k
-              -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Map h k v, Set h)
+                :: (AVL.Map h k v, Set h)
+                -> k
+                -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Map h k v, Set h)
             computeTouched (avl, touched) key = do
-              ((_res, touched'), avl') <- AVL.lookup' key avl
-              pure (avl', touched' <> touched)
+                ((_res, touched'), avl') <- AVL.lookup' key avl
+                pure (avl', touched' <> touched)
 
     apply var Nothing = AVL.Proof . mkAVL . amsRootHash <$> atomically (readTVar var)
 
@@ -328,7 +367,10 @@ modAccum'
     ( AvlHashable h, RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
     , KVConstraint k v, Serialisable (MapLayer h k v h)
     )
-    => AVLChgAccum' h k v -> ChgAccumModifier k v -> ctx -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
+    => AVLChgAccum' h k v
+    -> ChgAccumModifier k v
+    -> ctx
+    -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
 modAccum' (AVLChgAccum initAvl initAcc initTouched) cMod pState = do
     returnWithUndo =<< case cMod of
       CAMChange (changeSetToList -> cs) ->
@@ -344,16 +386,20 @@ modAccum' (AVLChgAccum initAvl initAcc initTouched) cMod pState = do
           _ -> pure $ Right $ Just $ AVLChgAccum initAvl initAcc initTouched
   where
     returnWithUndo
-      :: Either (CSMappendException k) (AVLChgAccum h k v)
-      -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
+        :: Either (CSMappendException k) (AVLChgAccum h k v)
+        -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
     returnWithUndo (Left e)   = pure $ Left e
-    returnWithUndo (Right cA) = pure $ Right (cA, Undo def $ serialise $ avlRootHash initAvl) -- TODO compute undo
+    returnWithUndo (Right cA) =
+        pure $ Right (cA, Undo def $ serialise $ avlRootHash initAvl) -- TODO compute undo
 
 
     doUncurry :: (a -> b -> c -> d) -> ((a, c), b) -> d
     doUncurry f ((a, c), b) = f a b c
 
-    modAVL :: (AVL.Map h k v, Set h) -> (k, ValueOp v) -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
+    modAVL
+        :: (AVL.Map h k v, Set h)
+        -> (k, ValueOp v)
+        -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
     modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup' k avl
       where
         processResp ((lookupRes, (<> touched) -> touched'), avl') =
@@ -366,16 +412,22 @@ modAccum' (AVLChgAccum initAvl initAcc initTouched) cMod pState = do
 
 modAccum
     :: forall k v ctx h m .
-    ( AvlHashable h, HasGetter ctx (RootHash h), RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
+    ( AvlHashable h, HasGetter ctx (RootHash h), RetrieveImpl (ReaderT ctx m) h
+    , AVL.Hash h k v, MonadIO m, MonadCatch m
     , KVConstraint k v, Serialisable (MapLayer h k v h))
-    => AVLChgAccum h k v -> ChgAccumModifier k v -> ctx -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
--- modAccum accM (changeSetToList -> []) _ = pure $ Right accM -- empty changeset won't alter accumulator
+    => AVLChgAccum h k v
+    -> ChgAccumModifier k v
+    -> ctx
+    -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
+-- modAccum accM (changeSetToList -> []) _ = pure $ Right accM
+-- empty changeset won't alter accumulator
 modAccum (Just acc) cs sth = modAccum' @k @v @ctx acc cs sth
 modAccum cA cs sth         = modAccum' @k @v @ctx (resolveAvlCA sth cA) cs sth
 
 query
     :: forall k v ctx h m .
-    ( AvlHashable h, HasGetter ctx (RootHash h), RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
+    ( AvlHashable h, HasGetter ctx (RootHash h)
+    , RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
     , KVConstraint k v, Serialisable (MapLayer h k v h)
     )
     => AVLChgAccum h k v -> StateR k -> ctx -> m (StateP k v)
@@ -390,15 +442,16 @@ query cA req sth = query (Just $ resolveAvlCA sth cA) req sth
 
 iter
     :: forall k v ctx b h m.
-    ( AvlHashable h, HasGetter ctx (RootHash h), RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
+    ( AvlHashable h, HasGetter ctx (RootHash h)
+    , RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
     , KVConstraint k v,  Serialisable (MapLayer h k v h)
     )
     => AVLChgAccum h k v -> Prefix -> b -> ((k, v) -> b -> b) -> ctx -> m b
 iter (Just (AVLChgAccum initAvl initAcc _)) pr initB f sth =
-  fmap fst $ runAVLCacheT (AVL.fold (initB, f', id) initAvl) initAcc sth
+    fmap fst $ runAVLCacheT (AVL.fold (initB, f', id) initAvl) initAcc sth
   where
     f' kv@(k, _) b =
       if idSumPrefix k == pr
-         then f kv b
-         else b
+      then f kv b
+      else b
 iter cA pr b f sth = iter (Just $ resolveAvlCA sth cA) pr b f sth

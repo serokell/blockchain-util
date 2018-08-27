@@ -27,7 +27,9 @@ import           Snowdrop.Util
 -- Logic
 ---------------------------
 
-evictMempool :: Default (ChgAccum ctx) => RwActionWithMempool e id value rawtx ctx [(rawtx, Undo id value)]
+evictMempool
+    :: Default (ChgAccum ctx)
+    => RwActionWithMempool e id value rawtx ctx [(rawtx, Undo id value)]
 evictMempool = gets msTxs <* put def
 
 processTxAndInsertToMempool
@@ -42,7 +44,7 @@ processTxAndInsertToMempool MempoolConfig{..} rawtx = do
     undo <- mcProcessTx tx
     msTxsL %= (++ [(rawtx, undo)])
 
-newtype Rejected rawtx = Rejected {getRejected :: [rawtx]}
+newtype Rejected rawtx = Rejected { getRejected :: [rawtx] }
 
 normalizeMempool
     :: ( HasException e StatePException, Show e, Typeable e

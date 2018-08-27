@@ -46,19 +46,20 @@ where
 @q@ — number of query operations in the 'ERoComp's concatenation,
 @i@ — number of iterator operations in the 'ERoComp's concatenation,
 -}
+
 prop_ercLen :: Property
 prop_ercLen = property $ do
     finMap <- genIdValList
     erpc1 <- genEReaderComp finMap
     erpc2 <- genEReaderComp finMap
     let erpcRes  = erpc1 <> erpc2
-        cnts = liftA2 (,) (getOperNum erpc1) (getOperNum erpc2)
-        cntJ = getOperNum erpcRes
+        cnts     = liftA2 (,) (getOperNum erpc1) (getOperNum erpc2)
+        cntJ     = getOperNum erpcRes
     case (cnts, cntJ) of
-      (Left _, Left _) -> assert True
-      (Right (Counter q1 i1 m1, Counter q2 i2 m2), Right (Counter q i m)) ->
-          assert (i1 + i2 + m1 + m2 + q1 + q2 == i + q + m)
-      _ -> assert False
+        (Left _, Left _) -> assert True
+        (Right (Counter q1 i1 m1, Counter q2 i2 m2), Right (Counter q i m)) ->
+            assert (i1 + i2 + m1 + m2 + q1 + q2 == i + q + m)
+        _ -> assert False
     -- TODO adjust these tests for JoinExecT as it will be ready
     -- assert (i1 + i2 + max q1 q2 >= i + q)
 
@@ -117,7 +118,11 @@ genQueryOne = QueryOne <$> genT
 
 -- | Generates random 'Err'.
 genError :: MonadGen m => m Err
-genError = Gen.element [inj QueryProjectionFailed, inj IteratorProjectionFailed, inj (CSMappendException (TS "<generated exception>"))]
+genError = Gen.element
+    [ inj QueryProjectionFailed
+    , inj IteratorProjectionFailed
+    , inj (CSMappendException (TS "<generated exception>"))
+    ]
 
 -- | Generates 'ThrowError' command.
 genThrowError :: MonadGen m => m Command
@@ -150,7 +155,8 @@ genCommand res = Gen.frequency
 genCommands :: MonadGen m => [(Id, Value)] -> m [Command]
 genCommands = Gen.list lenRange . genCommand
 
-genEReaderComp :: Monad m
-               => [(Id, Value)]
-               -> PropertyT m (ERoComp Err Id Value (TestCtx Id Value) InterpetResult)
+genEReaderComp
+    :: Monad m
+    => [(Id, Value)]
+    -> PropertyT m (ERoComp Err Id Value (TestCtx Id Value) InterpetResult)
 genEReaderComp l = runCommands <$> forAll (genCommands l)

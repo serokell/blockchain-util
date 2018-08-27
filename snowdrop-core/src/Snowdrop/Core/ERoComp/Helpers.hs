@@ -4,28 +4,28 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Snowdrop.Core.ERoComp.Helpers
-    (
-      StatePException (..)
-    , TxValidationException (..)
+       (
+         StatePException (..)
+       , TxValidationException (..)
 
-    , query
-    , iterator
-    , iteratorFor
-    , querySet
-    , queryOne
-    , queryOneExists
-    , modifyAccum
+       , query
+       , iterator
+       , iteratorFor
+       , querySet
+       , queryOne
+       , queryOneExists
+       , modifyAccum
 
-    , withModifiedAccumCtx
-    , initAccumCtx
-    , getCAOrDefault
+       , withModifiedAccumCtx
+       , initAccumCtx
+       , getCAOrDefault
 
-    , valid
-    , validateIff
-    , validateAll
+       , valid
+       , validateIff
+       , validateAll
 
-    , StateModificationException(..)
-    ) where
+       , StateModificationException(..)
+       ) where
 
 import           Universum
 
@@ -46,7 +46,7 @@ import           Snowdrop.Core.Transaction (HasKeyValue, StateTxType)
 import           Snowdrop.Util
 
 modifyAccum
-  :: forall e id value ctx .
+    :: forall e id value ctx .
        ChgAccum ctx
     -> ChgAccumModifier id value
     -> ERoComp e id value ctx (Either (CSMappendException id) (ChgAccum ctx, Undo id value))
@@ -56,13 +56,13 @@ query :: forall e id value ctx . StateR id -> ERoComp e id value ctx (StateP id 
 query req = effect $ DbQuery @(ChgAccum ctx) req id
 
 iterator
-  :: forall e id value ctx b.
-    Prefix
+    :: forall e id value ctx b.
+       Prefix
     -> b
     -> ((id, value) -> b -> b)
     -> ERoComp e id value ctx b
 iterator prefix e foldf =
-  effect $ DbIterator @(ChgAccum ctx) prefix (FoldF (e, foldf, id))
+    effect $ DbIterator @(ChgAccum ctx) prefix (FoldF (e, foldf, id))
 
 data TxValidationException
     = ProofProjectionFailed StateTxType
@@ -72,21 +72,28 @@ data TxValidationException
 
 instance Buildable TxValidationException where
     build = \case
-        ProofProjectionFailed tx -> bprint ("Projection of proof is failed during validation of StateTx with type: "%build) tx
+        ProofProjectionFailed tx ->
+            bprint
+              ("Projection of proof is failed during validation of StateTx with type: "%build)
+              tx
         PayloadProjectionFailed tx p ->
-            bprint ("Projection of payload is failed during validation of StateTx with type: "%build%", got prefix: "%build) tx p
+            bprint
+              ("Projection of payload is failed during validation of StateTx with type: "
+               %build%", got prefix: "%build)
+              tx
+              p
         UnexpectedPayload p -> bprint ("Unexpected payload, prefixes: "%listF ", " build) p
 
 -- | For each id' from passed set of ids get value' from state of computation.
 -- HasAlt id id' satisfies that @id@ may be injected from @id'@.
 -- If some value' couldn't be projected from corresponding value, the request will fail.
 querySet
-  :: forall id id' value value' e ctx .
-     ( Ord id, Ord id'
-     , HasKeyValue id value id' value'
-     , HasException e StatePException
-     )
-  => Set id' -> ERoComp e id value ctx (StateP id' value')
+    :: forall id id' value value' e ctx .
+       ( Ord id, Ord id'
+       , HasKeyValue id value id' value'
+       , HasException e StatePException
+       )
+    => Set id' -> ERoComp e id value ctx (StateP id' value')
 querySet ids' =
     -- Choose needed ids from state, then try to project all values.
     maybe (throwLocalError QueryProjectionFailed) pure . proj =<< query ids
@@ -96,20 +103,20 @@ querySet ids' =
 
 -- TODO Not Exist shall be different error from getEx Left ()
 queryOne
-  :: forall id id' value value' e ctx .
-     ( Ord id, Ord id'
-     , HasKeyValue id value id' value'
-     , HasException e StatePException
-     )
-  => id' -> ERoComp e id value ctx (Maybe value')
+    :: forall id id' value value' e ctx .
+       ( Ord id, Ord id'
+       , HasKeyValue id value id' value'
+       , HasException e StatePException
+       )
+    => id' -> ERoComp e id value ctx (Maybe value')
 queryOne id' = M.lookup id' <$> querySet (S.singleton id')
 
 queryOneExists
-  :: forall id id' value e ctx .
-     ( Ord id, Ord id'
-     , HasPrism id id'
-     )
-  => id' -> ERoComp e id value ctx Bool
+    :: forall id id' value e ctx .
+       ( Ord id, Ord id'
+       , HasPrism id id'
+       )
+    => id' -> ERoComp e id value ctx Bool
 queryOneExists id' = not . M.null <$> query (S.singleton (inj id'))
 
 iteratorFor
@@ -154,36 +161,45 @@ getCAOrDefault CANotInitialized   = def
 getCAOrDefault (CAInitialized cA) = cA
 
 withModifiedAccumCtx
-  :: forall e id value ctx a .
-    (HasException e (CSMappendException id), HasLens ctx (ChgAccumCtx ctx), Default (ChgAccum ctx))
-  => ChangeSet id value
-  -> ERoComp e id value ctx a
-  -> ERoComp e id value ctx a
+    :: forall e id value ctx a .
+       (HasException e (CSMappendException id),
+        HasLens ctx (ChgAccumCtx ctx),
+        Default (ChgAccum ctx))
+    => ChangeSet id value
+    -> ERoComp e id value ctx a
+    -> ERoComp e id value ctx a
 withModifiedAccumCtx chgSet comp = do
     ctxAcc <- getCAOrDefault @ctx . gett <$> ask
     newAccOrErr <- modifyAccum ctxAcc $ CAMChange chgSet
     case newAccOrErr of
         Left err   -> throwLocalError err
-        Right (acc', _undo) -> local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
+        Right (acc', _undo) ->
+            local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
 
 initAccumCtx
-  :: forall e id value ctx a .
-    (HasException e StatePException, HasLens ctx (ChgAccumCtx ctx))
-  => ChgAccum ctx
-  -> ERoComp e id value ctx a
-  -> ERoComp e id value ctx a
+    :: forall e id value ctx a .
+      (HasException e StatePException, HasLens ctx (ChgAccumCtx ctx))
+    => ChgAccum ctx
+    -> ERoComp e id value ctx a
+    -> ERoComp e id value ctx a
 initAccumCtx acc' comp = do
     gett @_ @(ChgAccumCtx ctx) <$> ask >>= \case
         CAInitialized _ -> throwLocalError ChgAccumCtxUnexpectedlyInitialized
-        CANotInitialized -> local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
+        CANotInitialized ->
+            local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
 
 valid :: (Monoid a, Monad m) => m a
 valid = pure mempty
 
-validateIff :: forall e e1 m a . (Monoid a, MonadError e m,  HasReview e e1) => e1 -> Bool -> m a
+validateIff :: forall e e1 m a . (Monoid a, MonadError e m, HasReview e e1) => e1 -> Bool -> m a
 validateIff e1 = bool (throwLocalError e1) valid
 
-validateAll :: (Foldable f, MonadError e m, Container (f a)) => (Element (f a) -> e) -> (Element (f a) -> Bool) -> f a -> m ()
+validateAll
+    :: (Foldable f, MonadError e m, Container (f a))
+    => (Element (f a) -> e)
+    -> (Element (f a) -> Bool)
+    -> f a
+    -> m ()
 validateAll ex p ls = maybe (pure ()) (throwError . ex) (find (not . p) ls)
 
 ------------------------

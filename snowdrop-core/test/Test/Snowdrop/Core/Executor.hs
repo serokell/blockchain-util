@@ -1,11 +1,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Test.Snowdrop.Core.Executor
-  ( TestExecutorT
-  , TestCtx
-  , runERoComp
-  , countERoComp
-  , Counter (..)
-  ) where
+       ( TestExecutorT
+       , TestCtx
+       , runERoComp
+       , countERoComp
+       , Counter (..)
+       ) where
 
 import           Universum
 
@@ -21,13 +21,12 @@ import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccu
                                 Effectful (..), FoldF (..), IdSumPrefixed (..), Race (..), StateP,
                                 Undo (..), ValueOp (..), changeSetToList, getCAOrDefault,
                                 mappendChangeSet, unBaseM)
---import           Snowdrop.Execution (SumChangeSet (..))
 import           Snowdrop.Util
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
 -- Copy-pasted from snowdrop-execution in order to avoid bad dependency between packages
 newtype SumChangeSet id value = SumChangeSet (ChangeSet id value)
-  deriving Show
+    deriving Show
 instance Default (SumChangeSet id value) where
     def = SumChangeSet def
 
@@ -60,30 +59,31 @@ simpleStateAccessor st (DbModifyAccum (SumChangeSet acc) cam cont) =
             CAMChange cs_          -> cs_
 
 data TestCtx id value = TestCtx
-  { tctxChgAccum :: ChgAccumCtx (TestCtx id value)
-  }
+    { tctxChgAccum :: ChgAccumCtx (TestCtx id value)
+    }
 
 type instance ChgAccum (TestCtx id value) = SumChangeSet id value
 
 instance HasLens (TestCtx id value) (ChgAccumCtx (TestCtx id value)) where
-  sett ctx val = ctx { tctxChgAccum = val }
+    sett ctx val = ctx { tctxChgAccum = val }
 
 instance HasGetter (TestCtx id value) (ChgAccumCtx (TestCtx id value)) where
-  gett = tctxChgAccum
+    gett = tctxChgAccum
 
 data Counter = Counter
-  { _cntQuery  :: Int
-  , _cntIter   :: Int
-  , _cntModAcc :: Int
-  }
+    { _cntQuery  :: Int
+    , _cntIter   :: Int
+    , _cntModAcc :: Int
+    }
 
 makeLenses ''Counter
 
 instance Default Counter where
-  def = Counter 0 0 0
+    def = Counter 0 0 0
 
-newtype TestExecutorT e id value m a = TestExecutorT { runTestExecutorT :: ReaderT (TestCtx id value) (StateT Counter (ExceptT e m)) a }
-  deriving (Functor, Applicative, Monad, MonadError e, MonadReader (TestCtx id value))
+newtype TestExecutorT e id value m a = TestExecutorT
+    { runTestExecutorT :: ReaderT (TestCtx id value) (StateT Counter (ExceptT e m)) a }
+    deriving (Functor, Applicative, Monad, MonadError e, MonadReader (TestCtx id value))
 
 -- Dummy logging
 instance Monad m => MonadLogging (TestExecutorT e id value m) where
@@ -94,41 +94,54 @@ instance Monad m => ModifyLogName (TestExecutorT e id value m) where
     modifyLogNameSel _ = id
 
 instance Monad m => Race e (TestExecutorT e id value m) where
-  race a b = (Left <$> a) `catchError` \_ -> Right <$> b
+    race a b = (Left <$> a) `catchError` \_ -> Right <$> b
 
 instance Monad m => Concurrently (TestExecutorT e id value m) where
-  concurrentlySgImpl append a b = liftA2 append a b
-  concurrently a b = liftA2 (,) a b
+    concurrentlySgImpl append a b = liftA2 append a b
+    concurrently a b = liftA2 (,) a b
 
 applyDiff
-  :: (Ord id, HasException e (CSMappendException id), MonadError e m)
-  => ChangeSet id value -> Map id value -> m (Map id value)
+    :: (Ord id, HasException e (CSMappendException id), MonadError e m)
+    => ChangeSet id value -> Map id value -> m (Map id value)
 applyDiff cs initM = foldM applyDiffOne initM (changeSetToList cs)
   where
     maybeLookup k m act1 act2 = maybe act1 act2 $ M.lookup k m
-    applyDiffOne m (k, New v) = maybeLookup k m (pure $ M.insert k v m) (\_ -> throwLocalError $ CSMappendException k)
-    applyDiffOne m (k, Upd v) = maybeLookup k m (throwLocalError $ CSMappendException k) (\_ -> pure $ M.insert k v m)
-    applyDiffOne m (k, Rem) = maybeLookup k m (throwLocalError $ CSMappendException k) (\_ -> pure $ M.delete k m)
-    applyDiffOne m (k, NotExisted) = maybeLookup k m (pure m) (\_ -> throwLocalError $ CSMappendException k)
+    applyDiffOne m (k, New v) =
+        maybeLookup k m (pure $ M.insert k v m) (\_ -> throwLocalError $ CSMappendException k)
+    applyDiffOne m (k, Upd v) =
+        maybeLookup k m (throwLocalError $ CSMappendException k) (\_ -> pure $ M.insert k v m)
+    applyDiffOne m (k, Rem)   =
+        maybeLookup k m (throwLocalError $ CSMappendException k) (\_ -> pure $ M.delete k m)
+    applyDiffOne m (k, NotExisted) =
+        maybeLookup k m (pure m) (\_ -> throwLocalError $ CSMappendException k)
 
-instance (MonadReader (StateP id value) m, IdSumPrefixed id, Ord id, HasException e (CSMappendException id)) =>
-  Effectful (DbAccess (SumChangeSet id value) id value) (TestExecutorT e id value m) where
-    effect dbAccess = do
-      SumChangeSet acc <- getCAOrDefault . tctxChgAccum <$> ask
-      storage <- TestExecutorT $ lift $ lift ask
-      storage' <- acc `applyDiff` storage
-      case dbAccess of
-        DbQuery _ _         -> TestExecutorT $ lift $ modify $ cntQuery %~ (+1)
-        DbIterator _ _      -> TestExecutorT $ lift $ modify $ cntIter %~ (+1)
-        DbModifyAccum _ _ _ -> TestExecutorT $ lift $ modify $ cntModAcc %~ (+1)
-      pure $ simpleStateAccessor storage' dbAccess
+instance (MonadReader (StateP id value) m, IdSumPrefixed id,
+          Ord id, HasException e (CSMappendException id)) =>
+    Effectful (DbAccess (SumChangeSet id value) id value) (TestExecutorT e id value m) where
+        effect dbAccess = do
+            SumChangeSet acc <- getCAOrDefault . tctxChgAccum <$> ask
+            storage <- TestExecutorT $ lift $ lift ask
+            storage' <- acc `applyDiff` storage
+            case dbAccess of
+                DbQuery _ _         -> TestExecutorT $ lift $ modify $ cntQuery %~ (+1)
+                DbIterator _ _      -> TestExecutorT $ lift $ modify $ cntIter %~ (+1)
+                DbModifyAccum _ _ _ -> TestExecutorT $ lift $ modify $ cntModAcc %~ (+1)
+            pure $ simpleStateAccessor storage' dbAccess
 
 countERoComp
-  :: (MonadReader (StateP id value) m, Ord id, IdSumPrefixed id, HasException e (CSMappendException id))
-  => ERoComp e id value (TestCtx id value) a -> m (Either e Counter)
-countERoComp comp = runExceptT $ flip execStateT def $ runReaderT (runTestExecutorT (unBaseM comp)) $ TestCtx CANotInitialized
+    :: (MonadReader (StateP id value) m, Ord id,
+        IdSumPrefixed id, HasException e (CSMappendException id))
+    => ERoComp e id value (TestCtx id value) a
+    -> m (Either e Counter)
+countERoComp comp =
+    runExceptT $ flip execStateT def $
+        runReaderT (runTestExecutorT (unBaseM comp)) $ TestCtx CANotInitialized
 
 runERoComp
-  :: (MonadReader (StateP id value) m, Ord id, IdSumPrefixed id, HasException e (CSMappendException id))
-  => ERoComp e id value (TestCtx id value) a -> m (Either e a)
-runERoComp comp = runExceptT $ flip evalStateT def $ runReaderT (runTestExecutorT (unBaseM comp)) $ TestCtx CANotInitialized
+    :: (MonadReader (StateP id value) m, Ord id,
+        IdSumPrefixed id, HasException e (CSMappendException id))
+    => ERoComp e id value (TestCtx id value) a
+    -> m (Either e a)
+runERoComp comp =
+    runExceptT $ flip evalStateT def $
+        runReaderT (runTestExecutorT (unBaseM comp)) $ TestCtx CANotInitialized
