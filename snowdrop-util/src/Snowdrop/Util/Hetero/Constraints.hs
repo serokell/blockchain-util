@@ -89,3 +89,10 @@ type family CList (xs :: [* -> Constraint]) :: * -> Constraint where
 
 class RElem r rs (RIndex r rs) => RContains rs r
 instance RElem r rs (RIndex r rs) => RContains rs r
+
+-- Similart to SomeData but with flipped arguments and for a concrete types
+data WithConstraint (c :: * -> Constraint) t =
+    forall k . c k => WithConstraint k
+
+applyWithConstraintFlip :: WithConstraint c t -> (forall k . c k => k -> a) -> a
+applyWithConstraintFlip (WithConstraint x) f = f x

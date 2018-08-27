@@ -1,5 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE RankNTypes          #-}
 
 module Snowdrop.Block.State
        ( BlockStateException (..)
@@ -50,10 +51,21 @@ instance Buildable blockRef => Buildable (BlockRef blockRef) where
 data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
     deriving (Eq, Ord, Show, Generic)
 
+-- FIXME: I don't sure about this approach because it complicates usage of
+-- inmemoryBlkStateConfiguration function (we need to tonvert that
+-- WithConstraint part back and forth). The problems here is that we want to
+-- attach a constraint to BlkStateConfiguration like "Hey, I work only with
+-- transactions from that given set". Alternative way is to attach that
+-- particular constraint to BlkStateConfiguration, BlkConfiguration,
+-- BlockIntegrityVerifier and Block data types. It will simplify composition in
+-- cases when we use the same set of transactions throught our application. We
+-- also can make constraint configurable making it possible to use completely
+-- different payload inside of a Block.
+
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-  :: forall header rawPayload blockRef e id txtypes value ctx .
+  :: forall header rawPayload blockRef e id txtypes value ctx payload .
     ( HasKeyValue id value TipKey (TipValue blockRef)
     , HasKeyValue id value (BlockRef blockRef) (Blund header rawPayload (Undo id value))
     , HasExceptions e
@@ -67,17 +79,18 @@ inmemoryBlkStateConfiguration
     , IdSumPrefixed id
     , HasLens ctx (ChgAccumCtx ctx)
     )
-    => BlkConfiguration header [SomeTx id value (RContains txtypes)] blockRef
+    => BlkConfiguration header (WithConstraint (HasGetterOf [SomeTx id value (RContains txtypes)]) payload) blockRef
     -> Validator e id value ctx txtypes
-    -> BlkStateConfiguration header [SomeTx id value (RContains txtypes)] rawPayload (Undo id value) blockRef (ERwComp e id value ctx (ChgAccum ctx))
+    -> BlkStateConfiguration header (WithConstraint (HasGetterOf [SomeTx id value (RContains txtypes)]) payload) rawPayload (Undo id value) blockRef (ERwComp e id value ctx (ChgAccum ctx))
 inmemoryBlkStateConfiguration cfg validator =
     BlkStateConfiguration {
       bscConfig = cfg
-    , bscApplyPayload = \txs -> do
-          undos <-
-            forM txs $ \tx -> do
-              liftERoComp' $ applySomeTx (runValidator validator) tx
-              modifyRwCompChgAccum (CAMChange $ applySomeTx txBody tx)
+    , bscApplyPayload = \txsC -> do
+          undos <- do
+              applyWithConstraintFlip txsC $ \txs ->
+                  forM (gettOf txs :: [SomeTx id value (RContains txtypes)]) $ \tx -> do
+                      liftERoComp' $ applySomeTx (runValidator validator) tx
+                      modifyRwCompChgAccum (CAMChange $ applySomeTx txBody tx)
           let mergeUndos (Undo cs1 sn1) (Undo cs2 _) = flip Undo sn1 <$> mappendChangeSet cs1 cs2
           case undos of
             []     -> pure $ Undo def BS.empty

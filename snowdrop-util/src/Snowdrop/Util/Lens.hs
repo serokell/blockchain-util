@@ -2,18 +2,26 @@ module Snowdrop.Util.Lens
     (
       HasGetter (..)
     , HasLens (..)
+    , HasGetterOf (..)
     ) where
 
 import           Universum hiding (head, init, last)
 
 import           Control.Lens (Getter, lens, to)
 
+-- | Version of HasGetter with flipped type parameters. Useful in type
+-- constraints where we want something to be a "superset" of requested type.
+-- TODO: is there some useful type-level Flip operator?
+class HasGetter s a => HasGetterOf a s where
+    gettOf :: s -> a
+    gettOf = gett
+
 class HasGetter s a where
     {-# MINIMAL getterOf | gett #-}
     getterOf :: Getter s a
     getterOf = to gett
 
-    gett :: HasGetter s a => s -> a
+    gett :: s -> a
     gett = (^. getterOf)
 
 class HasGetter s a => HasLens s a where
