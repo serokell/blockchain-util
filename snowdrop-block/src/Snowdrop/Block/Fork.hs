@@ -20,17 +20,17 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Buildable
 import           Formatting (bprint)
 
-import           Snowdrop.Block.Configuration (BlkConfiguration (..), blkSeqIsConsistent)
+import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.OSParams (OSParams)
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..), HasBlock (..),
+import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..),
                                        PrevBlockRef (..))
 import           Snowdrop.Util
 
 data ForkVerResult header payload rawPayload undo blockRef
   = ApplyFork
-      { fvrToApply    :: OldestFirst NonEmpty (rawPayload, (Block header payload))
-      , fvrToRollback :: NewestFirst [] (Blund header rawPayload undo )
+      { fvrToApply    :: OldestFirst NonEmpty header
+      , fvrToRollback :: NewestFirst [] (Blund header rawPayload undo)
       , fvrLCA        :: Maybe blockRef
       }
   | RejectFork
@@ -58,42 +58,36 @@ instance Buildable (ForkVerificationException blockRef) where
 --  4. loads at most `bcMaxForkDepth` blocks from block storage, starting from tip block and ending with block, referencing LCA (if more than `bcMaxForkDepth` need to be loaded, fails);
 --  5. evaluates `bcIsBetterThan` for loaded part of currently adopted "best" chain and fork, returns `ApplyFork` iff evaluation results in `True`.
 verifyFork
-    :: forall header payload rawBlock rawPayload undo blockRef bdata e m .
+    :: forall header payload rawBlock rawPayload undo blockRef e m .
        ( MonadError e m
        , Eq blockRef
-       , HasBlock header payload bdata
-       , HasGetter bdata rawPayload
        , HasException e (ForkVerificationException blockRef)
        )
     => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
     -> OSParams
-    -> OldestFirst NonEmpty bdata
+    -> OldestFirst NonEmpty header
     -> m (ForkVerResult header payload rawPayload undo blockRef)
-verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst blks)
-    | not (blkSeqIsConsistent bscConfig $ oldestFirstFContainer NE.toList fork) =
-        throwLocalError @(ForkVerificationException blockRef) BlocksNotConsistent
-    | otherwise = do
-        let headBlock = getBlock @header @payload $ head blks
-        let lcaRefMb = unPrevBlockRef $ bcPrevBlockRef bscConfig $ blkHeader headBlock
-        let firstBlockRef = unCurrentBlockRef $ bcBlockRef bscConfig $ blkHeader headBlock
+verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
+    let lcaRefMb = unPrevBlockRef $ bcPrevBlockRef bscConfig $ head altHeaders
+    let firstBlockRef = unCurrentBlockRef $ bcBlockRef bscConfig $ head altHeaders
 
-        -- | At the beginning lcaRef doesn't exists since blockchain is empty
-        case lcaRefMb of
-            Just lcaRef -> unlessM (bscBlockExists lcaRef) $
-                               throwLocalError @(ForkVerificationException blockRef) UnkownForkOrigin
-            Nothing     -> pure ()
-        whenM (bscBlockExists firstBlockRef) $
-            throwLocalError @(ForkVerificationException blockRef) InvalidForkOrigin
-        tip <- bscGetTip
-        curChain <- loadBlocksFromTo (bcMaxForkDepth bscConfig) lcaRefMb tip
-        let forkHeaders :: OldestFirst [] header
-            forkHeaders = fmap (blkHeader . (getBlock @_ @payload)) (oldestFirstFContainer NE.toList fork)
-        let curHeaders = fmap (blkHeader . buBlock) (toOldestFirst curChain)
-        pure $
-          if bcIsBetterThan bscConfig forkHeaders curHeaders &&
-             bcValidateFork bscConfig osParams forkHeaders then
-              ApplyFork ((\a -> (gett a, getBlock a)) <$> fork) curChain lcaRefMb
-          else RejectFork
+    -- | At the beginning lcaRef doesn't exists since blockchain is empty
+    case lcaRefMb of
+        Just lcaRef -> unlessM (bscBlockExists lcaRef) $
+                            throwLocalError @(ForkVerificationException blockRef) UnkownForkOrigin
+        Nothing     -> pure ()
+    whenM (bscBlockExists firstBlockRef) $
+        throwLocalError @(ForkVerificationException blockRef) InvalidForkOrigin
+    tip <- bscGetTip
+    curChain <- loadBlocksFromTo (bcMaxForkDepth bscConfig) lcaRefMb tip
+    let altHeaders' :: OldestFirst [] header
+        altHeaders' = oldestFirstFContainer NE.toList fork
+    let curHeaders = fmap (blkHeader . buBlock) (toOldestFirst curChain)
+    pure $
+      if bcIsBetterThan bscConfig altHeaders' curHeaders &&
+          bcValidateFork bscConfig osParams altHeaders' then
+          ApplyFork fork curChain lcaRefMb
+      else RejectFork
   where
     loadBlocksFromTo
         :: Int -> Maybe blockRef -> Maybe blockRef

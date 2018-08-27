@@ -19,7 +19,7 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..), unBIV)
 import           Snowdrop.Block.Fork (ForkVerResult (..), ForkVerificationException, verifyFork)
 import           Snowdrop.Block.OSParams (OSParams)
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..), HasBlock (..),
+import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..),
                                        PrevBlockRef (..))
 import           Snowdrop.Util
 
@@ -52,20 +52,6 @@ applyBlock
     -> m ()
 -- TODO: compare old chain with new one via `bcIsBetterThan`
 applyBlock = expandAndApplyBlock True
-
-applyExpandedBlock
-    :: forall header payload rawPayload rawBlock undo blockRef e m
-    . ( MonadError e m
-      , Eq blockRef
-      , HasException e (BlockApplicationException blockRef)
-      )
-    => Bool
-    -> OSParams
-    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
-    -> (rawPayload, Block header payload)
-    -> m ()
-applyExpandedBlock checkBIV osParams bsc (rawPayload, blk) =
-  applyBlockImpl checkBIV osParams bsc rawPayload blk
 
 expandAndApplyBlock
     :: forall header payload rawPayload rawBlock undo blockRef e m
@@ -118,9 +104,15 @@ applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawPayload blk@Blo
 tryApplyFork
     -- TODO `undo` is not Monoid, even for ChangeSet
     :: forall header payload rawBlock rawPayload blockRef undo e m
-    . ( HasGetter rawBlock rawPayload
-      , HasBlock header payload  (rawPayload, (Block header payload))
-      , HasGetter (rawPayload, Block header payload) rawPayload
+    . ( HasGetter rawBlock header
+      -- pva701: TODO ^ this constraint should be eliminated and
+      -- either expanding of headers should be made separately from blocks
+      -- or fork should be verified using scheme:
+      -- 1. rollback
+      -- 2. expand alt chain
+      -- 3. compare chains
+      -- 4. apply appropriate chain
+      , HasGetter rawBlock rawPayload
       , Eq blockRef
       , HasExceptions e [ForkVerificationException blockRef, BlockApplicationException blockRef]
       , MonadError e m
@@ -129,20 +121,17 @@ tryApplyFork
     -> OSParams
     -> OldestFirst NonEmpty rawBlock
     -> m Bool
-tryApplyFork bcs@(BlkStateConfiguration {..}) osParams rawBlocks = do
-  fork <- traverse toFork (unOldestFirst rawBlocks)
-  verifyFork bcs osParams (OldestFirst fork) >>= \case
-    RejectFork     -> pure False
-    ApplyFork {..} -> do
-        forM_ (unNewestFirst fvrToRollback) $ \blund -> do
-            bscApplyUndo (buUndo blund)
-            bscRemoveBlund $ unCurrentBlockRef $ bcBlockRef bscConfig (blkHeader $ buBlock blund)
-        bscSetTip fvrLCA
-        mapM_ (applyExpandedBlock False osParams bcs) $ NE.toList $ unOldestFirst fvrToApply
-        pure True
-   where
-     toFork :: rawBlock -> m (rawPayload, Block header payload)
-     toFork rawBlock = (gett rawBlock,) <$> bscExpand rawBlock
+tryApplyFork bcs@(BlkStateConfiguration {..}) osParams (OldestFirst rawBlocks) = do
+    -- fork <- traverse toFork (unOldestFirst rawBlocks)
+    verifyFork bcs osParams (OldestFirst $ NE.map gett rawBlocks) >>= \case
+        RejectFork     -> pure False
+        ApplyFork {..} -> do
+            forM_ (unNewestFirst fvrToRollback) $ \blund -> do
+                bscApplyUndo (buUndo blund)
+                bscRemoveBlund $ unCurrentBlockRef $ bcBlockRef bscConfig (blkHeader $ buBlock blund)
+            bscSetTip fvrLCA
+            mapM_ (applyBlock osParams bcs) $ NE.toList rawBlocks
+            pure True
 
 -- How to express functionality which shall decide upon inclusion of fork into blockchain?
 --
