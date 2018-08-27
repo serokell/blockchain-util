@@ -23,7 +23,7 @@ extra-deps:
     - code/network
     - code/prelude
 
-- git: git@github.com:serokell/auth-data-structures.git
+- git: https://github.com/serokell/auth-data-structures.git
   commit: c46d81fac79bbc1e4efcc6c4568a1500b273bd60
 
 # Forced by lootbox #
