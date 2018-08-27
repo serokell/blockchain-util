@@ -2,7 +2,7 @@
 
 module Snowdrop.Block.Application
        ( applyBlock
-       , applyBlockImpl
+       , expandAndApplyBlock
        , tryApplyFork
 
        , BlockApplicationException (..)
@@ -19,7 +19,7 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..), unBIV)
 import           Snowdrop.Block.Fork (ForkVerResult (..), ForkVerificationException, verifyFork)
 import           Snowdrop.Block.OSParams (OSParams)
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..), HasBlock (..),
+import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..),
                                        PrevBlockRef (..))
 import           Snowdrop.Util
 
@@ -44,28 +44,44 @@ applyBlock
     :: ( MonadError e m
        , Eq blockRef
        , HasException e (BlockApplicationException blockRef)
+       , HasGetter rawBlock rawPayload
        )
     => OSParams
-    -> BlkStateConfiguration header payload rawPayload undo blockRef m
-    -> rawPayload
-    -> Block header payload
+    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
+    -> rawBlock
     -> m ()
 -- TODO: compare old chain with new one via `bcIsBetterThan`
-applyBlock = applyBlockImpl True
+applyBlock = expandAndApplyBlock True
 
-applyBlockImpl
-    :: forall header payload rawPayload undo blockRef e m
+expandAndApplyBlock
+    :: forall header payload rawPayload rawBlock undo blockRef e m
     . ( MonadError e m
-       , Eq blockRef
-       , HasException e (BlockApplicationException blockRef)
-       )
+      , Eq blockRef
+      , HasException e (BlockApplicationException blockRef)
+      , HasGetter rawBlock rawPayload
+      )
     => Bool
     -> OSParams
-    -> BlkStateConfiguration header payload rawPayload undo blockRef m
+    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
+    -> rawBlock
+    -> m ()
+expandAndApplyBlock checkBIV osParams bsc rawBlk = do
+    blk <- bscExpand bsc rawBlk
+    applyBlockImpl checkBIV osParams bsc (gett rawBlk) blk
+
+applyBlockImpl
+    :: forall header payload rawPayload rawBlock undo blockRef e m
+    . ( MonadError e m
+      , Eq blockRef
+      , HasException e (BlockApplicationException blockRef)
+      )
+    => Bool
+    -> OSParams
+    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
     -> rawPayload
     -> Block header payload
     -> m ()
-applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawBlk blk@Block{..} = do
+applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawPayload blk@Block{..} = do
     tip <- bscGetTip
     when (checkBIV && any not [ unBIV (bcBlkVerify bscConfig) blk
                               , bcValidateFork bscConfig osParams (OldestFirst [blkHeader])]) $
@@ -73,7 +89,7 @@ applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawBlk blk@Block{.
     let prev = unPrevBlockRef $ bcPrevBlockRef bscConfig blkHeader
     if prev == tip then do
         undo <- bscApplyPayload blkPayload
-        bscStoreBlund $ Blund (Block blkHeader rawBlk) undo
+        bscStoreBlund $ Blund (Block blkHeader rawPayload) undo
         bscSetTip $ Just . unCurrentBlockRef $ bcBlockRef bscConfig blkHeader
     else
         throwLocalError $ TipMismatched prev tip
@@ -87,25 +103,35 @@ applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawBlk blk@Block{.
 -- 3. for each block in the fork: payload is applied, blund is stored and tip updated.
 tryApplyFork
     -- TODO `undo` is not Monoid, even for ChangeSet
-    :: ( HasBlock header payload bdata
-       , HasGetter bdata rawPayload
-       , Eq blockRef
-       , HasExceptions e [ForkVerificationException blockRef, BlockApplicationException blockRef]
-       , MonadError e m
-       )
-    => BlkStateConfiguration header payload rawPayload undo blockRef m
+    :: forall header payload rawBlock rawPayload blockRef undo e m
+    . ( HasGetter rawBlock header
+      -- pva701: TODO ^ this constraint should be eliminated and
+      -- either expanding of headers should be made separately from blocks
+      -- or fork should be verified using scheme:
+      -- 1. rollback
+      -- 2. expand alt chain
+      -- 3. compare chains
+      -- 4. apply appropriate chain
+      , HasGetter rawBlock rawPayload
+      , Eq blockRef
+      , HasExceptions e [ForkVerificationException blockRef, BlockApplicationException blockRef]
+      , MonadError e m
+      )
+    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
     -> OSParams
-    -> OldestFirst NonEmpty bdata
+    -> OldestFirst NonEmpty rawBlock
     -> m Bool
-tryApplyFork bcs@(BlkStateConfiguration {..}) osParams fork = verifyFork bcs osParams fork >>= \case
-    RejectFork     -> pure False
-    ApplyFork {..} -> do
-        forM_ (unNewestFirst fvrToRollback) $ \blund -> do
-            bscApplyUndo (buUndo blund)
-            bscRemoveBlund $ unCurrentBlockRef $ bcBlockRef bscConfig (blkHeader $ buBlock blund)
-        bscSetTip fvrLCA
-        mapM_ (uncurry $ applyBlockImpl False osParams bcs) $ NE.toList $ unOldestFirst fvrToApply
-        pure True
+tryApplyFork bcs@(BlkStateConfiguration {..}) osParams (OldestFirst rawBlocks) = do
+    -- fork <- traverse toFork (unOldestFirst rawBlocks)
+    verifyFork bcs osParams (OldestFirst $ NE.map gett rawBlocks) >>= \case
+        RejectFork     -> pure False
+        ApplyFork {..} -> do
+            forM_ (unNewestFirst fvrToRollback) $ \blund -> do
+                bscApplyUndo (buUndo blund)
+                bscRemoveBlund $ unCurrentBlockRef $ bcBlockRef bscConfig (blkHeader $ buBlock blund)
+            bscSetTip fvrLCA
+            mapM_ (applyBlock osParams bcs) $ NE.toList rawBlocks
+            pure True
 
 -- How to express functionality which shall decide upon inclusion of fork into blockchain?
 --
