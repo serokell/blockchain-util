@@ -1,8 +1,8 @@
 name:           snowdrop-core
 version:        0.1.0.0
-description:    Please see the README on Github at <https://github.com/githubuser/blockchain-util#readme>
-homepage:       https://github.com/githubuser/blockchain-util#readme
-bug-reports:    https://github.com/githubuser/blockchain-util/issues
+description:    Please see the README on Github at <https://github.com/githubuser/snowdrop#readme>
+homepage:       https://github.com/githubuser/snowdrop#readme
+bug-reports:    https://github.com/githubuser/snowdrop/issues
 author:         Author name here
 maintainer:     example@example.com
 copyright:      2018 Author name here
@@ -12,7 +12,7 @@ cabal-version:  >= 1.10
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/blockchain-util
+  location: https://github.com/githubuser/snowdrop
 
 library
   hs-source-dirs:
@@ -50,6 +50,7 @@ library
     , universum >= 1.1.0
     , unliftio-core
     , unordered-containers
+    , vinyl
     , yaml
 
   exposed-modules:
@@ -74,7 +75,8 @@ library
   default-language: Haskell2010
   ghc-options:         -Wall
                        -fno-warn-orphans
-  default-extensions:   DeriveDataTypeable
+  default-extensions:   DataKinds
+                        DeriveDataTypeable
                         DeriveGeneric
                         GeneralizedNewtypeDeriving
                         StandaloneDeriving

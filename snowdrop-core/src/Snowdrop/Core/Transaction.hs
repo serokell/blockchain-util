@@ -1,26 +1,62 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE PolyKinds           #-}
+{-# LANGUAGE StandaloneDeriving  #-}
+{-# LANGUAGE RankNTypes  #-}
+
 module Snowdrop.Core.Transaction
     ( SValue
+    , TxProof
+    , UnitedTxType
     , HasKeyValue
 
-    , StateTxType (..)
+    -- To suppress warnings
+    , Prf (..)
+
     , StateTx (..)
     , PartialStateTx (..)
     , mkPartialStateTx
 
     , selectKeyValueCS
+
+    , SomePartialTx
+    , SomeTx
+    , applySomeTx
+    , applySomePartialTx
+    , upcastStateTx
+    , downcastStateTx
+    , castStateTx
     ) where
 
 import           Universum
 
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import qualified Data.Text.Buildable
-import           Formatting (bprint, (%))
-import           Formatting (int)
+import           Data.Vinyl
+import           Control.Lens (to)
 
 import           Snowdrop.Core.ChangeSet.Type (ChangeSet (..))
 import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
 import           Snowdrop.Util
+
+------------------------
+-- UnitedTxType
+------------------------
+
+data UnitedTxType (types :: [*])
+
+type instance TxProof (UnitedTxType '[x]) = TxProof x
+
+newtype Prf x = Prf {unPrf :: TxProof x}
+
+type instance TxProof (UnitedTxType (x ': y ': xs)) = Rec Prf (x ': y ': xs)
+
+instance (prftype ~ TxProof x) => HasGetter (Prf x) prftype where
+    gett = unPrf
+
+instance (prftype ~ TxProof x, x ∈ xs) => HasGetter (Rec Prf xs) prftype where
+    gett = gett . rget (Proxy @x)
+    getterOf = to (gett . rget (Proxy @x)) -- to avoid some troubles with @x@, dunno
 
 ------------------------------------------
 -- Basic storage: model
@@ -28,36 +64,62 @@ import           Snowdrop.Util
 
 type family SValue id :: *
 
+type family TxProof (txtype :: k) :: *
+
 type HasKeyValue id val id1 val1 = (HasPrism id id1, HasPrism val val1, SValue id1 ~ val1)
-
-newtype StateTxType = StateTxType Int
-    deriving (Eq, Ord, Show, Generic)
-
-instance Buildable StateTxType where
-    build (StateTxType no) = bprint ("<state tx type #"%int%">") no
 
 -- | Transaction which modifies state.
 -- There is also RawTx, which is posted on the blockchain.
 -- Ideally, RawStateTx and any action which modifies a state can be converted into StateStateTx.
-data StateTx id proof value = StateTx
-    { txType  :: StateTxType
-    , txProof :: proof
+data StateTx id value txtype = StateTx
+    { txProof :: TxProof txtype
     , txBody  :: ChangeSet id value
-    } deriving (Eq, Ord, Show, Generic)
+    }
+
+type SomeTx id value = SomeData (StateTx id value)
+
+applySomeTx :: (forall txtype . c txtype => StateTx id value txtype -> a) -> SomeTx id value c -> a
+applySomeTx f (SomeData x) = f x
+
+upcastStateTx
+    :: forall id value txtype1 txtype2 . HasGetter (TxProof txtype1) (TxProof txtype2)
+    => StateTx id value txtype1 -> StateTx id value txtype2
+upcastStateTx StateTx {..} = StateTx (gett txProof) txBody
+
+downcastStateTx
+    :: forall id value txtype1 txtype2 . HasPrism (TxProof txtype1) (TxProof txtype2)
+    => StateTx id value txtype1 -> Maybe (StateTx id value txtype2)
+downcastStateTx StateTx {..} = (\x -> StateTx x txBody) <$> proj txProof
+
+castStateTx
+    :: forall id value txtype1 txtype2 .
+       (TxProof txtype1 -> Maybe (TxProof txtype2))
+    -> StateTx id value txtype1 -> Maybe (StateTx id value txtype2)
+castStateTx castProof StateTx {..} = (\x -> StateTx x txBody) <$> castProof txProof
+
+deriving instance (Eq   (TxProof txtype), Eq   id, Eq   value) => Eq   (StateTx id value txtype)
+deriving instance (Ord  (TxProof txtype), Ord  id, Ord  value) => Ord  (StateTx id value txtype)
+deriving instance (Show (TxProof txtype), Show id, Show value) => Show (StateTx id value txtype)
+deriving instance Generic (StateTx id txtype value)
 
 -- | Transaction which modifies one part of state (with some Prefix).
 -- ptxBody contains ids with the same prefix
-data PartialStateTx id proof value = PartialStateTx
-    { ptxProof :: proof
+data PartialStateTx id value txtype = PartialStateTx
+    { ptxProof :: TxProof txtype
     , ptxBody  :: ChangeSet id value
     }
 
+type SomePartialTx id value = SomeData (PartialStateTx id value)
+
+applySomePartialTx :: (forall txtype . c txtype => PartialStateTx id value txtype -> a) -> SomePartialTx id value c -> a
+applySomePartialTx f (SomeData x) = f x
+
 mkPartialStateTx
-    :: forall id1 proof value . Ord id1
+    :: forall id1 txtype value . Ord id1
     => (id1 -> Prefix)
-    -> proof
+    -> TxProof txtype
     -> ChangeSet id1 value
-    -> PartialStateTx id1 proof value
+    -> PartialStateTx id1 value txtype
 mkPartialStateTx getPref prf cset@(ChangeSet cs) =
     let ks = S.toList $ M.keysSet cs in
     case ks of
@@ -67,18 +129,18 @@ mkPartialStateTx getPref prf cset@(ChangeSet cs) =
           | otherwise -> error "Prefixes of ids aren't the same"
 
 -- Emulation of dependent type
--- Assumption: `txType` allows one to identify concrete types for `id`, `proof`, `value`
+-- Assumption: `txtype` allows one to identify concrete types for `id`, `value`
 -- Validators try to do conversion from abstract type to particular types
 -- Validator is associated with set of `txType`s
 -- There shall be at least one validator for each `txType`
 
-instance (Ord id, HasReview id id1, HasReview value value1, HasReview proof proof1)
-      => HasReview (StateTx id proof value) (StateTx id1 proof1 value1) where
-    inj StateTx{..} = StateTx txType (inj txProof) (inj txBody)
+instance (Ord id, HasReview id id1, HasReview value value1, HasReview (TxProof txtype) (TxProof txtype1))
+      => HasReview (StateTx id value txtype) (StateTx id1 value1 txtype1) where
+    inj StateTx{..} = StateTx (inj txProof) (inj txBody)
 
-instance (Ord id, Ord id1, HasPrism id id1, HasPrism value value1, HasPrism proof proof1)
-      => HasPrism (StateTx id proof value) (StateTx id1 proof1 value1) where
-    proj StateTx{..} = StateTx txType <$> (proj txProof)  <*> (proj txBody)
+instance (Ord id, Ord id1, HasPrism id id1, HasPrism value value1, HasPrism (TxProof txtype) (TxProof txtype1))
+      => HasPrism (StateTx id value txtype) (StateTx id1 value1 txtype1) where
+    proj StateTx{..} = StateTx <$> (proj txProof) <*> (proj txBody)
 
 selectKeyValueCS
     :: forall id1 value1 id value .

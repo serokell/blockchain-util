@@ -33,3 +33,21 @@ instance HasGetter a a where
 
 instance HasLens a a where
     sett = flip const
+
+instance HasGetter (a, b) a where gett = fst
+instance HasGetter (a, b) b where gett = snd
+
+instance HasGetter (a, b, c) a where gett (a, _, _) = a
+instance HasGetter (a, b, c) b where gett (_, b, _) = b
+instance HasGetter (a, b, c) c where gett (_, _, c) = c
+
+instance HasGetter (a, b, c, d) a where gett (a, _, _, _) = a
+instance HasGetter (a, b, c, d) b where gett (_, b, _, _) = b
+instance HasGetter (a, b, c, d) c where gett (_, _, c, _) = c
+instance HasGetter (a, b, c, d) d where gett (_, _, _, d) = d
+
+instance HasGetter (a, b, c, d, e) a where gett (a, _, _, _, _) = a
+instance HasGetter (a, b, c, d, e) b where gett (_, b, _, _, _) = b
+instance HasGetter (a, b, c, d, e) c where gett (_, _, c, _, _) = c
+instance HasGetter (a, b, c, d, e) d where gett (_, _, _, d, _) = d
+instance HasGetter (a, b, c, d, e) e where gett (_, _, _, _, e) = e

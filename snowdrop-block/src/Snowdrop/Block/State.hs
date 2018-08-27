@@ -22,10 +22,10 @@ import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..))
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx,
                                 ChgAccumModifier (..), ERwComp, HasKeyValue, IdSumPrefixed (..),
-                                StateModificationException, StatePException (..), StateTx (..),
-                                Undo (..), Validator, ValidatorExecException, ValueOp (..),
-                                liftERoComp, mappendChangeSet, modifyRwCompChgAccum, queryOne,
-                                queryOneExists, runValidator)
+                                SomeTx, StateModificationException, StatePException (..),
+                                StateTx (..), Undo (..), Validator, ValueOp (..), applySomeTx,
+                                mappendChangeSet, modifyRwCompChgAccum, queryOne, queryOneExists,
+                                runValidator, liftERoComp')
 import           Snowdrop.Util
 
 data BlockStateException id
@@ -53,13 +53,12 @@ data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-  :: forall header rawPayload blockRef e id proof value ctx .
+  :: forall header rawPayload blockRef e id txtypes value ctx .
     ( HasKeyValue id value TipKey (TipValue blockRef)
     , HasKeyValue id value (BlockRef blockRef) (Blund header rawPayload (Undo id value))
     , HasExceptions e
         [ StatePException
         , BlockStateException id
-        , ValidatorExecException
         , StateModificationException id
         , CSMappendException id
         ]
@@ -68,17 +67,17 @@ inmemoryBlkStateConfiguration
     , IdSumPrefixed id
     , HasLens ctx (ChgAccumCtx ctx)
     )
-    => BlkConfiguration header [StateTx id proof value] blockRef
-    -> Validator e id proof value ctx
-    -> BlkStateConfiguration header [StateTx id proof value] rawPayload (Undo id value) blockRef (ERwComp e id value ctx (ChgAccum ctx))
+    => BlkConfiguration header [SomeTx id value (RContains txtypes)] blockRef
+    -> Validator e id value ctx txtypes
+    -> BlkStateConfiguration header [SomeTx id value (RContains txtypes)] rawPayload (Undo id value) blockRef (ERwComp e id value ctx (ChgAccum ctx))
 inmemoryBlkStateConfiguration cfg validator =
     BlkStateConfiguration {
       bscConfig = cfg
     , bscApplyPayload = \txs -> do
           undos <-
             forM txs $ \tx -> do
-              liftERoComp $ runValidator validator tx
-              modifyRwCompChgAccum (CAMChange $ txBody tx)
+              liftERoComp' $ applySomeTx (runValidator validator) tx
+              modifyRwCompChgAccum (CAMChange $ applySomeTx txBody tx)
           let mergeUndos (Undo cs1 sn1) (Undo cs2 _) = flip Undo sn1 <$> mappendChangeSet cs1 cs2
           case undos of
             []     -> pure $ Undo def BS.empty
@@ -90,14 +89,14 @@ inmemoryBlkStateConfiguration cfg validator =
           void $ modifyRwCompChgAccum $ CAMChange chg
     , bscRemoveBlund = \blockRef ->
         void $ modifyRwCompChgAccum $ CAMRevert $ Undo (ChangeSet $ M.singleton (inj $ BlockRef blockRef) Rem) BS.empty
-    , bscGetBlund = liftERoComp . queryOne . BlockRef
-    , bscBlockExists = liftERoComp . queryOneExists . BlockRef
-    , bscGetTip = liftERoComp (queryOne TipKey)
+    , bscGetBlund = liftERoComp' . queryOne . BlockRef
+    , bscBlockExists = liftERoComp' . queryOneExists . BlockRef
+    , bscGetTip = liftERoComp' (queryOne TipKey)
                     >>= maybe (throwLocalError @(BlockStateException id) TipNotFound) (pure . unTipValue)
     , bscSetTip = \newTip' -> do
           let newTip = inj $ TipValue newTip'
           let tipChg = \cons -> ChangeSet $ M.singleton (inj TipKey) (cons newTip)
-          oldTipMb <- liftERoComp $ queryOne TipKey
+          oldTipMb <- liftERoComp' $ queryOne TipKey
           -- TODO check that tip corresponds to blund storage
           void . modifyRwCompChgAccum . CAMChange . tipChg $ maybe New (const Upd) oldTipMb
     }

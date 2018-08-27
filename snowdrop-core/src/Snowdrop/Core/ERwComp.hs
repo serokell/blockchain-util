@@ -4,6 +4,7 @@ module Snowdrop.Core.ERwComp
       , runERwComp
       , modifyRwCompChgAccum
       , liftERoComp
+      , liftERoComp'
     ) where
 
 import           Universum
@@ -43,6 +44,18 @@ liftERoComp
     => ERoComp e id value ctx a
     -> ERwComp e id value ctx s a
 liftERoComp comp = gets (gett @_ @(ChgAccum ctx)) >>= ERwComp . lift . flip initAccumCtx comp
+
+-- WA for error:
+-- • Overlapping instances for HasGetter (ChgAccum ctx) (ChgAccum ctx)
+--     arising from a use of ‘liftERoComp’
+liftERoComp'
+    :: forall e id value ctx a.
+    ( HasException e StatePException
+    , HasLens ctx (ChgAccumCtx ctx)
+    )
+    => ERoComp e id value ctx a
+    -> ERwComp e id value ctx (ChgAccum ctx) a
+liftERoComp' comp = gets id >>= ERwComp . lift . flip initAccumCtx comp
 
 modifyRwCompChgAccum
     :: forall e id value ctx s .

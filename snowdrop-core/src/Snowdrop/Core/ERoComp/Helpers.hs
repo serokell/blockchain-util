@@ -42,7 +42,7 @@ import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..
 import           Snowdrop.Core.ERoComp.Types (ChgAccum, ChgAccumCtx (..), ChgAccumModifier (..),
                                               DbAccess (..), ERoComp, FoldF (..), Prefix (..),
                                               StateP, StateR)
-import           Snowdrop.Core.Transaction (HasKeyValue, StateTxType)
+import           Snowdrop.Core.Transaction (HasKeyValue)
 import           Snowdrop.Util
 
 modifyAccum
@@ -65,14 +65,12 @@ iterator prefix e foldf =
   effect $ DbIterator @(ChgAccum ctx) prefix (FoldF (e, foldf, id))
 
 data TxValidationException
-    = ProofProjectionFailed StateTxType
-    | PayloadProjectionFailed StateTxType Prefix
+    = PayloadProjectionFailed String Prefix
     | UnexpectedPayload [Prefix]
     deriving (Show)
 
 instance Buildable TxValidationException where
     build = \case
-        ProofProjectionFailed tx -> bprint ("Projection of proof is failed during validation of StateTx with type: "%build) tx
         PayloadProjectionFailed tx p ->
             bprint ("Projection of payload is failed during validation of StateTx with type: "%build%", got prefix: "%build) tx p
         UnexpectedPayload p -> bprint ("Unexpected payload, prefixes: "%listF ", " build) p

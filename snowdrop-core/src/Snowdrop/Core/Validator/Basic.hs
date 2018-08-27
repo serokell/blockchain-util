@@ -20,7 +20,7 @@ import           Formatting (bprint, build, (%))
 import           Snowdrop.Core.ChangeSet.Type (changeSetToList, csNew, csRemove)
 import           Snowdrop.Core.ERoComp.Helpers (query, validateAll, validateIff)
 import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
-import           Snowdrop.Core.Transaction (StateTxType (..), txBody, txProof)
+import           Snowdrop.Core.Transaction (TxProof, txBody, txProof)
 import           Snowdrop.Core.Validator.Types (PreValidator (..), Validator, mkValidator)
 import           Snowdrop.Util
 
@@ -44,18 +44,18 @@ instance Buildable id => Buildable (StructuralValidationException id) where
             -- this is an error as soon as we have separated 'New' and 'Upd'
             -- 'ValueOp's.
 
-csRemoveExist :: (Ord id, HasException e (StructuralValidationException id)) => PreValidator e id proof value ctx
+csRemoveExist :: (Ord id, HasException e (StructuralValidationException id)) => PreValidator e id value ctx txtype
 csRemoveExist = PreValidator $ \(csRemove . txBody -> inRefs) -> do
     ins <- query inRefs
     validateAll (inj . DpRemoveDoesntExist) (flip M.member ins) inRefs
 
-csNewNotExist :: (Ord id, HasException e (StructuralValidationException id)) => PreValidator e id proof value ctx
+csNewNotExist :: (Ord id, HasException e (StructuralValidationException id)) => PreValidator e id value ctx txtype
 csNewNotExist = PreValidator $ \tx -> do
     let ks = M.keysSet (csNew (txBody tx))
     mp <- query ks
     validateAll (inj . DpAddExist) (not . flip M.member mp) ks
 
-structuralPreValidator :: (Ord id, HasException e (StructuralValidationException id)) => PreValidator e id proof value ctx
+structuralPreValidator :: (Ord id, HasException e (StructuralValidationException id)) => PreValidator e id value ctx txtype
 structuralPreValidator = csRemoveExist <> csNewNotExist
 
 data RedundantIdException = RedundantIdException (NonEmpty Prefix)
@@ -66,12 +66,12 @@ instance Buildable RedundantIdException where
         bprint ("encountered unexpected prefixes: "%listF ", " build) (toList pref)
 
 redundantIdsPreValidator
-  :: forall e id proof value ctx.
+  :: forall e id txtype value ctx.
     ( IdSumPrefixed id
     , HasException e RedundantIdException
     )
     => [Prefix]
-    -> PreValidator e id proof value ctx
+    -> PreValidator e id value ctx txtype
 redundantIdsPreValidator prefixes = PreValidator $ \statetx -> do
     let prefixesSet = S.fromList prefixes
     let obtainedPrefixesSet = S.fromList $ (idSumPrefix . fst) <$> (changeSetToList $ txBody statetx)
@@ -91,20 +91,20 @@ data StateTxValidationException
     = InputDoesntExist
     | InputNotSigned
 
-inputsExist :: (Ord id, HasException e StateTxValidationException) => PreValidator e id proof value ctx
+inputsExist :: (Ord id, HasException e StateTxValidationException) => PreValidator e id value ctx txtype
 inputsExist = PreValidator $ \(csRemove . txBody -> inRefs) -> do
     ins <- query inRefs
     validateIff InputDoesntExist (all (flip M.member ins) inRefs)
 
-inputsSigned :: (Ord id, HasException e StateTxValidationException) => PreValidator e id proof (proof -> Bool, value) ctx
+inputsSigned :: (Ord id, HasException e StateTxValidationException) => PreValidator e id (TxProof txtype -> Bool, value) ctx txtype
 inputsSigned = PreValidator $ \tx -> do
     let inRefs = csRemove $ txBody tx
         proof = txProof tx
     ins <- query inRefs
     validateIff InputNotSigned (all (($ proof) . fst) ins)
 
-exampleStateTxValidator :: Ord id => Validator GlobalError id proof (proof -> Bool, value) ctx
-exampleStateTxValidator = mkValidator (StateTxType 0) [inputsExist, inputsSigned]
+exampleStateTxValidator :: Ord id => Validator GlobalError id ((TxProof txtype) -> Bool, value) ctx '[txtype]
+exampleStateTxValidator = mkValidator [inputsExist, inputsSigned]
 
 ---------------------------
 -- HasReview instances

@@ -34,7 +34,7 @@ processTxAndInsertToMempool
     :: ( HasException e StatePException, Show e, Typeable e
        , HasLens ctx (ChgAccumCtx ctx)
        )
-    => MempoolConfig e id proof value ctx rawtx
+    => MempoolConfig e id txtype value ctx rawtx
     -> rawtx
     -> RwActionWithMempool e id value rawtx ctx ()
 processTxAndInsertToMempool MempoolConfig{..} rawtx = do
@@ -49,7 +49,7 @@ normalizeMempool
        , Default (ChgAccum ctx)
        , HasLens ctx (ChgAccumCtx ctx)
        )
-    => MempoolConfig e id proof value ctx rawtx
+    => MempoolConfig e id txtype value ctx rawtx
     -> RwActionWithMempool e id value rawtx ctx (Rejected rawtx)
 normalizeMempool MempoolConfig{..} = do
     txs <- map fst <$> evictMempool
@@ -74,7 +74,7 @@ createBlockDbModifyAction
        , Default chgAccum
        , IdSumPrefixed id, Ord id
        )
-    => MempoolConfig e id proof value (IOCtx chgAccum id value) rawtx
+    => MempoolConfig e id txtype value (IOCtx chgAccum id value) rawtx
     -> Mempool id value chgAccum rawtx
     -> DbModifyActions chgAccum id value ExecM a
     -> DbModifyActions chgAccum id value ExecM (a, Rejected rawtx)

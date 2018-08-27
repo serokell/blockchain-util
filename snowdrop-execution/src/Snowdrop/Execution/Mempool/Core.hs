@@ -18,9 +18,9 @@ import           Control.Lens (lens)
 import           Data.Default (Default (..))
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx,
-                                ChgAccumModifier (..), ERoComp, ERwComp, StateModificationException,
-                                StatePException, StateTx (..), Undo, Validator,
-                                ValidatorExecException, liftERoComp, modifyRwCompChgAccum,
+                                ChgAccumModifier (..), ERoComp, ERwComp, SomeTx,
+                                StateModificationException, StatePException, StateTx (..), Undo,
+                                Validator, applySomeTx, liftERoComp, modifyRwCompChgAccum,
                                 runValidator)
 import           Snowdrop.Execution.DbActions (DbAccessActions)
 import           Snowdrop.Execution.IOExecutor (IOCtx, runERwCompIO)
@@ -30,18 +30,19 @@ import           Snowdrop.Util
 -- Core part
 ---------------------------
 
-type ExpanderRawTx e id proof value ctx rawtx =
-    rawtx -> ERoComp e id value ctx (StateTx id proof value)
+
+type ExpanderRawTx e id c value ctx rawtx =
+    rawtx -> ERoComp e id value ctx (SomeTx id value c)
 
 type RwActionWithMempool e id value rawtx ctx a =
     ERwComp e id value ctx (MempoolState id value (ChgAccum ctx) rawtx) a
 
-type ProcessStateTx e id proof value rawtx ctx =
-    StateTx id proof value -> RwActionWithMempool e id value rawtx ctx (Undo id value)
+type ProcessStateTx e id c value rawtx ctx =
+    SomeTx id value c -> RwActionWithMempool e id value rawtx ctx (Undo id value)
 
-data MempoolConfig e id proof value ctx rawtx = MempoolConfig
-    { mcExpandTx  :: ExpanderRawTx e id proof value ctx rawtx
-    , mcProcessTx :: ProcessStateTx e id proof value rawtx ctx
+data MempoolConfig e id c value ctx rawtx = MempoolConfig
+    { mcExpandTx  :: ExpanderRawTx e id c value ctx rawtx
+    , mcProcessTx :: ProcessStateTx e id c value rawtx ctx
     }
 
 data MempoolState id value chgAccum rawtx = MempoolState
@@ -73,20 +74,20 @@ newtype Mempool id value chgAccum rawtx
     = Mempool { mempoolState :: TVar (Versioned (MempoolState id value chgAccum rawtx)) }
 
 defaultMempoolConfig
-    :: ( HasExceptions e [
-             ValidatorExecException
-           , StateModificationException id
+    :: forall e id value ctx c txtypes rawtx .
+       ( HasExceptions e [
+             StateModificationException id
            , StatePException
            , CSMappendException id
            ]
        , Ord id
        , HasLens ctx (ChgAccumCtx ctx)
        )
-    => ExpanderRawTx e id proof value ctx rawtx
-    -> Validator e id proof value ctx
-    -> MempoolConfig e id proof value ctx rawtx
+    => ExpanderRawTx e id (Both c (RContains txtypes)) value ctx rawtx
+    -> Validator e id value ctx txtypes
+    -> MempoolConfig e id (Both c (RContains txtypes)) value ctx rawtx
 defaultMempoolConfig expander validator = MempoolConfig {
-    mcProcessTx = \tx -> do
+      mcProcessTx = applySomeTx $ \tx -> do
         liftERoComp $ runValidator validator tx
         modifyRwCompChgAccum (CAMChange $ txBody tx)
     , mcExpandTx = expander
