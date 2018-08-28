@@ -1,12 +1,10 @@
 module Snowdrop.Core.Transaction
        ( SValue
        , HasKeyValue
-
        , StateTxType (..)
        , StateTx (..)
        , PartialStateTx (..)
        , mkPartialStateTx
-
        , selectKeyValueCS
        ) where
 
@@ -43,7 +41,7 @@ data StateTx id proof value = StateTx
     { txType  :: StateTxType
     , txProof :: proof
     , txBody  :: ChangeSet id value
-    } deriving (Eq, Ord, Show, Generic)
+    } deriving (Show, Generic)
 
 -- | Transaction which modifies one part of state (with some Prefix).
 -- ptxBody contains ids with the same prefix
@@ -72,7 +70,7 @@ mkPartialStateTx getPref prf cset@(ChangeSet cs) =
 -- Validator is associated with set of `txType`s
 -- There shall be at least one validator for each `txType`
 
-instance (Ord id, HasReview id id1, HasReview value value1, HasReview proof proof1)
+instance (Ord id, HasReview id id1, HasReview value value1, HasPrism value value1, HasReview proof proof1)
       => HasReview (StateTx id proof value) (StateTx id1 proof1 value1) where
     inj StateTx{..} = StateTx txType (inj txProof) (inj txBody)
 
@@ -88,11 +86,12 @@ selectKeyValueCS
     )
     => ChangeSet id value
     -> Either Prefix (ChangeSet id1 value1)
-selectKeyValueCS (ChangeSet cs) = ChangeSet <$> M.foldrWithKey f (Right mempty) cs
-  where
-    f _ _ e@(Left _) = e
-    f i valOp (Right c) = case proj @id @id1 i of
-        Nothing  -> Right c
-        Just id1 -> case sequenceA $ proj @value @value1 <$> valOp of
-            Just nop -> Right $ M.insert id1 nop c
-            Nothing  -> Left $ idSumPrefix i
+selectKeyValueCS (ChangeSet cs) = undefined
+--     ChangeSet <$> M.foldrWithKey f (Right mempty) cs
+--   where
+--     f _ _ e@(Left _) = e
+--     f i valOp (Right c) = case sequenceA $ proj @id @id1 i of
+--         Nothing  -> Right c
+--         Just id1 -> case proj @value @value1 <$> valOp of
+--             Just nop -> Right $ M.insert id1 nop c
+--             Nothing  -> Left $ idSumPrefix i

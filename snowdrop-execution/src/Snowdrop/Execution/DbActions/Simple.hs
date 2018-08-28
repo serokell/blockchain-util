@@ -17,10 +17,11 @@ import qualified Data.ByteString as BS
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+import           Formatting (build, sformat, (%))
 
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccumModifier (..),
                                 IdSumPrefixed (..), Prefix (..), StateP, StateR, Undo (..),
-                                ValueOp (..), changeSetToMap, csNew, filterByPrefix,
+                                ValueOp (..), ValueOpErr (..), csNew, csUpdate, filterByPrefix,
                                 mappendChangeSet)
 import           Snowdrop.Util
 
@@ -56,20 +57,14 @@ modifySumChgSet (SumChangeSet cs1) cs2 = SumChangeSet <$> mappendChangeSet cs1 c
 accumToDiff :: SumChangeSet id value -> ChangeSet id value
 accumToDiff = unSumCS
 
-queryAccum :: Ord id => SumChangeSet id value -> StateR id -> (StateR id, StateP id value)
-queryAccum (SumChangeSet accum) reqIds = (reqIds', resp)
-  where
-    resp    = changeSetToMap accum `M.intersection` toDummyMap reqIds
-    reqIds' = reqIds S.\\ M.keysSet (changeSet accum)
-
-queryAccumOne :: Ord id => SumChangeSet id value -> id -> Maybe (ValueOp value)
-queryAccumOne (SumChangeSet (ChangeSet csm)) = flip M.lookup csm
+queryChSetOne :: Ord id => SumChangeSet id value -> id -> Maybe (ValueOp value)
+queryChSetOne (SumChangeSet (ChangeSet csm)) = flip M.lookup csm
 
 getNewKeys :: IdSumPrefixed id => SumChangeSet id value -> Prefix -> Map id value
 getNewKeys (SumChangeSet cs) p = csNew $ filterByPrefix p cs
 
 sumChangeSetDBA
-    :: forall id value m . (IdSumPrefixed id, Ord id, MonadCatch m)
+    :: forall id value m . (IdSumPrefixed id, Ord id, Buildable id, MonadCatch m)
     => (StateR id -> m (StateP id value))
     -> (forall b. Prefix -> b -> ((id, value) -> b -> b) -> m b)
     -> DbAccessActions (SumChangeSet id value) id value m
@@ -95,16 +90,62 @@ sumChangeSetDBA getImpl iterImpl =
         -> ExceptT (CSMappendException id) m (ChangeSet id value)
     computeUndo ca (ChangeSet cs) = do
         vals <- lift $ getter ca (M.keysSet cs)
-        let processOne m (k, valueop) = case (valueop, k `M.lookup` vals) of
-              (New _, Nothing)      -> pure $ M.insert k Rem m
-              (Upd _, Just v0)      -> pure $ M.insert k (Upd v0) m
-              (NotExisted, Nothing) -> pure $ M.insert k NotExisted m
-              (Rem, Just v0)        -> pure $ M.insert k (New v0) m
-              _                     -> throwError (CSMappendException k)
+        let processOne m (k, valueop) =
+              case (valueop, k `M.lookup` vals) of
+                  (New _, Nothing)      -> pure $ M.insert k Rem m
+                  (Upd _, Just v0)      -> pure $ M.insert k (Upd $ Right . const v0) m
+                  (NotExisted, Nothing) -> pure $ M.insert k NotExisted m
+                  (Rem, Just v0)        -> pure $ M.insert k (New v0) m
+                  _                     ->
+                    throwError
+                        (CSMappendException
+                            k
+                            (ValueOpErr "computeUndo: Undo isn't consistent with the state"))
         ChangeSet <$> foldM processOne mempty (M.toList cs)
 
+chgAccumGetter
+    :: (IdSumPrefixed id, Ord id, Monad m, MonadThrow m, Buildable id)
+    => (StateR id -> m (StateP id value))
+    -> SumChangeSet id value
+    -> StateR id
+    -> m (StateP id value)
+chgAccumGetter getter (SumChangeSet accum) reqIds = do
+    mp <- bool (unionStateP resp <$> getter reqIds') (pure resp) (null reqIds')
+    applyUpds mp
+  where
+    -- TODO: @id: find similar standtard functions
+    throwMaybe :: (Monad m, MonadThrow m, Exception e) => e -> Maybe a -> m a
+    throwMaybe _ (Just x) = return x
+    throwMaybe ex Nothing = throwM ex
+
+    -- TODO: @id: find similar standtard functions
+    throwLeft
+        :: (Monad m, MonadThrow m, Exception e1, Exception e2)
+        => e1 -> Either e2 a -> m a
+    throwLeft _ (Right x)  = return x
+    throwLeft e1 (Left e2) = (throwM e1) >> (throwM e2)
+
+    upds = csUpdate accum
+    resp = csNew accum `M.intersection` toDummyMap reqIds
+    reqIds' = reqIds S.\\ M.keysSet (changeSet accum `M.difference` upds)
+    unionStateP = M.unionWith (error "chgAccumGetter: unexpected overlap of keys")
+    -- TODO: @id: use CSMappendException here?
+    applyUpds mp = do
+        updatedVals <-
+            traverse (\(i, f) -> do
+                oldVal <- throwMaybe
+                    (ValueOpErr $ sformat ("Key "%build%" is absent.") i)
+                    (M.lookup i mp)
+                newVal <- throwLeft
+                    (ValueOpErr $ sformat ("Could not modify the value with key: "%build) i)
+                    (f oldVal)
+                return (i, newVal))
+              (M.toList upds)
+        return $ M.fromList updatedVals <> mp
+
+
 chgAccumIter
-    :: (IdSumPrefixed id, Ord id, Applicative m)
+    :: (IdSumPrefixed id, Ord id, Monad m, MonadThrow m)
     => (Prefix -> b -> ((id, value) -> b -> b) -> m b)
     -> SumChangeSet id value
     -> Prefix
@@ -113,23 +154,12 @@ chgAccumIter
     -> m b
 chgAccumIter iter accum prefix initB foldF =
     let newKeysB = M.foldrWithKey (\i v r -> foldF (i, v) r) initB $ getNewKeys accum prefix
-        newFoldF (i, val) b = case queryAccumOne accum i of
+        newFoldF (i, val) b = case queryChSetOne accum i of
             Nothing         -> foldF (i, val) b
             Just Rem        -> b
             Just NotExisted -> b -- something strange happened -- TODO shall we throw error here ?
-            Just (Upd newV) -> foldF (i, newV) b
+            Just (Upd updF) ->
+                -- TODO: @id: throw here?
+                foldF (i, fromRight (error "Can't modify value in chgAccumIter") (updF val)) b
             Just (New _)    -> b -- something strange happened
      in iter prefix newKeysB newFoldF
-
-
-chgAccumGetter
-    :: (IdSumPrefixed id, Ord id, Applicative m)
-    => (StateR id -> m (StateP id value))
-    -> SumChangeSet id value
-    -> StateR id
-    -> m (StateP id value)
-chgAccumGetter getter accum reqIds =
-    bool (unionStateP resp <$> getter reqIds') (pure resp) (null reqIds')
-  where
-    (reqIds', resp) = queryAccum accum reqIds
-    unionStateP = M.unionWith (error "chgAccumGetter: unexpected overlap of keys")

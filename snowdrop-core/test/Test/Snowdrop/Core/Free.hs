@@ -18,7 +18,8 @@ import qualified Hedgehog.Range as Range
 import           Test.Tasty (TestTree)
 import           Test.Tasty.Hedgehog (testProperty)
 
-import           Snowdrop.Core (CSMappendException (..), ERoComp, Prefix (..), StatePException (..))
+import           Snowdrop.Core (CSMappendException (..), ERoComp, Prefix (..), StatePException (..),
+                                ValueOpErr (..))
 import           Snowdrop.Util (eitherToVerRes, inj, verResToEither)
 
 import           Test.Snowdrop.Core.Executor (Counter (..), TestCtx)
@@ -121,7 +122,7 @@ genError :: MonadGen m => m Err
 genError = Gen.element
     [ inj QueryProjectionFailed
     , inj IteratorProjectionFailed
-    , inj (CSMappendException (TS "<generated exception>"))
+    , inj (CSMappendException (TS "<generated exception>") BasicErr) -- TODO: @id: generate all ValueOpErr?
     ]
 
 -- | Generates 'ThrowError' command.

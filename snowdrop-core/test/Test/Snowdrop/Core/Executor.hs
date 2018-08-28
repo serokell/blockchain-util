@@ -19,8 +19,8 @@ import           Loot.Log (NameSelector (..))
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx (..),
                                 ChgAccumModifier (..), Concurrently (..), DbAccess (..), ERoComp,
                                 Effectful (..), FoldF (..), IdSumPrefixed (..), Race (..), StateP,
-                                Undo (..), ValueOp (..), changeSetToList, getCAOrDefault,
-                                mappendChangeSet, unBaseM)
+                                Undo (..), ValueOp (..), ValueOpErr (..), changeSetToList,
+                                getCAOrDefault, mappendChangeSet, unBaseM)
 import           Snowdrop.Util
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
@@ -49,10 +49,14 @@ simpleStateAccessor st (DbModifyAccum (SumChangeSet acc) cam cont) =
       let processOne m (k, valueop) =
             case (valueop, k `M.lookup` vals) of
               (New _, Nothing)      -> pure $ M.insert k Rem m
-              (Upd _, Just v0)      -> pure $ M.insert k (Upd v0) m
+              (Upd _, Just v0)      -> pure $ M.insert k (Upd $ Right . const v0) m
               (NotExisted, Nothing) -> pure $ M.insert k NotExisted m
               (Rem, Just v0)        -> pure $ M.insert k (New v0) m
-              _                     -> throwError (CSMappendException k)
+              _                     ->
+                throwError
+                    (CSMappendException
+                        k
+                        (ValueOpErr "computeUndo: Undo isn't consistent with the state"))
        in flip Undo BS.empty . ChangeSet <$> foldM processOne mempty (M.toList csMap)
     cs'@(ChangeSet csMap) = case cam of
             CAMRevert (Undo cs_ _) -> cs_
@@ -107,13 +111,21 @@ applyDiff cs initM = foldM applyDiffOne initM (changeSetToList cs)
   where
     maybeLookup k m act1 act2 = maybe act1 act2 $ M.lookup k m
     applyDiffOne m (k, New v) =
-        maybeLookup k m (pure $ M.insert k v m) (\_ -> throwLocalError $ CSMappendException k)
-    applyDiffOne m (k, Upd v) =
-        maybeLookup k m (throwLocalError $ CSMappendException k) (\_ -> pure $ M.insert k v m)
+        maybeLookup k m (pure $ M.insert k v m) (\_ -> throwLocalError $ CSMappendException k BasicErr)
+    applyDiffOne m (k, Upd f) =
+        maybeLookup
+            k
+            m
+            (throwLocalError $ CSMappendException k BasicErr)
+            (\oldVal -> do
+                newVal <- case f oldVal of
+                    Right res -> return res
+                    Left e    -> throwLocalError (CSMappendException k e)
+                pure $ M.insert k newVal m)
     applyDiffOne m (k, Rem)   =
-        maybeLookup k m (throwLocalError $ CSMappendException k) (\_ -> pure $ M.delete k m)
+        maybeLookup k m (throwLocalError $ CSMappendException k BasicErr) (\_ -> pure $ M.delete k m)
     applyDiffOne m (k, NotExisted) =
-        maybeLookup k m (pure m) (\_ -> throwLocalError $ CSMappendException k)
+        maybeLookup k m (pure m) (\_ -> throwLocalError $ CSMappendException k BasicErr)
 
 instance (MonadReader (StateP id value) m, IdSumPrefixed id,
           Ord id, HasException e (CSMappendException id)) =>
