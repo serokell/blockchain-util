@@ -10,13 +10,13 @@ import qualified Prelude as P
 import           Universum
 
 import           Snowdrop.Block.OSParams (OSParams)
-import           Snowdrop.Block.Types (Block (..), CurrentBlockRef (..), HasBlock (..),
-                                       PrevBlockRef (..))
+import           Snowdrop.Block.Types (Block (..), BlockRef, CurrentBlockRef (..), HasBlock (..),
+                                       PrevBlockRef (..), BlockHeader, Payload)
 import           Snowdrop.Util
 
-newtype BlockIntegrityVerifier header payload = BIV { unBIV :: Block header payload -> Bool }
+newtype BlockIntegrityVerifier blkType = BIV { unBIV :: Block (BlockHeader blkType) (Payload blkType) -> Bool }
 
-instance Monoid (BlockIntegrityVerifier header payload) where
+instance Monoid (BlockIntegrityVerifier blkType) where
     mempty = BIV $ const True
     BIV f `mappend` BIV g = BIV $ \blk -> f blk && g blk
 
@@ -26,18 +26,18 @@ instance Monoid (BlockIntegrityVerifier header payload) where
 -- All methods presented in block validation configuration are stateless, all stateful checks shall
 -- be performed as part of individual transaction validation (which is encapsulated in `bscApplyPayload`
 -- method of block handling configuration `BlkStateConfiguration`.
-data BlkConfiguration header payload blockRef = BlkConfiguration
-    { bcBlockRef     :: header -> CurrentBlockRef blockRef
+data BlkConfiguration blkType = BlkConfiguration
+    { bcBlockRef     :: BlockHeader blkType -> CurrentBlockRef blkType
     -- ^ Get a block reference by given header.
     -- Normally to be represented by function to get header hash
     -- (with header including hashes of data within the block).
 
-    , bcPrevBlockRef :: header -> PrevBlockRef blockRef
+    , bcPrevBlockRef :: BlockHeader blkType -> PrevBlockRef blkType
     -- ^ Get reference of the block preceding the block, which header is given.
     -- Returns `Nothing` in case of supplied header referring to the very first
     -- block of blockchain (a la block with difficulty 1).
 
-    , bcBlkVerify    :: BlockIntegrityVerifier header payload
+    , bcBlkVerify    :: BlockIntegrityVerifier blkType
     -- ^ Block integrity verifier: a pure function which given a block returns True iff
     -- the block is valid with respect to its integrity.
     -- This includes checks of all invariants that rely on:
@@ -49,7 +49,7 @@ data BlkConfiguration header payload blockRef = BlkConfiguration
     -- Block integrity verifier is by intention made a pure function:
     -- all stateful checks shall be made in scope of validators for individual transactions.
 
-    , bcIsBetterThan :: OldestFirst [] header -> OldestFirst [] header -> Bool
+    , bcIsBetterThan :: OldestFirst [] (BlockHeader blkType) -> OldestFirst [] (BlockHeader blkType) -> Bool
     -- ^ Comparison of two chains.
     -- Left operand is the currently adopted "best" chain, right operand is a proposed
     -- chain. `bcIsBetterThan` function is to make up a decision on whether proposed block
@@ -59,7 +59,7 @@ data BlkConfiguration header payload blockRef = BlkConfiguration
     -- it means that if proposed chain is considered valid over the latter course of validation, it
     -- is to be applied instead of currently adopted "best" chain.
 
-    , bcValidateFork :: OSParams -> OldestFirst [] header -> Bool
+    , bcValidateFork :: OSParams -> OldestFirst [] (BlockHeader blkType) -> Bool
     -- ^ Check of chain with OS Params.
 
     , bcMaxForkDepth :: Int
@@ -87,11 +87,11 @@ data BlkConfiguration header payload blockRef = BlkConfiguration
 --      b. sequencing by prevBlock
 -- DOESN'T validate that the last block refers to current tip
 blkSeqIsConsistent
-    :: forall header payload bdata blockRef .
-    ( HasBlock header payload bdata
-    , Eq blockRef
+    :: forall blkType bdata .
+    ( HasBlock (BlockHeader blkType) (Payload blkType) bdata
+    , Eq (BlockRef blkType)
     )
-    => BlkConfiguration header payload blockRef
+    => BlkConfiguration blkType
     -> OldestFirst [] bdata
     -> Bool
 blkSeqIsConsistent _ (OldestFirst []) = True
@@ -103,7 +103,7 @@ blkSeqIsConsistent BlkConfiguration {..} (OldestFirst bdatas) =
     blks = map getBlock bdatas
     prevRefs = unsafeTail (map getPrevRef blks)
 
-    getBlockRef, getPrevRef :: Block header payload -> Maybe blockRef
+    getBlockRef, getPrevRef :: Block (BlockHeader blkType) (Payload blkType) -> Maybe (BlockRef blkType)
     getBlockRef = Just . unCurrentBlockRef . bcBlockRef . blkHeader
     getPrevRef  = unPrevBlockRef . bcPrevBlockRef . blkHeader
 
@@ -116,7 +116,9 @@ blkSeqIsConsistent BlkConfiguration {..} (OldestFirst bdatas) =
     unsafeLast [] = error emptyListErr
     unsafeLast xs = P.last xs
 
-    doValidate :: OldestFirst [] (Block header payload, Maybe blockRef) -> Bool
+    doValidate ::
+        OldestFirst [] (Block (BlockHeader blkType) (Payload blkType) , Maybe (BlockRef blkType))
+        -> Bool
     doValidate (OldestFirst []) = True
     doValidate (OldestFirst ((b, prevRef):xs)) =
       and [ unBIV bcBlkVerify b

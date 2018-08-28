@@ -4,7 +4,6 @@
 module Snowdrop.Block.State
        ( BlockStateException (..)
        , TipKey (..)
-       , BlockRef (..)
        , TipValue (..)
        , inmemoryBlkStateConfiguration
        ) where
@@ -16,11 +15,12 @@ import           Data.Default (def)
 import           Data.Default (Default)
 import qualified Data.Map as M
 import qualified Data.Text.Buildable
-import           Formatting (bprint, build, (%))
+-- import           Formatting (bprint, build, (%))
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..))
+import           Snowdrop.Block.Types (Block (..), BlockUndo, Blund (..), CurrentBlockRef (..),
+                                       BlockRef, BlockHeader, Payload, RawBlk, RawPayload)
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx,
                                 ChgAccumModifier (..), ERwComp, Expander (..), HasKeyValue,
                                 IdSumPrefixed (..), StateModificationException,
@@ -45,11 +45,10 @@ data TipKey = TipKey
 instance Buildable TipKey where
     build TipKey = "tip"
 
-newtype BlockRef blockRef = BlockRef {unBlockRef :: blockRef}
-    deriving (Eq, Ord, Show)
-
+{-
 instance Buildable blockRef => Buildable (BlockRef blockRef) where
-    build (BlockRef br) = bprint ("block ref "%build) br
+    build br = bprint ("block ref "%build) br
+-}
 
 data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
     deriving (Eq, Ord, Show, Generic)
@@ -57,9 +56,10 @@ data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-  :: forall header rawBlock rawPayload blockRef e id proof value ctx payload rawTx .
-    ( HasKeyValue id value TipKey (TipValue blockRef)
-    , HasKeyValue id value (BlockRef blockRef) (Blund header rawPayload (Undo id value))
+  :: forall blkType e id proof value ctx rawTx .
+    ( HasKeyValue id value TipKey (TipValue (BlockRef blkType))
+    , HasKeyValue id value (BlockRef blkType) (Blund (BlockHeader blkType) (RawPayload blkType) (Undo id value))
+    , BlockUndo blkType ~ Undo id value
     , HasExceptions e
         [ StatePException
         , BlockStateException id
@@ -70,20 +70,20 @@ inmemoryBlkStateConfiguration
         , ExpandException
         ]
     , Ord id
-    , Ord (BlockRef blockRef)
+    , Ord (BlockRef blkType)
     , IdSumPrefixed id
     , HasLens ctx (ChgAccumCtx ctx)
     , HasLens ctx RestrictCtx
-    , HasGetter payload [StateTx id proof value]
-    , HasGetter rawBlock [rawTx]
+    , HasGetter (Payload blkType) [StateTx id proof value]
+    , HasGetter (RawBlk blkType) [rawTx]
     , Default (ChgAccum ctx)
     )
-    => BlkConfiguration header payload blockRef
+    => BlkConfiguration blkType
     -> Validator e id proof value ctx
     -> (rawTx -> (StateTxType, proof))
     -> Expander e id proof value ctx rawTx
-    -> (rawBlock -> [StateTx id proof value] -> Block header payload)
-    -> BlkStateConfiguration header payload rawBlock rawPayload (Undo id value) blockRef (ERwComp e id value ctx (ChgAccum ctx))
+    -> (RawBlk blkType -> [StateTx id proof value] -> Block (BlockHeader blkType) (Payload blkType))
+    -> BlkStateConfiguration blkType (ERwComp e id value ctx (ChgAccum ctx))
 inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
     BlkStateConfiguration {
       bscConfig = cfg
@@ -102,12 +102,12 @@ inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
     , bscApplyUndo = void . modifyRwCompChgAccum . CAMRevert
     , bscStoreBlund = \blund -> do
           let blockRef = unCurrentBlockRef $ bcBlockRef cfg (blkHeader $ buBlock blund)
-          let chg = ChangeSet $ M.singleton (inj $ BlockRef blockRef) (New $ inj blund)
+          let chg = ChangeSet $ M.singleton (inj $ blockRef) (New $ inj blund)
           void $ modifyRwCompChgAccum $ CAMChange chg
     , bscRemoveBlund = \blockRef ->
-        void $ modifyRwCompChgAccum $ CAMRevert $ Undo (ChangeSet $ M.singleton (inj $ BlockRef blockRef) Rem) BS.empty
-    , bscGetBlund = liftERoComp . queryOne . BlockRef
-    , bscBlockExists = liftERoComp . queryOneExists . BlockRef
+        void $ modifyRwCompChgAccum $ CAMRevert $ Undo (ChangeSet $ M.singleton (inj $ blockRef) Rem) BS.empty
+    , bscGetBlund = liftERoComp . queryOne
+    , bscBlockExists = liftERoComp . queryOneExists
     , bscGetTip = liftERoComp (queryOne TipKey)
                     >>= maybe (throwLocalError @(BlockStateException id) TipNotFound) (pure . unTipValue)
     , bscSetTip = \newTip' -> do

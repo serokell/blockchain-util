@@ -6,6 +6,13 @@ module Snowdrop.Block.Types
        , Blund (..)
        , CurrentBlockRef (..)
        , PrevBlockRef (..)
+       , BlockRef
+       , Payload
+       , BlockHeader
+       , BlockUndo
+       , RawBlk
+       , RawBlund
+       , RawPayload
        ) where
 
 import           Universum
@@ -13,6 +20,18 @@ import           Universum
 -------------------------------
 -- Block storage
 -------------------------------
+
+type family BlockRef a :: *
+
+type family Payload a :: *
+
+type family BlockHeader a :: *
+
+type family BlockUndo a :: *
+
+type family RawBlk a :: *
+
+type family RawPayload a :: *
 
 data Block header payload = Block
     { blkHeader  :: header
@@ -30,13 +49,16 @@ data Blund header payload undo = Blund {
   , buUndo  :: undo
   } deriving (Eq, Ord, Show, Generic)
 
+type RawBlund blkType =
+    (Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))
+
 instance HasBlock header payload (Blund header payload undo) where
     getBlock = getBlock . buBlock
 
-newtype CurrentBlockRef blockRef = CurrentBlockRef
-    { unCurrentBlockRef :: blockRef
+newtype CurrentBlockRef blkType = CurrentBlockRef
+    { unCurrentBlockRef :: BlockRef blkType
     }
 
-newtype PrevBlockRef blockRef = PrevBlockRef
-    { unPrevBlockRef :: (Maybe blockRef)
+newtype PrevBlockRef blkType = PrevBlockRef
+    { unPrevBlockRef :: (Maybe (BlockRef blkType))
     }
