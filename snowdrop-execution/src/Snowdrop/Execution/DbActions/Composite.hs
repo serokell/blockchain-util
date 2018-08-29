@@ -23,15 +23,16 @@ data CompositeChgAccum chgAccumPrimary chgAccumSecondary ps = CompositeChgAccum
     , ccaSecondary :: chgAccumSecondary
     }
 
-instance (Default chgAccumPrimary, Default chgAccumSecondary) => Default (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps) where
+instance (Default chgAccumPrimary, Default chgAccumSecondary)
+        => Default (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps) where
     def = CompositeChgAccum def def
 
 constructCompositeActions
-  :: forall ps chgAccumPrimary chgAccumSecondary id value m .
+    :: forall ps chgAccumPrimary chgAccumSecondary id value m .
     (Reifies ps (Set Prefix), Ord id, MonadCatch m, IdSumPrefixed id)
-  => DbAccessActions chgAccumPrimary id value m
-  -> DbAccessActions chgAccumSecondary id value m
-  -> DbAccessActions (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps) id value m
+    => DbAccessActions chgAccumPrimary id value m
+    -> DbAccessActions chgAccumSecondary id value m
+    -> DbAccessActions (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps) id value m
 constructCompositeActions dbaP dbaS =
     DbAccessActions cGetter cModifyAccum $ \(CompositeChgAccum caP caS) p ->
         bool (daaIter dbaS caS p) (daaIter dbaP caP p) $ p `S.member` prefixes
@@ -48,9 +49,9 @@ constructCompositeActions dbaP dbaS =
             CAMRevert (Undo cs sn) -> processCS (CAMRevert . flip Undo sn) cs
     mergeUndos (Undo csP snP) (Undo csS snS) =
       if BS.null snP || BS.null snS
-         then flip Undo (snP `BS.append` snS)
-               <$> (ExceptT $ pure $ csP `mappendChangeSet` csS)
-         else throwM $ DbApplyException "Both undo contain non-empty snapshot in composite actions"
+      then flip Undo (snP `BS.append` snS)
+           <$> (ExceptT $ pure $ csP `mappendChangeSet` csS)
+      else throwM $ DbApplyException "Both undo contain non-empty snapshot in composite actions"
     splitCS cs = (csP, csS)
       where
         csP = filterByPrefixPred (`S.member` prefixes) cs

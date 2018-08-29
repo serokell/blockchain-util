@@ -1,17 +1,17 @@
 {-# LANGUAGE DataKinds #-}
 
 module Snowdrop.Util.Prism.Exception
-    (
-      HasException
-    , HasExceptions
-    , HasReviews
-    , HasPrisms
+       (
+         HasException
+       , HasExceptions
+       , HasReviews
+       , HasPrisms
 
-    , eitherThrow
-    , maybeThrow
-    , maybeThrowLocal
-    , throwLocalError
-    ) where
+       , eitherThrow
+       , maybeThrow
+       , maybeThrowLocal
+       , throwLocalError
+       ) where
 
 import           Universum
 

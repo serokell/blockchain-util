@@ -1,14 +1,14 @@
 module Snowdrop.Util.Containers
-    (
-      OldestFirst (..)
-    , NewestFirst (..)
-    , oldestFirstFContainer
-    , newestFirstFContainer
-    , toDummyMap
-    , toOldestFirst
-    , mapSet
-    , mapKeys
-    ) where
+       (
+         OldestFirst (..)
+       , NewestFirst (..)
+       , oldestFirstFContainer
+       , newestFirstFContainer
+       , toDummyMap
+       , toOldestFirst
+       , mapSet
+       , mapKeys
+       ) where
 
 import           Universum hiding (head, init, last)
 

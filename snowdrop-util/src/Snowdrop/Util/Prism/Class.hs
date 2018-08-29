@@ -1,9 +1,9 @@
 module Snowdrop.Util.Prism.Class
-    (
-      HasReview (..)
-    , HasPrism (..)
-    , fPair
-    ) where
+       (
+         HasReview (..)
+       , HasPrism (..)
+       , fPair
+       ) where
 
 import           Universum hiding (head, init, last)
 
@@ -11,7 +11,8 @@ import           Control.Lens (Prism', Review, prism', re, unto)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
--- TODO probably using lens package is overkill and we have to use manually defined Prism and Getter in future
+-- TODO probably using lens package is overkill and we have to use manually defined
+-- Prism and Getter in future
 
 class HasReview s a where
     {-# MINIMAL reviewOf | inj #-}
@@ -79,14 +80,17 @@ instance (Ord id, Ord id1, HasPrism id id1) => HasPrism (Set id) (Set id1) where
       where
         valsM = proj <$> S.toList vals
 
-instance (Ord id, HasReview id id1, HasReview value value1) => HasReview (M.Map id value) (M.Map id1 value1) where
+instance (Ord id, HasReview id id1, HasReview value value1)
+        => HasReview (M.Map id value) (M.Map id1 value1) where
     inj mid1 = M.fromList $ bimap inj inj <$> M.toList mid1
 
-instance (Ord id, Ord id1, HasPrism id id1, HasPrism value value1) => HasPrism (M.Map id value) (M.Map id1 value1) where
+instance (Ord id, Ord id1, HasPrism id id1, HasPrism value value1)
+        => HasPrism (M.Map id value) (M.Map id1 value1) where
     proj vals
         | isJust (find isNothing valsM)
             = Nothing -- TODO after we have more sensitive errors,
-                      -- have one error for "id returned unexpected value" and one for "unexpected id"
+                      -- have one error for "id returned unexpected value"
+                      -- and one for "unexpected id"
         | otherwise
             = Just $ M.fromList $ catMaybes valsM
       where

@@ -21,8 +21,8 @@ import           Snowdrop.Util
 newtype PreValidator e id proof value ctx =
     PreValidator (StateTx id proof value -> ERoComp e id value ctx ())
 
-mkPreValidator ::
-       (StateTx id proof value -> ERoComp e id value ctx ())
+mkPreValidator
+    :: (StateTx id proof value -> ERoComp e id value ctx ())
     -> PreValidator e id proof value ctx
 mkPreValidator = PreValidator
 
@@ -38,8 +38,8 @@ instance Ord id => Monoid (PreValidator e id proof value ctx) where
     mempty = PreValidator $ const (pure ())
     mappend = (<>)
 
-mkValidator ::
-       Ord id
+mkValidator
+    :: Ord id
     => StateTxType
     -> [PreValidator e id proof value ctx]
     -> Validator e id proof value ctx

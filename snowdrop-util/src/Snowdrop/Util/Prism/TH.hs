@@ -1,10 +1,10 @@
 module Snowdrop.Util.Prism.TH
-    (
-      withInj
-    , withInjProj
-    , deriveView
-    , deriveIdView
-    ) where
+       (
+         withInj
+       , withInjProj
+       , deriveView
+       , deriveIdView
+       ) where
 
 import           Universum hiding (head, init, last)
 

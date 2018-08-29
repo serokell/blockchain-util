@@ -31,10 +31,11 @@ import           Universum
 import           Control.Monad.Except (throwError)
 import           Data.Default (def)
 
+import           Test.Snowdrop.Core.Executor (Counter, TestCtx, countERoComp, runERoComp)
+
 import           Snowdrop.Core (CSMappendException (..), ERoComp, IdSumPrefixed (..), Prefix (..),
                                 SValue, StatePException (..), iteratorFor, queryOne, querySet)
 import           Snowdrop.Util
-import           Test.Snowdrop.Core.Executor (Counter, TestCtx, countERoComp, runERoComp)
 
 ----------------------------------------------------------------------------
 -- Types & functions
@@ -57,7 +58,7 @@ instance IdSumPrefixed Id where
 
 data Err = ErrCSM (CSMappendException Id)
          | ErrStateP StatePException
-  deriving (Eq, Show)
+    deriving (Eq, Show)
 
 deriveView withInj ''Err
 
@@ -187,8 +188,8 @@ getOperNum comp = runReader (countERoComp comp) def
 ----------------------------------------------------------------------------
 
 -- | Calculate the result of the given 'ERoComp' with provided map.
-getRes :: Map Id Value
-       -> ERoComp Err Id Value (TestCtx Id Value) InterpetResult
-       -> Either Err InterpetResult
+getRes
+    :: Map Id Value
+    -> ERoComp Err Id Value (TestCtx Id Value) InterpetResult
+    -> Either Err InterpetResult
 getRes mp er = runReader (runERoComp er) mp
-

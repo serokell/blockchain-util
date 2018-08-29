@@ -1,14 +1,14 @@
 module Snowdrop.Core.Transaction
-    ( SValue
-    , HasKeyValue
+       ( SValue
+       , HasKeyValue
 
-    , StateTxType (..)
-    , StateTx (..)
-    , PartialStateTx (..)
-    , mkPartialStateTx
+       , StateTxType (..)
+       , StateTx (..)
+       , PartialStateTx (..)
+       , mkPartialStateTx
 
-    , selectKeyValueCS
-    ) where
+       , selectKeyValueCS
+       ) where
 
 import           Universum
 
