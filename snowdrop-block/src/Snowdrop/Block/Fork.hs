@@ -63,10 +63,10 @@ instance Buildable (ForkVerificationException blockRef) where
 --  returns `ApplyFork` iff evaluation results in `True`.
 verifyFork
     :: forall header payload rawBlock rawPayload undo blockRef e m .
-       ( MonadError e m
-       , Eq blockRef
-       , HasException e (ForkVerificationException blockRef)
-       )
+    ( MonadError e m
+    , Eq blockRef
+    , HasException e (ForkVerificationException blockRef)
+    )
     => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
     -> OSParams
     -> OldestFirst NonEmpty header

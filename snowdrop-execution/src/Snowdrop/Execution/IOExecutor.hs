@@ -78,8 +78,8 @@ instance (Show e, Typeable e) => Race e (BaseMIO e eff ctx) where
 
 runBaseMIO
     :: forall e eff ctx a .
-       (Show e, Typeable e, HasGetter ctx (BaseMIOExec eff ctx),
-       (Loot.HasLens Log.LoggingIO ctx Log.LoggingIO))
+    (Show e, Typeable e, HasGetter ctx (BaseMIOExec eff ctx),
+    (Loot.HasLens Log.LoggingIO ctx Log.LoggingIO))
     => BaseM e eff ctx a
     -> ctx
     -> ExecM a
@@ -123,13 +123,13 @@ instance HasGetter (IOCtx chgAccum id value) (ChgAccumCtx (IOCtx chgAccum id val
 
 runERoCompIO
     :: forall e id value chgAccum a ctx m.
-       ( Show e
-       , Typeable e
-       , Default chgAccum
-       , MonadIO m
-       , MonadReader ctx m
-       , HasLens' ctx Log.LoggingIO
-       )
+    ( Show e
+    , Typeable e
+    , Default chgAccum
+    , MonadIO m
+    , MonadReader ctx m
+    , HasLens' ctx Log.LoggingIO
+    )
     => DbAccessActions chgAccum id value ExecM
     -> Maybe chgAccum
     -> ERoComp e id value (IOCtx chgAccum id value) a

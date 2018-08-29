@@ -29,7 +29,7 @@ instance (Default chgAccumPrimary, Default chgAccumSecondary)
 
 constructCompositeActions
     :: forall ps chgAccumPrimary chgAccumSecondary id value m .
-      (Reifies ps (Set Prefix), Ord id, MonadCatch m, IdSumPrefixed id)
+    (Reifies ps (Set Prefix), Ord id, MonadCatch m, IdSumPrefixed id)
     => DbAccessActions chgAccumPrimary id value m
     -> DbAccessActions chgAccumSecondary id value m
     -> DbAccessActions (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps) id value m

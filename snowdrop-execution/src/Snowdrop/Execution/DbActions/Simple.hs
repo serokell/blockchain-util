@@ -28,12 +28,12 @@ import           Snowdrop.Execution.DbActions.Types
 
 mappendStOrThrow
     :: forall e id value m .
-       ( Monad m
-       , Ord id
-       , IdSumPrefixed id
-       , MonadState (SumChangeSet id value) m
-       , HasException e (CSMappendException id)
-       )
+    ( Monad m
+    , Ord id
+    , IdSumPrefixed id
+    , MonadState (SumChangeSet id value) m
+    , HasException e (CSMappendException id)
+    )
     => ChangeSet id value
     -> m (Either e ())
 mappendStOrThrow chg = (flip modifySumChgSet chg) <$> get >>=

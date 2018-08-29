@@ -173,13 +173,14 @@ materialize initAVL = flip AVL.openAndM initAVL $ \case
 
 initAVLPureStorage
     :: forall k v m h .
-       ( MonadIO m
-       , MonadCatch m
-       , MonadThrow m
-       , KVConstraint k v
-       , AvlHashable h
-       , AVL.Hash h k v
-       , Serialisable (MapLayer h k v h))
+    ( MonadIO m
+    , MonadCatch m
+    , MonadThrow m
+    , KVConstraint k v
+    , AvlHashable h
+    , AVL.Hash h k v
+    , Serialisable (MapLayer h k v h)
+    )
     => Map k v -> m (AVLServerState h k)
 initAVLPureStorage (M.toList -> kvs) = reThrowAVLEx @k $ do
     (rootH, AVLPureStorage . unAVLCache -> st) <-
@@ -226,16 +227,16 @@ instance HasGetter (ClientTempState h k v n) (RootHash h) where
 
 avlClientDbActions
     :: forall k v m h n.
-       ( KVConstraint k v
-       , MonadIO m
-       , MonadCatch m
-       , AvlHashable h
-       , AVL.Hash h k v
-       , MonadIO n
-       , MonadCatch n
-       , RetrieveImpl (ReaderT (ClientTempState h k v n) m) h
-       , Serialisable (MapLayer h k v h)
-       )
+    ( KVConstraint k v
+    , MonadIO m
+    , MonadCatch m
+    , AvlHashable h
+    , AVL.Hash h k v
+    , MonadIO n
+    , MonadCatch n
+    , RetrieveImpl (ReaderT (ClientTempState h k v n) m) h
+    , Serialisable (MapLayer h k v h)
+    )
     => RetrieveF h n
     -> RootHash h
     -> n (ClientMode (AVL.Proof h k v) -> DbModifyActions (AVLChgAccum h k v) k v m ())

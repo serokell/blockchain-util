@@ -89,10 +89,10 @@ instance Buildable TxValidationException where
 -- If some value' couldn't be projected from corresponding value, the request will fail.
 querySet
     :: forall id id' value value' e ctx .
-       ( Ord id, Ord id'
-       , HasKeyValue id value id' value'
-       , HasException e StatePException
-       )
+    ( Ord id, Ord id'
+    , HasKeyValue id value id' value'
+    , HasException e StatePException
+    )
     => Set id' -> ERoComp e id value ctx (StateP id' value')
 querySet ids' =
     -- Choose needed ids from state, then try to project all values.
@@ -104,18 +104,18 @@ querySet ids' =
 -- TODO Not Exist shall be different error from getEx Left ()
 queryOne
     :: forall id id' value value' e ctx .
-       ( Ord id, Ord id'
-       , HasKeyValue id value id' value'
-       , HasException e StatePException
-       )
+    ( Ord id, Ord id'
+    , HasKeyValue id value id' value'
+    , HasException e StatePException
+    )
     => id' -> ERoComp e id value ctx (Maybe value')
 queryOne id' = M.lookup id' <$> querySet (S.singleton id')
 
 queryOneExists
     :: forall id id' value e ctx .
-       ( Ord id, Ord id'
-       , HasPrism id id'
-       )
+    ( Ord id, Ord id'
+    , HasPrism id id'
+    )
     => id' -> ERoComp e id value ctx Bool
 queryOneExists id' = not . M.null <$> query (S.singleton (inj id'))
 
@@ -162,9 +162,10 @@ getCAOrDefault (CAInitialized cA) = cA
 
 withModifiedAccumCtx
     :: forall e id value ctx a .
-       (HasException e (CSMappendException id),
-        HasLens ctx (ChgAccumCtx ctx),
-        Default (ChgAccum ctx))
+    ( HasException e (CSMappendException id)
+    , HasLens ctx (ChgAccumCtx ctx)
+    , Default (ChgAccum ctx)
+    )
     => ChangeSet id value
     -> ERoComp e id value ctx a
     -> ERoComp e id value ctx a
@@ -178,7 +179,7 @@ withModifiedAccumCtx chgSet comp = do
 
 initAccumCtx
     :: forall e id value ctx a .
-      (HasException e StatePException, HasLens ctx (ChgAccumCtx ctx))
+    (HasException e StatePException, HasLens ctx (ChgAccumCtx ctx))
     => ChgAccum ctx
     -> ERoComp e id value ctx a
     -> ERoComp e id value ctx a

@@ -73,9 +73,9 @@ instance Buildable RedundantIdException where
 
 redundantIdsPreValidator
     :: forall e id proof value ctx.
-       ( IdSumPrefixed id
-       , HasException e RedundantIdException
-       )
+    ( IdSumPrefixed id
+    , HasException e RedundantIdException
+    )
     => [Prefix]
     -> PreValidator e id proof value ctx
 redundantIdsPreValidator prefixes = PreValidator $ \statetx -> do

@@ -87,13 +87,13 @@ instance Buildable ExpandException where
 -- E_i tx2 to the second and so on and so forth.
 expandRawTxs
     :: forall rawTx e id proof value ctx .
-       ( Ord id
-       , IdSumPrefixed id
-       , HasExceptions e [CSMappendException id, RestrictionInOutException]
-       , HasLens ctx (ChgAccumCtx ctx)
-       , Default (ChgAccum ctx)
-       , HasLens ctx RestrictCtx
-       )
+    ( Ord id
+    , IdSumPrefixed id
+    , HasExceptions e [CSMappendException id, RestrictionInOutException]
+    , HasLens ctx (ChgAccumCtx ctx)
+    , Default (ChgAccum ctx)
+    , HasLens ctx RestrictCtx
+    )
     => (rawTx -> (StateTxType, proof))
     -> [rawTx]
     -> PreExpanderSeq e id proof value ctx rawTx
@@ -202,13 +202,13 @@ expandUnionRawTxs mkProof expander txs = do
 
 runSeqExpandersSequentially
     :: forall rawTx e id proof value ctx .
-       ( IdSumPrefixed id
-       , Ord id
-       , HasExceptions e [CSMappendException id, RestrictionInOutException]
-       , HasLens ctx (ChgAccumCtx ctx)
-       , HasLens ctx RestrictCtx
-       , Default (ChgAccum ctx)
-       )
+    ( IdSumPrefixed id
+    , Ord id
+    , HasExceptions e [CSMappendException id, RestrictionInOutException]
+    , HasLens ctx (ChgAccumCtx ctx)
+    , HasLens ctx RestrictCtx
+    , Default (ChgAccum ctx)
+    )
     => (rawTx -> (StateTxType, proof))
     -> [(rawTx, PreExpandersSeq' e id proof value ctx rawTx)]
     -> ERoComp e id value ctx [StateTx id proof value]
