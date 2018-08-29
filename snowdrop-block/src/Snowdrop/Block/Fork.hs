@@ -21,7 +21,6 @@ import qualified Data.Text.Buildable
 import           Formatting (bprint)
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
-import           Snowdrop.Block.OSParams (OSParams)
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..),
                                        PrevBlockRef (..))
@@ -62,13 +61,13 @@ instance Buildable (ForkVerificationException blockRef) where
 --  5. evaluates `bcIsBetterThan` for loaded part of currently adopted "best" chain and fork,
 --  returns `ApplyFork` iff evaluation results in `True`.
 verifyFork
-    :: forall header payload rawBlock rawPayload undo blockRef e m .
+    :: forall header payload rawBlock rawPayload undo blockRef e m osparams .
     ( MonadError e m
     , Eq blockRef
     , HasException e (ForkVerificationException blockRef)
     )
-    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
-    -> OSParams
+    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m osparams
+    -> osparams
     -> OldestFirst NonEmpty header
     -> m (ForkVerResult header payload rawPayload undo blockRef)
 verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
@@ -111,10 +110,10 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
             throwLocalError @(ForkVerificationException blockRef) OriginOfBlockchainReached
 
 iterateChain
-    :: forall header payload rawBlock rawPayload undo blockRef m .
+    :: forall header payload rawBlock rawPayload undo blockRef m osparams .
     ( Monad m
     )
-    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m
+    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m osparams
     -> Int
     -> m (NewestFirst [] (Blund header rawPayload undo))
 iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDepth

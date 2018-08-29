@@ -57,7 +57,7 @@ data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-    :: forall header rawBlock rawPayload blockRef e id proof value ctx payload rawTx .
+    :: forall header rawBlock rawPayload blockRef e id proof value ctx payload rawTx osparams .
     ( HasKeyValue id value TipKey (TipValue blockRef)
     , HasKeyValue id value (BlockRef blockRef) (Blund header rawPayload (Undo id value))
     , HasExceptions e
@@ -78,7 +78,7 @@ inmemoryBlkStateConfiguration
     , HasGetter rawBlock [rawTx]
     , Default (ChgAccum ctx)
     )
-    => BlkConfiguration header payload blockRef
+    => BlkConfiguration header payload blockRef osparams
     -> Validator e id proof value ctx
     -> (rawTx -> (StateTxType, proof))
     -> Expander e id proof value ctx rawTx
@@ -91,6 +91,7 @@ inmemoryBlkStateConfiguration
          (Undo id value)
          blockRef
          (ERwComp e id value ctx (ChgAccum ctx))
+         osparams
 inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
     BlkStateConfiguration {
       bscConfig = cfg
