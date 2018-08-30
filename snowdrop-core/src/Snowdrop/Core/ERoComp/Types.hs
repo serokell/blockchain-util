@@ -20,7 +20,7 @@ import           Universum
 
 import           Snowdrop.Core.BaseM (BaseM)
 
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..), Undo)
+import           Snowdrop.Core.ChangeSet (ChangeSet (..), Undo)
 import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
 
 type StateR id = Set id             -- ^Request of state

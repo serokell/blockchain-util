@@ -15,7 +15,6 @@ module Snowdrop.Core.ERoComp.Helpers
        , querySet
        , queryOne
        , queryOneExists
-       , modifyAccum
 
        , withModifiedAccumCtx
        , initAccumCtx
