@@ -22,8 +22,8 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..))
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx,
-                                ChgAccumModifier (..), ERwComp, Expander (..), HasKeyValue,
-                                IdSumPrefixed (..), StateModificationException,
+                                ChgAccumModifier (..), ChgAccumOps (..), ERwComp, Expander (..),
+                                HasKeyValue, IdSumPrefixed (..), StateModificationException,
                                 StatePException (..), StateTx (..), StateTxType, Undo (..),
                                 Validator, ValidatorExecException, ValueOp (..), liftERoComp,
                                 mappendChangeSet, modifyRwCompChgAccum, queryOne, queryOneExists,
@@ -77,6 +77,7 @@ inmemoryBlkStateConfiguration
     , HasGetter payload [StateTx id proof value]
     , HasGetter rawBlock [rawTx]
     , Default (ChgAccum ctx)
+    , ChgAccumOps id value (ChgAccum ctx)
     )
     => BlkConfiguration header payload blockRef
     -> Validator e id proof value ctx

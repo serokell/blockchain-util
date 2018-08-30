@@ -45,7 +45,7 @@ constructCompositeActions dbaP dbaS =
         processCS f = bimap f f . splitCS
         (camP, camS) =
           case chgAccMod of
-            CAMChange cs         -> processCS CAMChange cs
+            CAMChange cs           -> processCS CAMChange cs
             CAMRevert (Undo cs sn) -> processCS (CAMRevert . flip Undo sn) cs
     mergeUndos (Undo csP snP) (Undo csS snS) =
       if BS.null snP || BS.null snS

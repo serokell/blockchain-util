@@ -19,9 +19,10 @@ import qualified Data.Text.Buildable
 import           Formatting (bprint, build, (%))
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..),
-                                DiffChangeSet (..), ERoComp, Expander (..), IdSumPrefixed (..),
-                                PreExpander (..), PreExpanderSeq (..), PreExpandersSeq',
-                                StateTx (..), StateTxType, mappendChangeSet, withModifiedAccumCtx)
+                                ChgAccumOps (..), DiffChangeSet (..), ERoComp, Expander (..),
+                                IdSumPrefixed (..), PreExpander (..), PreExpanderSeq (..),
+                                PreExpandersSeq', StateTx (..), StateTxType, mappendChangeSet,
+                                withModifiedAccumCtx)
 import           Snowdrop.Execution.DbActions (SumChangeSet, accumToDiff, mappendStOrThrow,
                                                modifySumChgSet)
 import           Snowdrop.Execution.Restrict (RestrictCtx, RestrictionInOutException, restrictCS,
@@ -93,6 +94,7 @@ expandRawTxs
     , HasLens ctx (ChgAccumCtx ctx)
     , Default (ChgAccum ctx)
     , HasLens ctx RestrictCtx
+    , ChgAccumOps id value (ChgAccum ctx)
     )
     => (rawTx -> (StateTxType, proof))
     -> [rawTx]
@@ -180,6 +182,7 @@ expandUnionRawTxs
     , HasLens ctx (ChgAccumCtx ctx)
     , HasLens ctx RestrictCtx
     , Default (ChgAccum ctx)
+    , ChgAccumOps id value (ChgAccum ctx)
     )
     => (rawTx -> (StateTxType, proof))
     -> Expander e id proof value ctx rawTx
@@ -208,6 +211,7 @@ runSeqExpandersSequentially
     , HasLens ctx (ChgAccumCtx ctx)
     , HasLens ctx RestrictCtx
     , Default (ChgAccum ctx)
+    , ChgAccumOps id value (ChgAccum ctx)
     )
     => (rawTx -> (StateTxType, proof))
     -> [(rawTx, PreExpandersSeq' e id proof value ctx rawTx)]

@@ -7,6 +7,7 @@ module Snowdrop.Core.ERoComp.Helpers
        (
          StatePException (..)
        , TxValidationException (..)
+       , ChgAccumOps(..)
 
        , query
        , iterator
@@ -45,12 +46,18 @@ import           Snowdrop.Core.ERoComp.Types (ChgAccum, ChgAccumCtx (..), ChgAcc
 import           Snowdrop.Core.Transaction (HasKeyValue, StateTxType)
 import           Snowdrop.Util
 
-modifyAccum
-    :: forall e id value ctx .
-       ChgAccum ctx
-    -> ChgAccumModifier id value
-    -> ERoComp e id value ctx (Either (CSMappendException id) (ChgAccum ctx, Undo id value))
-modifyAccum chgAccum chgSet = effect $ DbModifyAccum chgAccum chgSet id
+class ChgAccumOps id value chgAccum where
+    modifyAccum
+        :: chgAccum
+        -> ChgAccumModifier id value
+        -> Either (CSMappendException id) (chgAccum, Undo id value)
+
+-- modifyAccum
+--     :: forall e id value ctx .
+--        ChgAccum ctx
+--     -> ChgAccumModifier id value
+--     -> ERoComp e id value ctx (Either (CSMappendException id) (ChgAccum ctx, Undo id value))
+-- modifyAccum chgAccum chgSet = effect $ DbModifyAccum chgAccum chgSet id
 
 query :: forall e id value ctx . StateR id -> ERoComp e id value ctx (StateP id value)
 query req = effect $ DbQuery @(ChgAccum ctx) req id
@@ -165,13 +172,14 @@ withModifiedAccumCtx
     ( HasException e (CSMappendException id)
     , HasLens ctx (ChgAccumCtx ctx)
     , Default (ChgAccum ctx)
+    , ChgAccumOps id value (ChgAccum ctx)
     )
     => ChangeSet id value
     -> ERoComp e id value ctx a
     -> ERoComp e id value ctx a
 withModifiedAccumCtx chgSet comp = do
     ctxAcc <- getCAOrDefault @ctx . gett <$> ask
-    newAccOrErr <- modifyAccum ctxAcc $ CAMChange chgSet
+    let newAccOrErr = modifyAccum ctxAcc $ CAMChange chgSet
     case newAccOrErr of
         Left err   -> throwLocalError err
         Right (acc', _undo) ->

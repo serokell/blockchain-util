@@ -148,7 +148,7 @@ runERoCompIO dba initAcc comp = do
         case dAccess of
             DbQuery req cont                         -> cont <$> daaGetter dba chgAccum req
             DbIterator prefix (FoldF (e, acc, cont)) -> cont <$> daaIter dba chgAccum prefix e acc
-            DbModifyAccum accum chgSet cont          -> cont <$> daaModifyAccum dba accum chgSet
+            --DbModifyAccum accum chgSet cont        -> cont <$> daaModifyAccum dba accum chgSet
 
 runERwCompIO
     :: ( Show e
@@ -177,4 +177,4 @@ runERwCompIO dba initS comp = do
         case dAccess of
             DbQuery req cont                         -> cont <$> daaGetter dba chgAccum req
             DbIterator prefix (FoldF (e, acc, cont)) -> cont <$> daaIter dba chgAccum prefix e acc
-            DbModifyAccum accum chgSet cont          -> cont <$> daaModifyAccum dba accum chgSet
+            --DbModifyAccum accum chgSet cont        -> cont <$> daaModifyAccum dba accum chgSet

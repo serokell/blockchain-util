@@ -61,10 +61,10 @@ data ChgAccumModifier id value
 data DbAccess chgAccum id value res
     = DbQuery (StateR id) (StateP id value -> res)
     | DbIterator Prefix (FoldF (id, value) res)
-    | DbModifyAccum
-        chgAccum
-        (ChgAccumModifier id value)
-        (Either (CSMappendException id) (chgAccum, Undo id value) -> res)
+    -- | DbModifyAccum
+    --     chgAccum
+    --     (ChgAccumModifier id value)
+    --     (Either (CSMappendException id) (chgAccum, Undo id value) -> res)
     deriving (Functor)
 
 -- | Reader computation which allows you to query for part of bigger state

@@ -56,6 +56,8 @@ modifySumChgSet (SumChangeSet cs1) cs2 = SumChangeSet <$> mappendChangeSet cs1 c
 accumToDiff :: SumChangeSet id value -> ChangeSet id value
 accumToDiff = unSumCS
 
+-- | ghci> queryAccum (SumChangeSet (ChangeSet (Map.fromList [(1, Rem), (2, New "A"), (5, Rem), (6, Upd "7")]))) (S.fromList [1,2,3,4,5,6,7])
+-- | (fromList [3,4,7],fromList [(2,"A"),(6,"7")]))
 queryAccum :: Ord id => SumChangeSet id value -> StateR id -> (StateR id, StateP id value)
 queryAccum (SumChangeSet accum) reqIds = (reqIds', resp)
   where

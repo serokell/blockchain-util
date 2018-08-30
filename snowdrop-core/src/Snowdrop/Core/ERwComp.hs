@@ -13,6 +13,7 @@ import           Control.Monad.Except (MonadError)
 import           Snowdrop.Core.ChangeSet (CSMappendException (..), Undo)
 import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), ChgAccumModifier, ERoComp,
                                         StatePException (..), initAccumCtx, modifyAccum)
+import           Snowdrop.Core.ERoComp.Helpers (ChgAccumOps (..))
 import           Snowdrop.Util
 
 newtype ERwComp e id value ctx s a = ERwComp { unERwComp :: StateT s (ERoComp e id value ctx) a }
@@ -47,11 +48,12 @@ modifyRwCompChgAccum
     :: forall e id value ctx s .
     ( HasException e (CSMappendException id)
     , HasLens s (ChgAccum ctx)
+    , ChgAccumOps id value (ChgAccum ctx)
     )
     => ChgAccumModifier id value
     -> ERwComp e id value ctx s (Undo id value)
 modifyRwCompChgAccum chgSet = do
     chgAcc <- gets (gett @_ @(ChgAccum ctx))
-    newChgAccOrE <- ERwComp $ lift $ modifyAccum chgAcc chgSet
+    let newChgAccOrE = modifyAccum chgAcc chgSet
     flip (either $ ERwComp . throwLocalError) newChgAccOrE $
       \(chgAcc', undo) -> (lensFor @s @(ChgAccum ctx) .= chgAcc') $> undo

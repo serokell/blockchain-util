@@ -19,10 +19,10 @@ import           Control.Lens (lens)
 import           Data.Default (Default (..))
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx,
-                                ChgAccumModifier (..), ERoComp, ERwComp, StateModificationException,
-                                StatePException, StateTx (..), Undo, Validator,
-                                ValidatorExecException, liftERoComp, modifyRwCompChgAccum,
-                                runValidator)
+                                ChgAccumModifier (..), ChgAccumOps (..), ERoComp, ERwComp,
+                                StateModificationException, StatePException, StateTx (..), Undo,
+                                Validator, ValidatorExecException, liftERoComp,
+                                modifyRwCompChgAccum, runValidator)
 import           Snowdrop.Execution.DbActions (DbAccessActions)
 import           Snowdrop.Execution.IOExecutor (IOCtx, runERwCompIO)
 import           Snowdrop.Util
@@ -82,6 +82,7 @@ defaultMempoolConfig
            ]
        , Ord id
        , HasLens ctx (ChgAccumCtx ctx)
+       , ChgAccumOps id value (ChgAccum ctx)
        )
     => ExpanderRawTx e id proof value ctx rawtx
     -> Validator e id proof value ctx
