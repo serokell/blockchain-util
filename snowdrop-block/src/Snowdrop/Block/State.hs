@@ -90,8 +90,8 @@ inmemoryBlkStateConfiguration
          rawPayload
          (Undo id value)
          blockRef
-         (ERwComp e id value ctx (ChgAccum ctx))
          osparams
+         (ERwComp e id value ctx (ChgAccum ctx))
 inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
     BlkStateConfiguration {
       bscConfig = cfg

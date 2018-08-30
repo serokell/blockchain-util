@@ -46,14 +46,14 @@ applyBlock
        , HasGetter rawBlock rawPayload
        )
     => osparams
-    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m osparams
+    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m
     -> rawBlock
     -> m ()
 -- TODO: compare old chain with new one via `bcIsBetterThan`
 applyBlock = expandAndApplyBlock True
 
 expandAndApplyBlock
-    :: forall header payload rawPayload rawBlock undo blockRef e m osparams .
+    :: forall header payload rawPayload rawBlock undo blockRef e osparams m .
     ( MonadError e m
     , Eq blockRef
     , HasException e (BlockApplicationException blockRef)
@@ -61,7 +61,7 @@ expandAndApplyBlock
     )
     => Bool
     -> osparams
-    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m osparams
+    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m
     -> rawBlock
     -> m ()
 expandAndApplyBlock checkBIV osParams bsc rawBlk = do
@@ -69,14 +69,14 @@ expandAndApplyBlock checkBIV osParams bsc rawBlk = do
     applyBlockImpl checkBIV osParams bsc (gett rawBlk) blk
 
 applyBlockImpl
-    :: forall header payload rawPayload rawBlock undo blockRef e m osparams .
+    :: forall header payload rawPayload rawBlock undo blockRef e osparams m .
     ( MonadError e m
     , Eq blockRef
     , HasException e (BlockApplicationException blockRef)
     )
     => Bool
     -> osparams
-    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m osparams
+    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m
     -> rawPayload
     -> Block header payload
     -> m ()
@@ -104,7 +104,7 @@ applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawPayload blk@Blo
 -- 3. for each block in the fork: payload is applied, blund is stored and tip updated.
 tryApplyFork
     -- TODO `undo` is not Monoid, even for ChangeSet
-    :: forall header payload rawBlock rawPayload blockRef undo e m osparams .
+    :: forall header payload rawBlock rawPayload blockRef undo e osparams m .
     ( HasGetter rawBlock header
     -- pva701: TODO ^ this constraint should be eliminated and
     -- either expanding of headers should be made separately from blocks
@@ -118,7 +118,7 @@ tryApplyFork
     , HasExceptions e [ForkVerificationException blockRef, BlockApplicationException blockRef]
     , MonadError e m
     )
-    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m osparams
+    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m
     -> osparams
     -> OldestFirst NonEmpty rawBlock
     -> m Bool
