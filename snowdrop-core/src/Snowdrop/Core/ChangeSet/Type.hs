@@ -34,6 +34,7 @@ import           Snowdrop.Util
 -- | ChangeSet is a basic datatype. It reflects changes over a key-value storage.
 -- ChangeSet holds Map from a key in database to an operation
 -- which should be performed over the state by this key.
+-- For more information see Snowdrop.Core.ChangeSet.ValueOp.
 newtype ChangeSet id v = ChangeSet {changeSet :: M.Map id (ValueOp v)}
     deriving (Functor, Eq, Ord, Show)
 

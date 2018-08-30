@@ -1,5 +1,10 @@
 module Snowdrop.Core.Validator.Basic
-       ( StructuralValidationException (..)
+       ( TxValidationException (..)
+       , valid
+       , validateIff
+       , validateAll
+
+       , StructuralValidationException (..)
        , structuralPreValidator
 
        , inputsExist
@@ -11,6 +16,7 @@ module Snowdrop.Core.Validator.Basic
 
 import           Universum
 
+import           Control.Monad.Except (MonadError (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -18,11 +24,40 @@ import qualified Data.Text.Buildable
 import           Formatting (bprint, build, (%))
 
 import           Snowdrop.Core.ChangeSet.Type (changeSetToList, csNew, csRemove)
-import           Snowdrop.Core.ERoComp.Helpers (query, validateAll, validateIff)
+import           Snowdrop.Core.ERoComp.Helpers (query)
 import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
 import           Snowdrop.Core.Transaction (TxProof, txBody, txProof)
 import           Snowdrop.Core.Validator.Types (PreValidator (..), Validator, mkValidator)
 import           Snowdrop.Util
+
+data TxValidationException
+    = PayloadProjectionFailed String Prefix
+    | UnexpectedPayload [Prefix]
+    deriving (Show)
+
+instance Buildable TxValidationException where
+    build = \case
+        PayloadProjectionFailed tx p ->
+            bprint
+              ("Projection of payload is failed during validation of StateTx with type: "
+               %build%", got prefix: "%build)
+              tx
+              p
+        UnexpectedPayload p -> bprint ("Unexpected payload, prefixes: "%listF ", " build) p
+
+valid :: (Monoid a, Monad m) => m a
+valid = pure mempty
+
+validateIff :: forall e e1 m a . (Monoid a, MonadError e m, HasReview e e1) => e1 -> Bool -> m a
+validateIff e1 = bool (throwLocalError e1) valid
+
+validateAll
+    :: (Foldable f, MonadError e m, Container (f a))
+    => (Element (f a) -> e)
+    -> (Element (f a) -> Bool)
+    -> f a
+    -> m ()
+validateAll ex p ls = maybe (pure ()) (throwError . ex) (find (not . p) ls)
 
 ---------------------------
 -- Structural validator

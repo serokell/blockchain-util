@@ -22,10 +22,9 @@ import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockU
                                        CurrentBlockRef (..), Payload, RawBlk, RawPayload)
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx,
                                 ChgAccumModifier (..), ERwComp, HasKeyValue, IdSumPrefixed (..),
-                                SomeTx, StateModificationException, StatePException (..),
-                                StateTx (..), Undo (..), Validator, ValueOp (..), applySomeTx,
-                                liftERoComp, mappendChangeSet, modifyRwCompChgAccum, queryOne,
-                                queryOneExists, runValidator)
+                                SomeTx, StatePException (..), StateTx (..), Undo (..), Validator,
+                                ValueOp (..), applySomeTx, liftERoComp, mappendChangeSet,
+                                modifyRwCompChgAccum, queryOne, queryOneExists, runValidator)
 import           Snowdrop.Execution (ProofNExp (..), RestrictCtx, RestrictionInOutException,
                                      expandUnionRawTxs)
 import           Snowdrop.Util
@@ -61,7 +60,6 @@ inmemoryBlkStateConfiguration
     , HasExceptions e
         [ StatePException
         , BlockStateException id
-        , StateModificationException id
         , CSMappendException id
         , RestrictionInOutException
         ]

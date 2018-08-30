@@ -3,10 +3,10 @@
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+-- | Primitive operations inside ERoComp. Utilities to modify context of compiutation.
+
 module Snowdrop.Core.ERoComp.Helpers
-       (
-         StatePException (..)
-       , TxValidationException (..)
+       ( StatePException (..)
 
        , query
        , iterator
@@ -19,21 +19,13 @@ module Snowdrop.Core.ERoComp.Helpers
        , withModifiedAccumCtx
        , initAccumCtx
        , getCAOrDefault
-
-       , valid
-       , validateIff
-       , validateAll
-
-       , StateModificationException(..)
        ) where
 
 import           Universum
 
-import           Control.Monad.Except (MonadError (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text.Buildable
-import           Formatting (bprint, build, stext, (%))
 
 import           Data.Default (Default (def))
 
@@ -45,16 +37,30 @@ import           Snowdrop.Core.ERoComp.Types (ChgAccum, ChgAccumCtx (..), ChgAcc
 import           Snowdrop.Core.Transaction (HasKeyValue)
 import           Snowdrop.Util
 
-modifyAccum
-    :: forall e id value ctx .
-       ChgAccum ctx
-    -> ChgAccumModifier id value
-    -> ERoComp e id value ctx (Either (CSMappendException id) (ChgAccum ctx, Undo id value))
-modifyAccum chgAccum chgSet = effect $ DbModifyAccum chgAccum chgSet id
+-- | Possible errors throwning from basic functions in ERoComp.
+data StatePException
+    = QueryProjectionFailed
+    | IteratorProjectionFailed
+    | ChgAccumCtxUnexpectedlyInitialized
+    deriving (Show, Eq)
 
+instance Buildable StatePException where
+    build = \case
+        QueryProjectionFailed -> "Projection of query result failed"
+        IteratorProjectionFailed -> "Projection within iterator failed"
+        ChgAccumCtxUnexpectedlyInitialized -> "Change accum context is unexpectedly initialized"
+
+deriveIdView withInj ''StatePException
+
+----------------------------------------------------
+--- Primitive operations inside ERoComp
+----------------------------------------------------
+
+-- | Creates a DbQuery operation.
 query :: forall e id value ctx . StateR id -> ERoComp e id value ctx (StateP id value)
 query req = effect $ DbQuery @(ChgAccum ctx) req id
 
+-- | Creates a DbIterator operation.
 iterator
     :: forall e id value ctx b.
        Prefix
@@ -64,24 +70,17 @@ iterator
 iterator prefix e foldf =
     effect $ DbIterator @(ChgAccum ctx) prefix (FoldF (e, foldf, id))
 
-data TxValidationException
-    = PayloadProjectionFailed String Prefix
-    | UnexpectedPayload [Prefix]
-    deriving (Show)
+-- | Creates a DbModifyAccum operation.
+modifyAccum
+    :: forall e id value ctx .
+       ChgAccum ctx
+    -> ChgAccumModifier id value
+    -> ERoComp e id value ctx (Either (CSMappendException id) (ChgAccum ctx, Undo id value))
+modifyAccum chgAccum chgSet = effect $ DbModifyAccum chgAccum chgSet id
 
-instance Buildable TxValidationException where
-    build = \case
-        PayloadProjectionFailed tx p ->
-            bprint
-              ("Projection of payload is failed during validation of StateTx with type: "
-               %build%", got prefix: "%build)
-              tx
-              p
-        UnexpectedPayload p -> bprint ("Unexpected payload, prefixes: "%listF ", " build) p
-
--- | For each id' from passed set of ids get value' from state of computation.
--- HasAlt id id' satisfies that @id@ may be injected from @id'@.
--- If some value' couldn't be projected from corresponding value, the request will fail.
+-- | Like @query@, however, inject @id'@ to @id@ before a query and project @value@ to @value'@
+-- after the query.
+-- If some @value'@ couldn't be projected from corresponding @value@, the request will fail.
 querySet
     :: forall id id' value value' e ctx .
     ( Ord id, Ord id'
@@ -96,7 +95,7 @@ querySet ids' =
     ids :: Set id
     ids = S.fromList $ map inj $ S.toList ids'
 
--- TODO Not Exist shall be different error from getEx Left ()
+-- | Request one value for passed key.
 queryOne
     :: forall id id' value value' e ctx .
     ( Ord id, Ord id'
@@ -106,6 +105,7 @@ queryOne
     => id' -> ERoComp e id value ctx (Maybe value')
 queryOne id' = M.lookup id' <$> querySet (S.singleton id')
 
+-- | Check key exists in state.
 queryOneExists
     :: forall id id' value e ctx .
     ( Ord id, Ord id'
@@ -114,6 +114,8 @@ queryOneExists
     => id' -> ERoComp e id value ctx Bool
 queryOneExists id' = not . M.null <$> query (S.singleton (inj id'))
 
+-- | Like @iterator@, however, project @id@ and @value@ before passing them to
+-- the accumulator function.
 iteratorFor
     :: forall id id' value value' b e ctx .
     ( HasPrism id id'
@@ -137,24 +139,12 @@ iteratorFor prefix e foldf = do
         Nothing           -> Left IteratorProjectionFailed
         Just (i', value') -> Right $ foldf (i', value') b
 
-data StatePException
-    = QueryProjectionFailed
-    | IteratorProjectionFailed
-    | ChgAccumCtxUnexpectedlyInitialized
-    deriving (Show, Eq)
+----------------------------------------------------
+--- Functions to modify computation's context
+----------------------------------------------------
 
-instance Buildable StatePException where
-    build = \case
-        QueryProjectionFailed -> "Projection of query result failed"
-        IteratorProjectionFailed -> "Projection within iterator failed"
-        ChgAccumCtxUnexpectedlyInitialized -> "Change accum context is unexpectedly initialized"
-
-deriveIdView withInj ''StatePException
-
-getCAOrDefault :: Default (ChgAccum ctx) => ChgAccumCtx ctx -> ChgAccum ctx
-getCAOrDefault CANotInitialized   = def
-getCAOrDefault (CAInitialized cA) = cA
-
+-- | Runs computation with modified Change Accumulator from @ctx@.
+-- Passed ChangeSet will be appended to the accumulator as a modification.
 withModifiedAccumCtx
     :: forall e id value ctx a .
     ( HasException e (CSMappendException id)
@@ -172,6 +162,7 @@ withModifiedAccumCtx chgSet comp = do
         Right (acc', _undo) ->
             local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
 
+-- | Runs computation with specified initial Change Accumulator.
 initAccumCtx
     :: forall e id value ctx a .
     (HasException e StatePException, HasLens ctx (ChgAccumCtx ctx))
@@ -184,34 +175,7 @@ initAccumCtx acc' comp = do
         CANotInitialized ->
             local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
 
-valid :: (Monoid a, Monad m) => m a
-valid = pure mempty
-
-validateIff :: forall e e1 m a . (Monoid a, MonadError e m, HasReview e e1) => e1 -> Bool -> m a
-validateIff e1 = bool (throwLocalError e1) valid
-
-validateAll
-    :: (Foldable f, MonadError e m, Container (f a))
-    => (Element (f a) -> e)
-    -> (Element (f a) -> Bool)
-    -> f a
-    -> m ()
-validateAll ex p ls = maybe (pure ()) (throwError . ex) (find (not . p) ls)
-
-------------------------
--- Compute undo
-------------------------
-
-data StateModificationException id
-    = UnexpectedKeyExists id
-    | UnexpectedKeyAbsent id
-    deriving (Show)
-
-instance Buildable id => Buildable (StateModificationException id) where
-    build = \case
-        UnexpectedKeyExists i -> problemWithKey "exist" i
-        UnexpectedKeyAbsent i -> problemWithKey "be absent" i
-      where
-        problemWithKey desc key =
-            bprint ("Key "%build%" was not expected to "%stext%
-                " during performed modification") key desc
+-- | Gets value of Change Accumulator or default value if it's not initialized.
+getCAOrDefault :: Default (ChgAccum ctx) => ChgAccumCtx ctx -> ChgAccum ctx
+getCAOrDefault CANotInitialized   = def
+getCAOrDefault (CAInitialized cA) = cA
