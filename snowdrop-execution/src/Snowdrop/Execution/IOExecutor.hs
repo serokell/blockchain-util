@@ -14,6 +14,7 @@ module Snowdrop.Execution.IOExecutor
        , ctxChgAccum
        , ctxExec
        , ctxRestrict
+       , ctxConcurrent
        ) where
 
 import           Universum
@@ -28,9 +29,9 @@ import           Loot.Base.HasLens (HasLens', lensOf)
 import qualified Loot.Base.HasLens as Loot
 import qualified Loot.Log.Rio as Rio
 
-import           Snowdrop.Core (BaseM (..), ChgAccum, ChgAccumCtx (..), Concurrently (..),
+import           Snowdrop.Core (BaseM (..), ChgAccum, ChgAccumCtx (..),
                                 DbAccess (..), ERoComp, ERwComp, Effectful (..), FoldF (..),
-                                Race (..), StatePException, getCAOrDefault, runERwComp)
+                                StatePException, getCAOrDefault, runERwComp, CtxConcurrently (..))
 import           Snowdrop.Execution.DbActions (DbAccessActions (..))
 import           Snowdrop.Execution.Restrict (RestrictCtx)
 import           Snowdrop.Util (ExecM, HasException, HasGetter (gett), HasLens (sett))
@@ -47,49 +48,63 @@ instance Buildable e => Buildable (BaseMException e) where
 
 instance (Show e, Typeable e) => Exception (BaseMException e)
 
-newtype BaseMIO e (eff :: * -> *) ctx a = BaseMIO { unBaseMIO :: ReaderT ctx ExecM a }
-    deriving (Functor, Applicative, Monad, MonadReader ctx, MonadIO)
+newtype BaseMIO e (eff :: * -> *) ctx a = BaseMIO
+    { unBaseMIO :: ReaderT ctx ExecM a }
+    deriving (Functor)
 
-instance (Loot.HasLens' ctx Log.LoggingIO) => Log.MonadLogging (BaseMIO e eff ctx) where
+instance HasLens ctx CtxConcurrently => Applicative (BaseMIO e eff ctx) where
+    pure a = BaseMIO $ pure a
+    BaseMIO a <*> BaseMIO b = BaseMIO $ do
+        ctxConcurrent <- gett <$> ask
+        case ctxConcurrent of
+            Sequential -> a <*> b
+            Parallel   -> ReaderT $ \ctx -> do
+                let g = flip sett Sequential
+                (fun, val) <- Async.concurrently
+                                (runReaderT (local g a) ctx)
+                                (runReaderT (local g b) ctx)
+                pure $ fun val
+
+deriving instance HasLens ctx CtxConcurrently => Monad (BaseMIO e eff ctx)
+deriving instance HasLens ctx CtxConcurrently => MonadReader ctx (BaseMIO e eff ctx)
+deriving instance HasLens ctx CtxConcurrently => MonadIO (BaseMIO e eff ctx)
+
+instance (Loot.HasLens' ctx Log.LoggingIO, HasLens ctx CtxConcurrently)
+        => Log.MonadLogging (BaseMIO e eff ctx) where
     log = Rio.defaultLog
     logName = Rio.defaultLogName
 
-instance (Loot.HasLens' ctx Log.LoggingIO) => Log.ModifyLogName (BaseMIO e eff ctx) where
+instance (Loot.HasLens' ctx Log.LoggingIO, HasLens ctx CtxConcurrently)
+        => Log.ModifyLogName (BaseMIO e eff ctx) where
     modifyLogNameSel = Rio.defaultModifyLogNameSel
 
-instance HasGetter ctx (BaseMIOExec eff ctx) => Effectful eff (BaseMIO e eff ctx) where
+instance (HasGetter ctx (BaseMIOExec eff ctx),
+          HasLens ctx CtxConcurrently) => Effectful eff (BaseMIO e eff ctx) where
     effect eff = BaseMIO $ ReaderT $ \ctx -> unBaseMIOExec (gett ctx) ctx eff
 
-instance Concurrently (BaseMIO e eff ctx) where
-    concurrently ma mb = BaseMIO $ ReaderT $ \ctx ->
-        Async.concurrently
-          (runReaderT (unBaseMIO @e ma) ctx)
-          (runReaderT (unBaseMIO @e mb) ctx)
-
-instance (Show e, Typeable e) => MonadError e (BaseMIO e eff ctx) where
+instance (Show e, Typeable e, HasLens ctx CtxConcurrently) => MonadError e (BaseMIO e eff ctx) where
     throwError e = BaseMIO $ throwM $ BaseMException e
     catchError (BaseMIO ma) handler = BaseMIO $
         ma `catch` (\(BaseMException e) -> unBaseMIO $ handler e)
 
-instance (Show e, Typeable e) => Race e (BaseMIO e eff ctx) where
-    race ma mb = BaseMIO $ ReaderT $ \ctx ->
-        Async.race (runReaderT (unBaseMIO @e ma) ctx)
-                   (runReaderT (unBaseMIO @e mb) ctx)
-
 runBaseMIO
     :: forall e eff ctx a .
-    (Show e, Typeable e, HasGetter ctx (BaseMIOExec eff ctx),
-    (Loot.HasLens Log.LoggingIO ctx Log.LoggingIO))
+    (
+      Show e, Typeable e, HasGetter ctx (BaseMIOExec eff ctx)
+    , HasLens ctx CtxConcurrently
+    , (Loot.HasLens Log.LoggingIO ctx Log.LoggingIO)
+    )
     => BaseM e eff ctx a
     -> ctx
     -> ExecM a
 runBaseMIO bm ctx = runReaderT (unBaseMIO @e @eff $ unBaseM bm) ctx
 
 data IOCtx chgAccum id value = IOCtx
-    { _ctxChgAccum :: ChgAccumCtx (IOCtx chgAccum id value)
-    , _ctxRestrict :: RestrictCtx
-    , _ctxExec     :: BaseMIOExec (DbAccess chgAccum id value) (IOCtx chgAccum id value)
-    , _ctxLogger   :: Log.LoggingIO
+    { _ctxChgAccum   :: ChgAccumCtx (IOCtx chgAccum id value)
+    , _ctxRestrict   :: RestrictCtx
+    , _ctxExec       :: BaseMIOExec (DbAccess chgAccum id value) (IOCtx chgAccum id value)
+    , _ctxLogger     :: Log.LoggingIO
+    , _ctxConcurrent :: CtxConcurrently
     }
 
 makeLenses ''IOCtx
@@ -121,6 +136,12 @@ instance HasLens (IOCtx chgAccum id value) (ChgAccumCtx (IOCtx chgAccum id value
 instance HasGetter (IOCtx chgAccum id value) (ChgAccumCtx (IOCtx chgAccum id value)) where
     gett = _ctxChgAccum
 
+instance HasLens (IOCtx chgAccum id value) CtxConcurrently where
+    sett ctx val = ctx { _ctxConcurrent = val }
+
+instance HasGetter (IOCtx chgAccum id value) CtxConcurrently where
+    gett = _ctxConcurrent
+
 runERoCompIO
     :: forall e id value chgAccum a ctx m.
     ( Show e
@@ -142,6 +163,7 @@ runERoCompIO dba initAcc comp = do
           , _ctxChgAccum = maybe CANotInitialized CAInitialized initAcc
           , _ctxExec = exec
           , _ctxLogger = logger
+          , _ctxConcurrent = def
           }
   where
     exec = BaseMIOExec $ \(getCAOrDefault . _ctxChgAccum -> chgAccum) dAccess ->
@@ -171,6 +193,7 @@ runERwCompIO dba initS comp = do
           , _ctxChgAccum = CANotInitialized
           , _ctxExec = exec
           , _ctxLogger = logger
+          , _ctxConcurrent = def
           }
   where
     exec = BaseMIOExec $ \(getCAOrDefault . _ctxChgAccum -> chgAccum) dAccess ->
