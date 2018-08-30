@@ -9,7 +9,6 @@ module Snowdrop.Block.Configuration
 import qualified Prelude as P
 import           Universum
 
-import           Snowdrop.Block.OSParams (OSParams)
 import           Snowdrop.Block.Types (Block (..), CurrentBlockRef (..), HasBlock (..),
                                        PrevBlockRef (..))
 import           Snowdrop.Util
@@ -26,7 +25,7 @@ instance Monoid (BlockIntegrityVerifier header payload) where
 -- All methods presented in block validation configuration are stateless, all stateful checks shall
 -- be performed as part of individual transaction validation (which is encapsulated in
 -- `bscApplyPayload` method of block handling configuration `BlkStateConfiguration`.
-data BlkConfiguration header payload blockRef = BlkConfiguration
+data BlkConfiguration header payload blockRef osparams = BlkConfiguration
     { bcBlockRef     :: header -> CurrentBlockRef blockRef
     -- ^ Get a block reference by given header.
     -- Normally to be represented by function to get header hash
@@ -59,7 +58,7 @@ data BlkConfiguration header payload blockRef = BlkConfiguration
     -- it means that if proposed chain is considered valid over the latter course of validation, it
     -- is to be applied instead of currently adopted "best" chain.
 
-    , bcValidateFork :: OSParams -> OldestFirst [] header -> Bool
+    , bcValidateFork :: osparams -> OldestFirst [] header -> Bool
     -- ^ Check of chain with OS Params.
 
     , bcMaxForkDepth :: Int
@@ -88,11 +87,11 @@ data BlkConfiguration header payload blockRef = BlkConfiguration
 --      b. sequencing by prevBlock
 -- DOESN'T validate that the last block refers to current tip
 blkSeqIsConsistent
-    :: forall header payload bdata blockRef .
+    :: forall header payload bdata blockRef osparams .
     ( HasBlock header payload bdata
     , Eq blockRef
     )
-    => BlkConfiguration header payload blockRef
+    => BlkConfiguration header payload blockRef osparams
     -> OldestFirst [] bdata
     -> Bool
 blkSeqIsConsistent _ (OldestFirst []) = True

@@ -23,7 +23,7 @@ import           Snowdrop.Block.Types (Block (..), Blund (..))
 --  (including tip block, currently adopted "best" chain),
 --  while state contains actual blockchain state
 --  as result of application of currently adopted "best" chain on initial blockchain state.
-data BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m =
+data BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m =
   BlkStateConfiguration
     { bscApplyPayload :: payload -> m undo
     -- ^ Apply block payload to state. Note, that this method encapsulates validation of
@@ -59,6 +59,6 @@ data BlkStateConfiguration header payload rawBlock rawPayload undo blockRef m =
     -- ^ Update tip block reference for new adopted "best" chain
     -- (`Nothing` in case of empty chain)
 
-    , bscConfig       :: BlkConfiguration header payload blockRef
+    , bscConfig       :: BlkConfiguration header payload blockRef osparams
     -- ^ Configuration for block sequence validation
     }

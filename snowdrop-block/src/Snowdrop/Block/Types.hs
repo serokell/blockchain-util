@@ -6,9 +6,14 @@ module Snowdrop.Block.Types
        , Blund (..)
        , CurrentBlockRef (..)
        , PrevBlockRef (..)
+       , Time
        ) where
 
 import           Universum
+
+import           Data.Time.Clock (UTCTime)
+
+type Time = UTCTime
 
 -------------------------------
 -- Block storage
