@@ -22,7 +22,7 @@ import qualified Snowdrop.Util as Log
 import           Snowdrop.Util (HasLens, sett)
 
 data CtxConcurrently =
-      Parallel -- ^ TODO: not used currently
+      Parallel
     | Sequential
     deriving (Show, Eq)
 
@@ -32,6 +32,7 @@ instance Default CtxConcurrently where
 concurrently :: (MonadReader ctx m, HasLens ctx CtxConcurrently) => m a -> m b -> m (a, b)
 concurrently = local (flip sett Parallel) ... liftA2 (,)
 
+-- | Run all computations and return the first result.
 -- | TODO: make an effective implementation
 raceMany :: (MonadReader ctx m, HasLens ctx CtxConcurrently) => NonEmpty (m a) -> m a
 raceMany (a :| []) = a
