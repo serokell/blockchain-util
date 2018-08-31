@@ -22,19 +22,20 @@ import           Formatting (bprint)
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..),
-                                       PrevBlockRef (..))
+import           Snowdrop.Block.Types (Block (..), BlockRef, Blund (..),
+                                       CurrentBlockRef (..), BlockHeader,
+                                       RawBlund, OSParams, PrevBlockRef (..))
 import           Snowdrop.Util
 
-data ForkVerResult header payload rawPayload undo blockRef
-    = ApplyFork
-      { fvrToApply    :: OldestFirst NonEmpty header
-      , fvrToRollback :: NewestFirst [] (Blund header rawPayload undo)
-      , fvrLCA        :: Maybe blockRef
+data ForkVerResult blkType
+  = ApplyFork
+      { fvrToApply    :: OldestFirst NonEmpty (BlockHeader blkType)
+      , fvrToRollback :: NewestFirst [] (RawBlund blkType)
+      , fvrLCA        :: Maybe (BlockRef blkType)
       }
     | RejectFork
 
-data ForkVerificationException blockRef
+data ForkVerificationException blkType
     = BlocksNotConsistent
     -- | Exception will be thrown when parent of alt chain doesn't belong to our chain
     | UnkownForkOrigin
@@ -42,7 +43,7 @@ data ForkVerificationException blockRef
     | InvalidForkOrigin
     | TooDeepFork
     | OriginOfBlockchainReached
-    | BlockDoesntExistInChain blockRef
+    | BlockDoesntExistInChain blkType
     deriving Show
 
 instance Buildable (ForkVerificationException blockRef) where
@@ -61,15 +62,15 @@ instance Buildable (ForkVerificationException blockRef) where
 --  5. evaluates `bcIsBetterThan` for loaded part of currently adopted "best" chain and fork,
 --  returns `ApplyFork` iff evaluation results in `True`.
 verifyFork
-    :: forall header payload rawBlock rawPayload undo blockRef e osparams m .
-    ( MonadError e m
-    , Eq blockRef
-    , HasException e (ForkVerificationException blockRef)
-    )
-    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m
-    -> osparams
-    -> OldestFirst NonEmpty header
-    -> m (ForkVerResult header payload rawPayload undo blockRef)
+    :: forall blkType e m .
+       ( MonadError e m
+       , Eq (BlockRef blkType)
+       , HasException e (ForkVerificationException (BlockRef blkType))
+       )
+    => BlkStateConfiguration blkType m
+    -> OSParams blkType
+    -> OldestFirst NonEmpty (BlockHeader blkType)
+    -> m (ForkVerResult blkType)
 verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
     let lcaRefMb = unPrevBlockRef $ bcPrevBlockRef bscConfig $ head altHeaders
     let firstBlockRef = unCurrentBlockRef $ bcBlockRef bscConfig $ head altHeaders
@@ -77,13 +78,13 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
     -- At the beginning lcaRef doesn't exists since blockchain is empty
     case lcaRefMb of
         Just lcaRef -> unlessM (bscBlockExists lcaRef) $
-                            throwLocalError @(ForkVerificationException blockRef) UnkownForkOrigin
+                            throwLocalError @(ForkVerificationException (BlockRef blkType)) UnkownForkOrigin
         Nothing     -> pure ()
     whenM (bscBlockExists firstBlockRef) $
-        throwLocalError @(ForkVerificationException blockRef) InvalidForkOrigin
-    tip      <- bscGetTip
+        throwLocalError @(ForkVerificationException (BlockRef blkType)) InvalidForkOrigin
+    tip <- bscGetTip
     curChain <- loadBlocksFromTo (bcMaxForkDepth bscConfig) lcaRefMb tip
-    let altHeaders' :: OldestFirst [] header
+    let altHeaders' :: OldestFirst [] (BlockHeader blkType)
         altHeaders' = oldestFirstFContainer NE.toList fork
     let curHeaders  = fmap (blkHeader . buBlock) (toOldestFirst curChain)
     pure $
@@ -93,11 +94,11 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
       else RejectFork
   where
     loadBlocksFromTo
-        :: Int -> Maybe blockRef -> Maybe blockRef
-        -> m (NewestFirst [] (Blund header rawPayload undo))
+        :: Int -> Maybe (BlockRef blkType) -> Maybe (BlockRef blkType)
+        -> m (NewestFirst [] (RawBlund blkType))
     loadBlocksFromTo maxForkDepth toMb fromMb
-        | toMb == fromMb      = pure $ NewestFirst []
-        | maxForkDepth <= 0   = throwLocalError @(ForkVerificationException blockRef) TooDeepFork
+        | toMb == fromMb        = pure $ NewestFirst []
+        | maxForkDepth <= 0 = throwLocalError @(ForkVerificationException (BlockRef blkType)) TooDeepFork
         | Just from <- fromMb = bscGetBlund from >>= \case
             Just b  ->
                 newestFirstFContainer (b:) <$>
@@ -106,19 +107,20 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
                       toMb
                       (unPrevBlockRef $ bcPrevBlockRef bscConfig (blkHeader $ buBlock b))
             Nothing -> throwLocalError $ BlockDoesntExistInChain from
-        | otherwise =
-            throwLocalError @(ForkVerificationException blockRef) OriginOfBlockchainReached
+        | otherwise = throwLocalError @(ForkVerificationException (BlockRef blkType)) OriginOfBlockchainReached
 
 iterateChain
-    :: forall header payload rawBlock rawPayload undo blockRef osparams m .
+    :: forall blkType m .
     ( Monad m
     )
-    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m
+    => BlkStateConfiguration blkType m
     -> Int
-    -> m (NewestFirst [] (Blund header rawPayload undo))
+    -> m (NewestFirst [] (RawBlund blkType))
 iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDepth
   where
-    loadBlock :: Int -> Maybe blockRef -> m (NewestFirst [] (Blund header rawPayload undo))
+    loadBlock
+        :: Int -> Maybe (BlockRef blkType)
+        -> m (NewestFirst [] (RawBlund blkType))
     loadBlock _ Nothing = pure $ NewestFirst []
     loadBlock depth (Just blockRef)
         | depth <= 0 = pure $ NewestFirst []

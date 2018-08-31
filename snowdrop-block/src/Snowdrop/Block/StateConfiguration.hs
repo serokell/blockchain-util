@@ -7,7 +7,8 @@ module Snowdrop.Block.StateConfiguration
 import           Universum
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), Blund (..))
+import           Snowdrop.Block.Types (Block (..), BlockRef, BlockUndo,
+                                       BlockHeader, Payload, RawBlund, RawBlk)
 
 -- | Block handling configuration.
 -- Contains methods for to perform handling of block sequence (chain):
@@ -23,42 +24,42 @@ import           Snowdrop.Block.Types (Block (..), Blund (..))
 --  (including tip block, currently adopted "best" chain),
 --  while state contains actual blockchain state
 --  as result of application of currently adopted "best" chain on initial blockchain state.
-data BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m =
-  BlkStateConfiguration
-    { bscApplyPayload :: payload -> m undo
+data BlkStateConfiguration blkType m = BlkStateConfiguration
+    { bscApplyPayload :: Payload blkType -> m (BlockUndo blkType)
     -- ^ Apply block payload to state. Note, that this method encapsulates validation of
     -- payload (and inidividual transactions contained in it) as well as actual application
     -- of payload to state.
     -- Payload application produces an undo object, which may further be used to revert
     -- the changes of payload application.
 
-    , bscExpand       :: rawBlock -> m (Block header payload)
+    , bscExpand       :: RawBlk blkType -> m (Block (BlockHeader blkType) (Payload blkType))
     -- ^ Expand raw block
 
-    , bscApplyUndo    :: undo    -> m ()
+    , bscApplyUndo    :: BlockUndo blkType -> m ()
     -- ^ Apply undo: revert changes made by application of block,
     -- which produced the passed undo object.
 
-    , bscRemoveBlund  :: blockRef -> m ()
+    , bscRemoveBlund  :: BlockRef blkType -> m ()
     -- ^ Remove block from block storage
 
-    , bscStoreBlund   :: Blund header rawPayload undo -> m ()
+    , bscStoreBlund   :: RawBlund blkType -> m ()
     -- ^ Store block along with undo in block storage
 
-    , bscGetBlund     :: blockRef -> m (Maybe (Blund header rawPayload undo))
+    , bscGetBlund     :: BlockRef blkType
+                      -> m (Maybe (RawBlund blkType))
     -- ^ Retrieve block along with undo from block storage
 
-    , bscBlockExists  :: blockRef -> m Bool
+    , bscBlockExists  :: BlockRef blkType -> m Bool
     -- ^ Check on whether block with given reference exists in block storage
 
-    , bscGetTip       :: m (Maybe blockRef)
+    , bscGetTip       :: m (Maybe (BlockRef blkType))
     -- ^ Retrieve tip block reference
     -- (`Nothing` in case of empty chain being a currently adopted "best" chain)
 
-    , bscSetTip       :: Maybe blockRef -> m ()
+    , bscSetTip       :: Maybe (BlockRef blkType) -> m ()
     -- ^ Update tip block reference for new adopted "best" chain
     -- (`Nothing` in case of empty chain)
-
-    , bscConfig       :: BlkConfiguration header payload blockRef osparams
+    
+    , bscConfig       :: BlkConfiguration blkType
     -- ^ Configuration for block sequence validation
     }

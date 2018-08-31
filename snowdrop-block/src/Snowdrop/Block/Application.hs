@@ -18,8 +18,9 @@ import           Formatting (bprint, build, (%))
 import           Snowdrop.Block.Configuration (BlkConfiguration (..), unBIV)
 import           Snowdrop.Block.Fork (ForkVerResult (..), ForkVerificationException, verifyFork)
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), Blund (..), CurrentBlockRef (..),
-                                       PrevBlockRef (..))
+import           Snowdrop.Block.Types (Block (..), BlockRef, Blund (..), CurrentBlockRef (..),
+                                       BlockHeader, Payload, PrevBlockRef (..), RawBlk,
+                                       OSParams, RawPayload)
 import           Snowdrop.Util
 
 data BlockApplicationException blockRef
@@ -40,51 +41,52 @@ instance Buildable blockRef => Buildable (BlockApplicationException blockRef) wh
 -- Current implementation checks only block integrity,
 -- no comparison with `bcIsBetterThan` is performed (which is better to be changed).
 applyBlock
-    :: ( MonadError e m
-       , Eq blockRef
-       , HasException e (BlockApplicationException blockRef)
-       , HasGetter rawBlock rawPayload
-       )
-    => osparams
-    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m
-    -> rawBlock
+    :: forall blkType e m
+    . ( MonadError e m
+      , Eq (BlockRef blkType)
+      , HasException e (BlockApplicationException (BlockRef blkType))
+      , HasGetter (RawBlk blkType) (RawPayload blkType)
+      )
+    => OSParams blkType
+    -> BlkStateConfiguration blkType m
+    -> RawBlk blkType
     -> m ()
 -- TODO: compare old chain with new one via `bcIsBetterThan`
 applyBlock = expandAndApplyBlock True
 
 expandAndApplyBlock
-    :: forall header payload rawPayload rawBlock undo blockRef e osparams m .
-    ( MonadError e m
-    , Eq blockRef
-    , HasException e (BlockApplicationException blockRef)
-    , HasGetter rawBlock rawPayload
-    )
+    :: forall blkType e m
+    . ( MonadError e m
+      , Eq (BlockRef blkType)
+      , HasException e (BlockApplicationException (BlockRef blkType))
+      , HasGetter (RawBlk blkType) (RawPayload blkType)
+      )
     => Bool
-    -> osparams
-    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m
-    -> rawBlock
+    -> OSParams blkType
+    -> BlkStateConfiguration blkType m
+    -> RawBlk blkType
     -> m ()
 expandAndApplyBlock checkBIV osParams bsc rawBlk = do
     blk <- bscExpand bsc rawBlk
     applyBlockImpl checkBIV osParams bsc (gett rawBlk) blk
 
 applyBlockImpl
-    :: forall header payload rawPayload rawBlock undo blockRef e osparams m .
-    ( MonadError e m
-    , Eq blockRef
-    , HasException e (BlockApplicationException blockRef)
-    )
+    :: forall blkType e m
+    . ( MonadError e m
+      , Eq (BlockRef blkType)
+      , HasException e (BlockApplicationException (BlockRef blkType))
+      )
     => Bool
-    -> osparams
-    -> BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m
-    -> rawPayload
-    -> Block header payload
+    -> OSParams blkType
+    -> BlkStateConfiguration blkType m
+    -> RawPayload blkType
+    -> Block (BlockHeader blkType) (Payload blkType)
     -> m ()
 applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawPayload blk@Block{..} = do
     tip <- bscGetTip
     when (checkBIV && any not [ unBIV (bcBlkVerify bscConfig) blk
                               , bcValidateFork bscConfig osParams (OldestFirst [blkHeader])]) $
-        throwLocalError $ BlockIntegrityVerifierFailed @blockRef
+        throwLocalError $ BlockIntegrityVerifierFailed @(BlockRef blkType)
     let prev = unPrevBlockRef $ bcPrevBlockRef bscConfig blkHeader
     if prev == tip then do
         undo <- bscApplyPayload blkPayload
@@ -104,23 +106,24 @@ applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawPayload blk@Blo
 -- 3. for each block in the fork: payload is applied, blund is stored and tip updated.
 tryApplyFork
     -- TODO `undo` is not Monoid, even for ChangeSet
-    :: forall header payload rawBlock rawPayload blockRef undo e osparams m .
-    ( HasGetter rawBlock header
-    -- pva701: TODO ^ this constraint should be eliminated and
-    -- either expanding of headers should be made separately from blocks
-    -- or fork should be verified using scheme:
-    -- 1. rollback
-    -- 2. expand alt chain
-    -- 3. compare chains
-    -- 4. apply appropriate chain
-    , HasGetter rawBlock rawPayload
-    , Eq blockRef
-    , HasExceptions e [ForkVerificationException blockRef, BlockApplicationException blockRef]
-    , MonadError e m
-    )
-    => BlkStateConfiguration header payload rawBlock rawPayload undo blockRef osparams m
-    -> osparams
-    -> OldestFirst NonEmpty rawBlock
+    :: forall blkType e m
+    . ( HasGetter (RawBlk blkType) (BlockHeader blkType)
+      -- pva701: TODO ^ this constraint should be eliminated and
+      -- either expanding of headers should be made separately from blocks
+      -- or fork should be verified using scheme:
+      -- 1. rollback
+      -- 2. expand alt chain
+      -- 3. compare chains
+      -- 4. apply appropriate chain
+      , HasGetter (RawBlk blkType) (RawPayload blkType)
+      , Eq (BlockRef blkType)
+      , HasExceptions e [ ForkVerificationException (BlockRef blkType)
+                        , BlockApplicationException (BlockRef blkType)]
+      , MonadError e m
+      )
+    => BlkStateConfiguration blkType m
+    -> OSParams blkType
+    -> OldestFirst NonEmpty (RawBlk blkType)
     -> m Bool
 tryApplyFork bcs@(BlkStateConfiguration {..}) osParams (OldestFirst rawBlocks) = do
     -- fork <- traverse toFork (unOldestFirst rawBlocks)
