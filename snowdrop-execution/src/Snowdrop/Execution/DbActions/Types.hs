@@ -21,7 +21,9 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccumModifier, Prefi
 data DbAccessActions chgAccum id value m = DbAccessActions
     { daaGetter      :: chgAccum -> StateR id -> m (StateP id value)
       -- ^ Retrieves values corresponding to specified keys (doesn't modify the state)
-    , daaModifyAccum :: chgAccum -> ChgAccumModifier id value -> m (Either (CSMappendException id) (chgAccum, Undo id value))
+    , daaModifyAccum :: chgAccum
+                     -> ChgAccumModifier id value
+                     -> m (Either (CSMappendException id) (chgAccum, Undo id value))
       -- ^ Modify change accumulater with specified change set (doesn't modify the state)
     , daaIter        :: forall b . chgAccum -> Prefix -> b -> ((id, value) -> b -> b) -> m b
       -- ^ Iterate through keys with specified prefix (doesn't modify the state)
@@ -34,11 +36,11 @@ data DbModifyActions chgAccum id value m proof = DbModifyActions
     }
 
 data DbActionsException
-  = DbApplyException Text
-  | DbWrongIdQuery Text
-  | DbWrongPrefixIter Text
-  | DbProtocolError Text
-  deriving Show
+    = DbApplyException Text
+    | DbWrongIdQuery Text
+    | DbWrongPrefixIter Text
+    | DbProtocolError Text
+    deriving Show
 
 instance Exception DbActionsException
 
@@ -53,5 +55,5 @@ instance Buildable DbActionsException where
 data RememberForProof = RememberForProof { unRememberForProof :: Bool }
 
 data ClientMode proof
-  = ProofMode { cmProof :: proof }
-  | RemoteMode
+    = ProofMode { cmProof :: proof }
+    | RemoteMode

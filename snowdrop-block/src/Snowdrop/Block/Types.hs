@@ -13,9 +13,15 @@ module Snowdrop.Block.Types
        , RawBlk
        , RawBlund
        , RawPayload
+       , OsParams
+       , Time
        ) where
 
 import           Universum
+
+import           Data.Time.Clock (UTCTime)
+
+type Time = UTCTime
 
 -------------------------------
 -- Block storage
@@ -28,6 +34,8 @@ type family Payload a :: *
 type family BlockHeader a :: *
 
 type family BlockUndo a :: *
+
+type family OsParams a :: *
 
 type family RawBlk a :: *
 
@@ -44,10 +52,10 @@ class HasBlock header payload b where
 instance HasBlock header payload (Block header payload) where
     getBlock = identity
 
-data Blund header payload undo = Blund {
-    buBlock :: Block header payload
-  , buUndo  :: undo
-  } deriving (Eq, Ord, Show, Generic)
+data Blund header payload undo = Blund
+    { buBlock :: Block header payload
+    , buUndo  :: undo
+    } deriving (Eq, Ord, Show, Generic)
 
 type RawBlund blkType =
     (Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))

@@ -1,10 +1,9 @@
 module Snowdrop.Core.ERwComp
-    (
-        ERwComp
-      , runERwComp
-      , modifyRwCompChgAccum
-      , liftERoComp
-    ) where
+       ( ERwComp
+       , runERwComp
+       , modifyRwCompChgAccum
+       , liftERoComp
+       ) where
 
 import           Universum
 
@@ -21,9 +20,9 @@ newtype ERwComp e id value ctx s a = ERwComp { unERwComp :: StateT s (ERoComp e 
 
 runERwComp
   :: forall e id value ctx s a.
-    ( HasException e StatePException
-    , HasGetter ctx (ChgAccumCtx ctx)
-    )
+  ( HasException e StatePException
+  , HasGetter ctx (ChgAccumCtx ctx)
+  )
   => ERwComp e id value ctx s a
   -> s
   -> ERoComp e id value ctx (a, s)

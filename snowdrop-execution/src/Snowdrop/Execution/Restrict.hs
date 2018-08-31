@@ -63,7 +63,10 @@ restrictCS out cs = throwResInpOutEx OutRestrictionException out (M.keysSet $ ch
 
 throwResInpOutEx
     :: forall e id m .
-    ( MonadError e m, HasException e RestrictionInOutException, IdSumPrefixed id)
+    ( MonadError e m
+    , HasException e RestrictionInOutException
+    , IdSumPrefixed id
+    )
     => (Set Prefix -> RestrictionInOutException)
     -> Set Prefix
     -> Set id
@@ -71,5 +74,6 @@ throwResInpOutEx
 throwResInpOutEx ex restSet sids = do
     let prefixes = S.fromList $ map idSumPrefix $ S.toList sids
     let diff = prefixes `S.difference` restSet
-    if S.null diff then pure ()
+    if S.null diff
+    then pure ()
     else throwLocalError $ ex diff

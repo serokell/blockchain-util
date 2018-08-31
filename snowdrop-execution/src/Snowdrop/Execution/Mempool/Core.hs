@@ -70,8 +70,8 @@ instance Default chgAccum => Default (MempoolState id value chgAccum rawtx) wher
 instance Default chgAccum => Default (Versioned (MempoolState id value chgAccum rawtx)) where
     def = Versioned def 0
 
-newtype Mempool id value chgAccum rawtx
-    = Mempool { mempoolState :: TVar (Versioned (MempoolState id value chgAccum rawtx)) }
+newtype Mempool id value chgAccum rawtx = Mempool
+    { mempoolState :: TVar (Versioned (MempoolState id value chgAccum rawtx)) }
 
 defaultMempoolConfig
     :: ( HasExceptions e [
@@ -86,8 +86,8 @@ defaultMempoolConfig
     => ExpanderRawTx e id proof value ctx rawtx
     -> Validator e id proof value ctx
     -> MempoolConfig e id proof value ctx rawtx
-defaultMempoolConfig expander validator = MempoolConfig {
-    mcProcessTx = \tx -> do
+defaultMempoolConfig expander validator = MempoolConfig
+    { mcProcessTx = \tx -> do
         liftERoComp $ runValidator validator tx
         modifyRwCompChgAccum (CAMChange $ txBody tx)
     , mcExpandTx = expander
@@ -110,11 +110,15 @@ actionWithMempool mem@Mempool{..} dbActs callback = do
             True <$ writeTVar mempoolState (Versioned newState (version + 1))
         else
             pure False
-    if modified then pure res
+    if modified
+    then pure res
     else actionWithMempool mem dbActs callback
 
 createMempool :: (Default chgAccum, MonadIO m) => m (Mempool id value chgAccum rawtx)
 createMempool = Mempool <$> atomically (newTVar def)
 
-getMempoolTxs :: (Default chgAccum, MonadIO m) => Mempool id value chgAccum rawtx -> m [(rawtx, Undo id value)]
+getMempoolTxs
+    :: (Default chgAccum, MonadIO m)
+    => Mempool id value chgAccum rawtx
+    -> m [(rawtx, Undo id value)]
 getMempoolTxs Mempool{..} = msTxs . vsData <$> atomically (readTVar mempoolState)

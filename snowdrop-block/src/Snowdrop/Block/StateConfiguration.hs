@@ -10,7 +10,8 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockRef, BlockUndo,
                                        BlockHeader, Payload, RawBlund, RawBlk)
 
--- | Block handling configuration. Contains methods for to perform handling of block sequence (chain):
+-- | Block handling configuration.
+-- Contains methods for to perform handling of block sequence (chain):
 --
 --  * load neccessary information from block storage,
 --  * perform structural validation (using methods from `bscConfig :: BlkConfiguration`),
@@ -20,7 +21,8 @@ import           Snowdrop.Block.Types (Block (..), BlockRef, BlockUndo,
 --  block storage and state.
 --
 --  Block storage is used to store information required for block processing
---  (including tip block, currently adopted "best" chain), while state contains actual blockchain state
+--  (including tip block, currently adopted "best" chain),
+--  while state contains actual blockchain state
 --  as result of application of currently adopted "best" chain on initial blockchain state.
 data BlkStateConfiguration blkType m = BlkStateConfiguration
     { bscApplyPayload :: Payload blkType -> m (BlockUndo blkType)
@@ -57,7 +59,7 @@ data BlkStateConfiguration blkType m = BlkStateConfiguration
     , bscSetTip       :: Maybe (BlockRef blkType) -> m ()
     -- ^ Update tip block reference for new adopted "best" chain
     -- (`Nothing` in case of empty chain)
-
+    
     , bscConfig       :: BlkConfiguration blkType
     -- ^ Configuration for block sequence validation
     }

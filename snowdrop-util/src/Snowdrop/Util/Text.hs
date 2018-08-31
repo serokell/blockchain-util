@@ -3,30 +3,30 @@
 -- | Smart buildable stuff, text processing, e.t.c.
 
 module Snowdrop.Util.Text
-    (
-      Buildables
-    , maybeF
-    , listF
-    , bareListF
-    , pairF
-    , specifiedF
+       (
+         Buildables
+       , maybeF
+       , listF
+       , bareListF
+       , pairF
+       , specifiedF
 
-    , Doc
-    , DocParams
-    , DBuildable (..)
-    , DText
-    , DFormat
-    , docF
-    , dlater
-    , (%%)
-    , newline
-    , newlineF
-    , indented
-    , indentedLarge
-    , putDoc
-    , printDoc
-    , logDoc
-    ) where
+       , Doc
+       , DocParams
+       , DBuildable (..)
+       , DText
+       , DFormat
+       , docF
+       , dlater
+       , (%%)
+       , newline
+       , newlineF
+       , indented
+       , indentedLarge
+       , putDoc
+       , printDoc
+       , logDoc
+       ) where
 
 import           Universum hiding (head, init, last)
 
@@ -66,10 +66,10 @@ listF
     => Builder -> Format Builder (Exts.Item l -> Builder) -> Format r (l -> r)
 listF delim buildElem =
     later $ \(Exts.toList -> values) ->
-    if null values
-    then "[]"
-    else mconcat $
-         one "[" <> (intersperse delim $ bprint buildElem <$> values) <> one "]"
+        if null values
+        then "[]"
+        else mconcat $
+             one "[" <> (intersperse delim $ bprint buildElem <$> values) <> one "]"
 
 -- | Formatter for pair. Use with care.
 pairF
@@ -81,9 +81,10 @@ pairF buildA delim buildB =
     later $ \(a, b) -> bprint (buildA % now delim % buildB) a b
 
 -- | Print entires of pair separated with colon.
-specifiedF :: Format (b -> Builder) (a -> b -> Builder)
-           -> Format Builder (b -> Builder)
-           -> Format r ((a, b) -> r)
+specifiedF
+    :: Format (b -> Builder) (a -> b -> Builder)
+    -> Format Builder (b -> Builder)
+    -> Format r ((a, b) -> r)
 specifiedF buildA buildB = pairF buildA ": " buildB
 
 ------------------------------------------------------

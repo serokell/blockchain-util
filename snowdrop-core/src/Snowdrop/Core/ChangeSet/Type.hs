@@ -1,27 +1,27 @@
 {-# LANGUAGE DeriveFunctor #-}
 
 module Snowdrop.Core.ChangeSet.Type
-    (
-      ChangeSet (..)
-    , Undo (..)
-    , csRemove
-    , csNew
-    , csUpdate
-    , changeSetToMap
-    , changeSetToList
-    , CSMappendException (..)
-    , mappendChangeSet
-    , mconcatChangeSets
-    , splitByPrefix
-    , filterByPrefix
-    , filterByPrefixPred
-    , filterSetByPrefixPred
-    , mapKeysMonotonicCS
-    ) where
+       ( ChangeSet (..)
+       , Undo (..)
+       , csRemove
+       , csNew
+       , csUpdate
+       , changeSetToMap
+       , changeSetToList
+       , CSMappendException (..)
+       , mappendChangeSet
+       , mconcatChangeSets
+       , splitByPrefix
+       , filterByPrefix
+       , filterByPrefixPred
+       , filterSetByPrefixPred
+       , mapKeysMonotonicCS
+       ) where
+
+import           Universum hiding (head, init, last)
 
 import           Data.Default (Default (def))
 import           Formatting (bprint, build, (%))
-import           Universum hiding (head, init, last)
 
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -43,10 +43,9 @@ instance (Ord id, Ord id1, HasPrism id id1, HasPrism value value1)
     proj (ChangeSet mp) = ChangeSet <$> proj mp
 
 data Undo id value = Undo
-  { undoChangeSet :: ChangeSet id value
-  , undoSnapshot  :: ByteString
-  }
-  deriving (Show, Eq, Generic)
+    { undoChangeSet :: ChangeSet id value
+    , undoSnapshot  :: ByteString
+    } deriving (Show, Eq, Generic)
 
 csRemove :: ChangeSet id v -> Set id
 csRemove = M.keysSet . M.filter isRem . changeSet
@@ -90,9 +89,13 @@ instance Buildable id => Buildable (CSMappendException id) where
         bprint ("Failed to mappend ChangeSets due to conflict for key "%build) i
 
 -- This tricky implementation works for O(min(N, M) * log(max(N, M)))
-mappendChangeSet :: Ord id => ChangeSet id v -> ChangeSet id v -> Either (CSMappendException id) (ChangeSet id v)
-mappendChangeSet (ChangeSet m1) (ChangeSet m2) =
-    if leftAppRight then ChangeSet <$> M.foldrWithKey comb (Right m2) m1
+mappendChangeSet
+    :: Ord id
+    => ChangeSet id v
+    -> ChangeSet id v
+    -> Either (CSMappendException id) (ChangeSet id v)
+mappendChangeSet (ChangeSet m1) (ChangeSet m2) = if leftAppRight
+    then ChangeSet <$> M.foldrWithKey comb (Right m2) m1
     else ChangeSet <$> M.foldrWithKey comb (Right m1) m2
   where
     leftAppRight = M.size m1 < M.size m2
@@ -101,7 +104,8 @@ mappendChangeSet (ChangeSet m1) (ChangeSet m2) =
     comb i v (Right m) = case M.lookup i m of
         Nothing -> Right $ M.insert i v m
         Just op ->
-            let resOp = if leftAppRight then Op v <> Op op
+            let resOp = if leftAppRight
+                        then Op v <> Op op
                         else Op op <> Op v
             in case resOp of
                 Err   -> Left $ CSMappendException i
@@ -110,7 +114,10 @@ mappendChangeSet (ChangeSet m1) (ChangeSet m2) =
 mconcatChangeSets :: Ord id => [ChangeSet id v] -> Either (CSMappendException id) (ChangeSet id v)
 mconcatChangeSets = foldM mappendChangeSet def
 
-splitByPrefix :: forall id v . (IdSumPrefixed id, Ord id) => ChangeSet id v -> M.Map Prefix (ChangeSet id v)
+splitByPrefix
+    :: forall id v . (IdSumPrefixed id, Ord id)
+    => ChangeSet id v
+    -> M.Map Prefix (ChangeSet id v)
 splitByPrefix (ChangeSet c) = M.foldrWithKey f mempty c
   where
     f i v = M.alter (alterF i v) (idSumPrefix i)
@@ -122,7 +129,8 @@ filterByPrefix :: IdSumPrefixed id => Prefix -> ChangeSet id v -> ChangeSet id v
 filterByPrefix p = filterByPrefixPred (== p)
 
 filterByPrefixPred :: IdSumPrefixed id => (Prefix -> Bool) -> ChangeSet id v -> ChangeSet id v
-filterByPrefixPred predicate = ChangeSet . M.filterWithKey (curry (predicate . idSumPrefix . fst)) . changeSet
+filterByPrefixPred predicate
+    = ChangeSet . M.filterWithKey (curry (predicate . idSumPrefix . fst)) . changeSet
 
 filterSetByPrefixPred :: IdSumPrefixed id => (Prefix -> Bool) -> Set id -> Set id
 filterSetByPrefixPred predicate mp = S.filter (predicate . idSumPrefix) mp

@@ -1,8 +1,8 @@
 module Snowdrop.Util.Lens
-    (
-      HasGetter (..)
-    , HasLens (..)
-    ) where
+       (
+         HasGetter (..)
+       , HasLens (..)
+       ) where
 
 import           Universum hiding (head, init, last)
 

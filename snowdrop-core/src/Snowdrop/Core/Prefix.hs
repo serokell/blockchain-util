@@ -1,16 +1,18 @@
--- TODO: this module fixes cycle dep between Snowdrop.Core.ERoComp.Types and Snowdrop.Core.ChangeSet type
--- which is caused by that fact that dbAccess is defined using ChangeSet and Change set requires Prefix
--- instance. Should be moved to Transaction.hs according to the plan
+-- | TODO: this module fixes cycle dep between Snowdrop.Core.ERoComp.Types and
+-- Snowdrop.Core.ChangeSet type,
+-- which is caused by that fact that dbAccess is defined using ChangeSet and
+-- Change set requires Prefix -- instance. Should be moved to Transaction.hs according to the plan
 
 module Snowdrop.Core.Prefix
-    (
-      Prefix (..)
-    , IdSumPrefixed (..)
-    ) where
+       (
+         Prefix (..)
+       , IdSumPrefixed (..)
+       ) where
+
+import           Universum
 
 import qualified Data.Text.Buildable
 import           Formatting (bprint, int, (%))
-import           Universum
 
 import           Snowdrop.Util
 

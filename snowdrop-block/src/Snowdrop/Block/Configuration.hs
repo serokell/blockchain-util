@@ -11,7 +11,7 @@ import           Universum
 
 import           Snowdrop.Block.OSParams (OSParams)
 import           Snowdrop.Block.Types (Block (..), BlockRef, CurrentBlockRef (..), HasBlock (..),
-                                       PrevBlockRef (..), BlockHeader, Payload)
+                                       PrevBlockRef (..), BlockHeader, OsParams, Payload)
 import           Snowdrop.Util
 
 newtype BlockIntegrityVerifier blkType = BIV { unBIV :: Block (BlockHeader blkType) (Payload blkType) -> Bool }
@@ -59,7 +59,7 @@ data BlkConfiguration blkType = BlkConfiguration
     -- it means that if proposed chain is considered valid over the latter course of validation, it
     -- is to be applied instead of currently adopted "best" chain.
 
-    , bcValidateFork :: OSParams -> OldestFirst [] (BlockHeader blkType) -> Bool
+    , bcValidateFork :: OSParams blkType -> OldestFirst [] (BlockHeader blkType) -> Bool
     -- ^ Check of chain with OS Params.
 
     , bcMaxForkDepth :: Int
@@ -68,19 +68,20 @@ data BlkConfiguration blkType = BlkConfiguration
     -- First block of proposed chain is assumed to have previous block reference to be an
     -- existing block in the currently adopted "best" chain (which is called an LCA of two chains).
     --
-    -- If the LCA block is more than `bcMaxForkDepth` blocks behind the most recent block of currently
-    -- adopted "best" chain, the proposed chain is considered invalid
+    -- If the LCA block is more than `bcMaxForkDepth` blocks behind the most recent block of
+    -- currently adopted "best" chain, the proposed chain is considered invalid
     -- (and won't be applied instead of currently adopted "best" chain).
     --
-    -- Parameter `bcMaxForkDepth` gives advise for implementation on how deep to inspect into currently
-    -- adopted "best" chain in order to compare currently adopted chain with proposed one.
+    -- Parameter `bcMaxForkDepth` gives advise for implementation on how deep to inspect into
+    -- currently adopted "best" chain in order to compare currently adopted chain with proposed one.
     -- Most of existing consensus protocols (including that behind such cryptocurrencies as Bitcoin,
-    -- Ethereum, Cardano) either directly or inherently provide possibility to define a particular value
-    -- for `bcMaxForkDepth`. In case, such definition is impossible to come up with, `maxBound @Int`
-    -- is advised to be used as value.
+    -- Ethereum, Cardano) either directly or inherently provide possibility to define a particular
+    -- value for `bcMaxForkDepth`. In case, such definition is impossible to come up with,
+    -- `maxBound @Int` is advised to be used as value.
     }
 
--- FIXME TODO actually it's valid to have `bfMaxForkDepth` forks, we might be terribly out of sync with network
+-- FIXME TODO actually it's valid to have `bfMaxForkDepth` forks,
+-- we might be terribly out of sync with network
 
 -- | Validate block container integrity:
 --      a. integrity of each block
@@ -96,9 +97,9 @@ blkSeqIsConsistent
     -> Bool
 blkSeqIsConsistent _ (OldestFirst []) = True
 blkSeqIsConsistent BlkConfiguration {..} (OldestFirst bdatas) =
-  and [ doValidate $ OldestFirst $ zip blks prevRefs
-      , unBIV bcBlkVerify $ unsafeLast blks -- validate last block
-      ]
+    and [ doValidate $ OldestFirst $ zip blks prevRefs
+        , unBIV bcBlkVerify $ unsafeLast blks -- validate last block
+        ]
   where
     blks = map getBlock bdatas
     prevRefs = unsafeTail (map getPrevRef blks)
@@ -121,7 +122,7 @@ blkSeqIsConsistent BlkConfiguration {..} (OldestFirst bdatas) =
         -> Bool
     doValidate (OldestFirst []) = True
     doValidate (OldestFirst ((b, prevRef):xs)) =
-      and [ unBIV bcBlkVerify b
-          , prevRef == getBlockRef b
-          , doValidate $ OldestFirst xs
-          ]
+        and [ unBIV bcBlkVerify b
+            , prevRef == getBlockRef b
+            , doValidate $ OldestFirst xs
+            ]

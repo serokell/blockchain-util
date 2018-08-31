@@ -24,7 +24,8 @@ import           Snowdrop.Core.Prefix (Prefix)
 import           Snowdrop.Core.Transaction (StateTxType)
 
 
-newtype Expander e id proof value ctx rawTx = Expander { unExpander :: Map StateTxType (PreExpanderSeq e id proof value ctx rawTx) }
+newtype Expander e id proof value ctx rawTx = Expander
+    { unExpander :: Map StateTxType (PreExpanderSeq e id proof value ctx rawTx) }
 
 -- | PreExpander allows you to convert one raw tx to StateTx.
 --  _inpSet_ is set of Prefixes which expander gets access to during computation.
@@ -37,13 +38,14 @@ data PreExpander e id proof value ctx rawTx = PreExpander
     , outSet      :: Set Prefix
     , expanderAct :: rawTx -> ERoComp e id value ctx (DiffChangeSet id value)
     }
+
 instance Contravariant (PreExpander e id proof value ctx) where
     contramap g (PreExpander s1 s2 f) = PreExpander s1 s2 (f . g)
 
 type PreExpandersSeq' e id proof value ctx rawTx = NonEmpty (PreExpander e id proof value ctx rawTx)
 
 newtype PreExpanderSeq e id proof value ctx rawTx
-  = PreExpanderSeq { getSeqExpanders :: PreExpandersSeq' e id proof value ctx rawTx }
+    = PreExpanderSeq { getSeqExpanders :: PreExpandersSeq' e id proof value ctx rawTx }
 
 instance Contravariant (PreExpanderSeq e id proof value ctx) where
     contramap g = PreExpanderSeq . NE.map (contramap g) . getSeqExpanders

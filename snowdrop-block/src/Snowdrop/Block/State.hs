@@ -91,12 +91,11 @@ inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
         blkPayload <- liftERoComp $ expandUnionRawTxs mkProof expander (gett rawBlock)
         pure (mkBlock rawBlock blkPayload)
     , bscApplyPayload = \txs -> do
-          undos <-
-            forM (gett txs) $ \tx -> do
-              liftERoComp $ runValidator validator tx
-              modifyRwCompChgAccum (CAMChange $ txBody tx)
-          let mergeUndos (Undo cs1 sn1) (Undo cs2 _) = flip Undo sn1 <$> mappendChangeSet cs1 cs2
-          case undos of
+        undos <- forM (gett txs) $ \tx -> do
+            liftERoComp $ runValidator validator tx
+            modifyRwCompChgAccum (CAMChange $ txBody tx)
+        let mergeUndos (Undo cs1 sn1) (Undo cs2 _) = flip Undo sn1 <$> mappendChangeSet cs1 cs2
+        case undos of
             []     -> pure $ Undo def BS.empty
             f:rest -> either throwLocalError pure $ foldM mergeUndos f rest
     , bscApplyUndo = void . modifyRwCompChgAccum . CAMRevert
@@ -111,9 +110,9 @@ inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
     , bscGetTip = liftERoComp (queryOne TipKey)
                     >>= maybe (throwLocalError @(BlockStateException id) TipNotFound) (pure . unTipValue)
     , bscSetTip = \newTip' -> do
-          let newTip = inj $ TipValue newTip'
-          let tipChg = \cons -> ChangeSet $ M.singleton (inj TipKey) (cons newTip)
-          oldTipMb <- liftERoComp $ queryOne TipKey
-          -- TODO check that tip corresponds to blund storage
-          void . modifyRwCompChgAccum . CAMChange . tipChg $ maybe New (const Upd) oldTipMb
+        let newTip = inj $ TipValue newTip'
+        let tipChg = \cons -> ChangeSet $ M.singleton (inj TipKey) (cons newTip)
+        oldTipMb <- liftERoComp $ queryOne TipKey
+        -- TODO check that tip corresponds to blund storage
+        void . modifyRwCompChgAccum . CAMChange . tipChg $ maybe New (const Upd) oldTipMb
     }
