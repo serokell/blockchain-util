@@ -81,7 +81,7 @@ inmemoryBlkStateConfiguration cfg validator =
               liftERoComp $ runValidator validator tx
               modifyRwCompChgAccum (CAMChange $ txBody tx)
           let mergeUndos (Undo cs1 sn1) (Undo cs2 _) = flip Undo sn1 <$> mappendChangeSet cs1 cs2
-          case undos of
+          case reverse undos of
             []     -> pure $ Undo def BS.empty
             f:rest -> either throwLocalError pure $ foldM mergeUndos f rest
     , bscApplyUndo = void . modifyRwCompChgAccum . CAMRevert
