@@ -24,7 +24,7 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockRef, Blund (..),
                                        CurrentBlockRef (..), BlockHeader,
-                                       RawBlund, OsParams, PrevBlockRef (..))
+                                       RawBlund, OSParams, PrevBlockRef (..))
 import           Snowdrop.Util
 
 data ForkVerResult blkType

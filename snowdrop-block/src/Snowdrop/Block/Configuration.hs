@@ -9,9 +9,8 @@ module Snowdrop.Block.Configuration
 import qualified Prelude as P
 import           Universum
 
-import           Snowdrop.Block.OSParams (OSParams)
 import           Snowdrop.Block.Types (Block (..), BlockRef, CurrentBlockRef (..), HasBlock (..),
-                                       PrevBlockRef (..), BlockHeader, OsParams, Payload)
+                                       PrevBlockRef (..), BlockHeader, OSParams, Payload)
 import           Snowdrop.Util
 
 newtype BlockIntegrityVerifier blkType = BIV { unBIV :: Block (BlockHeader blkType) (Payload blkType) -> Bool }

@@ -13,7 +13,7 @@ module Snowdrop.Block.Types
        , RawBlk
        , RawBlund
        , RawPayload
-       , OsParams
+       , OSParams
        , Time
        ) where
 
@@ -35,7 +35,7 @@ type family BlockHeader a :: *
 
 type family BlockUndo a :: *
 
-type family OsParams a :: *
+type family OSParams a :: *
 
 type family RawBlk a :: *
 

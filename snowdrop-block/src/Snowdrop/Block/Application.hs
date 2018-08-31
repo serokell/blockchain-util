@@ -19,7 +19,8 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..), unBIV)
 import           Snowdrop.Block.Fork (ForkVerResult (..), ForkVerificationException, verifyFork)
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockRef, Blund (..), CurrentBlockRef (..),
-                                       BlockHeader, Payload, PrevBlockRef (..), RawBlk, RawPayload)
+                                       BlockHeader, Payload, PrevBlockRef (..), RawBlk,
+                                       OSParams, RawPayload)
 import           Snowdrop.Util
 
 data BlockApplicationException blockRef
@@ -61,7 +62,7 @@ expandAndApplyBlock
       , HasGetter (RawBlk blkType) (RawPayload blkType)
       )
     => Bool
-    -> OSParams
+    -> OSParams blkType
     -> BlkStateConfiguration blkType m
     -> RawBlk blkType
     -> m ()
@@ -76,7 +77,7 @@ applyBlockImpl
       , HasException e (BlockApplicationException (BlockRef blkType))
       )
     => Bool
-    -> OSParams
+    -> OSParams blkType
     -> BlkStateConfiguration blkType m
     -> RawPayload blkType
     -> Block (BlockHeader blkType) (Payload blkType)
@@ -121,7 +122,7 @@ tryApplyFork
       , MonadError e m
       )
     => BlkStateConfiguration blkType m
-    -> OSParams
+    -> OSParams blkType
     -> OldestFirst NonEmpty (RawBlk blkType)
     -> m Bool
 tryApplyFork bcs@(BlkStateConfiguration {..}) osParams (OldestFirst rawBlocks) = do
