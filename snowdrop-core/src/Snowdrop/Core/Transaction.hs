@@ -16,7 +16,7 @@ import qualified Data.Text.Buildable
 import           Formatting (bprint, (%))
 import           Formatting (int)
 
-import           Snowdrop.Core.ChangeSet.Type (ChangeSet (..))
+import           Snowdrop.Core.ChangeSet (ChangeSet (..), ValueOp (..))
 import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
 import           Snowdrop.Util
 
@@ -86,12 +86,15 @@ selectKeyValueCS
     )
     => ChangeSet id value
     -> Either Prefix (ChangeSet id1 value1)
-selectKeyValueCS (ChangeSet cs) = undefined
---     ChangeSet <$> M.foldrWithKey f (Right mempty) cs
---   where
---     f _ _ e@(Left _) = e
---     f i valOp (Right c) = case sequenceA $ proj @id @id1 i of
---         Nothing  -> Right c
---         Just id1 -> case proj @value @value1 <$> valOp of
---             Just nop -> Right $ M.insert id1 nop c
---             Nothing  -> Left $ idSumPrefix i
+selectKeyValueCS (ChangeSet cs) =
+    ChangeSet <$> M.foldrWithKey f (Right mempty) cs
+  where
+    f :: id -> ValueOp value
+      -> Either Prefix (Map id1 (ValueOp value1))
+      -> Either Prefix (Map id1 (ValueOp value1))
+    f _ _ e@(Left _)    = e
+    f i valOp (Right c) = case proj @id @id1 i of
+        Nothing  -> Right c
+        Just id1 -> case proj valOp of
+            Just nop -> Right $ M.insert id1 nop c
+            Nothing  -> Left $ idSumPrefix i
