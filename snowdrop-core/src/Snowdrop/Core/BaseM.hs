@@ -6,61 +6,55 @@ module Snowdrop.Core.BaseM
        (
          BaseMConstraint
        , BaseM (..)
-       , Concurrently (..)
-       , Race (..)
        , Effectful (..)
+       , CtxConcurrently (..)
+       , concurrently
+       , raceMany
        ) where
 
 import           Universum hiding (log)
 
+import           Data.Default (Default (def))
+import           Data.List.NonEmpty (fromList)
+
 import           Control.Monad.Except (MonadError (..))
 import qualified Snowdrop.Util as Log
+import           Snowdrop.Util (HasLens, sett)
 
-class Monad m => Concurrently m where
-    concurrentlySg :: Semigroup a => m a -> m a -> m a
-    concurrentlySg = concurrentlySgImpl (<>)
+data CtxConcurrently =
+      Parallel
+    | Sequential
+    deriving (Show, Eq)
 
-    concurrentlyManySg :: Semigroup a => NonEmpty (m a) -> m a
-    concurrentlyManySg = concurrentlyMany' (<>)
+instance Default CtxConcurrently where
+    def = Sequential
 
-    concurrentlyMany' :: (a -> a -> a) -> NonEmpty (m a) -> m a
-    concurrentlyMany' append (ma :| rest) = foldr (concurrentlySgImpl append) ma rest
+concurrently :: (MonadReader ctx m, HasLens ctx CtxConcurrently) => m a -> m b -> m (a, b)
+concurrently = local (flip sett Parallel) ... liftA2 (,)
 
-    concurrentlySgImpl :: (a -> a -> a) -> m a -> m a -> m a
-    concurrentlySgImpl f ma mb = uncurry f <$> concurrently ma mb
-
-    concurrently :: m a -> m b -> m (a, b)
-
-class MonadError e m => Race e m where
-    race :: m a -> m b -> m (Either a b)
-
-    race' :: m a -> m a -> m a
-    race' = fmap (either id id) ... race
-
-    raceMany :: NonEmpty (m a) -> m a
-    raceMany (f :| rest) = foldr race' f rest
+-- | Run all computations and return the first result.
+-- | TODO: make an effective implementation
+raceMany :: (MonadReader ctx m, HasLens ctx CtxConcurrently) => NonEmpty (m a) -> m a
+raceMany (a :| []) = a
+raceMany a = concurrently left right >>= pure . fst
+  where
+    len   = length a
+    left  = run $ fromList $ take (len `div` 2) $ toList a
+    right = run $ fromList $ drop (len `div` 2) $ toList a
+    run (b :| [])   = b
+    run (b :| rest) = b <* (run $ fromList rest)
 
 class Monad m => Effectful eff m where
     -- | Executes effect `eff` in monad `m`.
     -- A natural transformation from effect data type to monad.
     effect :: eff a -> m a
 
-instance Race e m => Race e (ReaderT ctx m) where
-    race ma mb = ReaderT $ \ctx -> race (runReaderT ma ctx) (runReaderT mb ctx)
-
-instance Concurrently m => Concurrently (ReaderT ctx m) where
-    -- TODO implement other methods of type class as well
-    concurrentlySgImpl f ma mb = ReaderT $
-        \ctx -> concurrentlySgImpl f (runReaderT ma ctx) (runReaderT mb ctx)
-    concurrently ma mb = ReaderT $ \ctx -> concurrently (runReaderT ma ctx) (runReaderT mb ctx)
-
 instance Effectful eff m => Effectful eff (ReaderT ctx m) where
     effect = lift . effect
 
 type BaseMConstraint e eff ctx m = (Effectful eff m,
-                                    Concurrently m,
                                     MonadReader ctx m,
-                                    MonadError e m, Race e m,
+                                    MonadError e m,
                                     Log.MonadLogging m,
                                     Log.ModifyLogName m)
 
@@ -73,18 +67,11 @@ type BaseMConstraint e eff ctx m = (Effectful eff m,
 newtype BaseM e eff ctx a = BaseM { unBaseM :: forall m . BaseMConstraint e eff ctx m => m a }
     deriving Functor
 
-instance Concurrently (BaseM e eff ctx) where
-    concurrently (BaseM a) (BaseM b) = BaseM $ concurrently a b
-    concurrentlySgImpl f (BaseM a) (BaseM b) = BaseM $ concurrentlySgImpl f a b
-
-instance Race e (BaseM e eff ctx) where
-    race (BaseM a) (BaseM b) = BaseM $ race a b
-
 instance Effectful eff (BaseM e eff ctx) where
     effect eff = BaseM $ effect eff
 
 instance Semigroup a => Semigroup (BaseM e eff ctx a) where
-    BaseM a <> BaseM b = BaseM $ concurrentlySg a b
+    BaseM a <> BaseM b = BaseM $ liftA2 (<>) a b
 
 instance (Semigroup a, Monoid a) => Monoid (BaseM e eff ctx a) where
     mempty = pure $ mempty
