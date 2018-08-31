@@ -59,7 +59,7 @@ constructCompositeActions
     -> DbAccessActions chgAccumSecondary id value m
     -> DbAccessActions (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps) id value m
 constructCompositeActions dbaP dbaS =
-    DbAccessActions cGetter (error "daaModifyAccum should be removed") $
+    DbAccessActions cGetter $
       \(CompositeChgAccum caP caS) p ->
           bool (daaIter dbaS caS p) (daaIter dbaP caP p) $ p `S.member` prefixes
   where

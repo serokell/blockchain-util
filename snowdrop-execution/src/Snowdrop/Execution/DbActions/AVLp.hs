@@ -31,9 +31,9 @@ import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessAc
                                                      DbActionsException (..), DbModifyActions (..),
                                                      RememberForProof (..))
 
-import           Snowdrop.Core (CSMappendException (..), ChgAccumModifier (..), IdSumPrefixed (..),
-                                Prefix (..), StateP, StateR, Undo (..), ValueOp (..),
-                                changeSetToList, idSumPrefix)
+import           Snowdrop.Core (CSMappendException (..), ChgAccumModifier (..), ChgAccumOps (..),
+                                IdSumPrefixed (..), Prefix (..), StateP, StateR, Undo (..),
+                                ValueOp (..), changeSetToList, idSumPrefix)
 import           Snowdrop.Util (HasGetter (..))
 
 instance Hashable AVL.Tilt
@@ -134,6 +134,20 @@ instance (MonadThrow m, AvlHashable h, RetrieveImpl m h) => KVStoreMonad h (AVLC
         checkInAccum = M.lookup k . unAVLCache <$> get >>= maybe checkInState pure
         checkInState = lift (retrieveImpl k) >>= maybe (throwM $ AVL.NotFound k) pure
     store k v = modify' $ AVLCache . M.insert k (serialise v) . unAVLCache
+
+instance
+    ( MonadIO Identity
+    , MonadCatch Identity
+    , MonadThrow Identity
+    , KVConstraint k v
+    , AvlHashable h
+    , AVL.Hash h k v
+    , Serialisable (MapLayer h k v h)
+    , RetrieveImpl (ReaderT (ClientTempState h k v n) Identity) h
+    ) => ChgAccumOps k v (AVLChgAccum h k v)
+  where
+    modifyAccum accum cs = runIdentity $ modAccum accum cs clientTempState -- Identity, ups, how to get rid of monadic context in modAccum?
+      where clientTempState :: (ClientTempState h k v n) = undefined -- How to get state?
 
 -- | Change accumulator type for AVL tree.
 data AVLChgAccum' h k v = AVLChgAccum
@@ -256,11 +270,12 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
         DbAccessActions
           -- adding keys to amsRequested
           (\cA req -> reThrowAVLEx @k $ query cA req =<< createState)
-          (\cA cs -> reThrowAVLEx @k $ modAccum cA cs =<< createState)
+       -- |(\cA cs -> reThrowAVLEx @k $ modAccum cA cs =<< createState)
           -- setting amsRequested to AMSWholeTree as iteration with
           -- current implementation requires whole tree traversal
           (\cA p b f -> reThrowAVLEx @k $ iter cA p b f =<< createState)
       where
+        createState :: m (ClientTempState h k v n)
         createState = clientModeToTempSt retrieveF ctMode =<< atomically (readTVar var)
     apply :: AvlHashable h => TVar (RootHash h) -> AVLChgAccum h k v -> m ()
     apply var (Just (AVLChgAccum accAvl _acc _accTouched)) =
@@ -298,7 +313,7 @@ avlServerDbActions = fmap mkActions . newTVarIO
           -- adding keys to amsRequested
           (\cA req -> liftIO $ reThrowAVLEx @k $ query cA req =<<
             atomically (retrieveAMS var recForProof $ AMSKeys req ))
-          (\cA cs -> liftIO $ reThrowAVLEx @k $ modAccum cA cs =<< atomically (readTVar var))
+          --(\cA cs -> liftIO $ reThrowAVLEx @k $ modAccum cA cs =<< atomically (readTVar var))
           -- setting amsRequested to AMSWholeTree as iteration with
           -- current implementation requires whole tree traversal
           (\cA p b f -> liftIO $ reThrowAVLEx @k $ iter cA p b f =<<

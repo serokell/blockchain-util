@@ -19,8 +19,8 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccumModifier (..),
-                                IdSumPrefixed (..), Prefix (..), StateP, StateR, Undo (..),
-                                ValueOp (..), changeSetToMap, csNew, filterByPrefix,
+                                ChgAccumOps (..), IdSumPrefixed (..), Prefix (..), StateP, StateR,
+                                Undo (..), ValueOp (..), changeSetToMap, csNew, filterByPrefix,
                                 mappendChangeSet)
 import           Snowdrop.Util
 
@@ -70,6 +70,33 @@ queryAccumOne (SumChangeSet (ChangeSet csm)) = flip M.lookup csm
 getNewKeys :: IdSumPrefixed id => SumChangeSet id value -> Prefix -> Map id value
 getNewKeys (SumChangeSet cs) p = csNew $ filterByPrefix p cs
 
+instance Ord id => ChgAccumOps id value (SumChangeSet id value)
+  where
+    modifyAccum accum = \case
+        CAMChange cs -> processCS cs
+        CAMRevert (Undo cs _sn) -> processCS cs
+      where
+        processCS :: ChangeSet id value -> Either (CSMappendException id) (SumChangeSet id value, Undo id value)
+        processCS cs' = (,) <$> accum `modifySumChgSet` cs' <*> (flip Undo BS.empty <$> computeUndo accum cs')
+
+        computeUndo
+            :: forall id value
+            .
+            ( Ord id
+            )
+            => SumChangeSet id value
+            -> ChangeSet id value
+            -> Either (CSMappendException id) (ChangeSet id value)
+        computeUndo (SumChangeSet accum) (ChangeSet cs) = let
+            vals = changeSetToMap accum -- <- I'm not sure about this line
+            processOne m (k, valueop) = case (valueop, k `M.lookup` vals) of
+                  (New _, Nothing)      -> pure $ M.insert k Rem m
+                  (Upd _, Just v0)      -> pure $ M.insert k (Upd v0) m
+                  (NotExisted, Nothing) -> pure $ M.insert k NotExisted m
+                  (Rem, Just v0)        -> pure $ M.insert k (New v0) m
+                  _                     -> throwError (CSMappendException k)
+            in ChangeSet <$> foldM processOne mempty (M.toList cs)
+
 sumChangeSetDBA
     :: forall id value m . (IdSumPrefixed id, Ord id, MonadCatch m)
     => (StateR id -> m (StateP id value))
@@ -77,33 +104,8 @@ sumChangeSetDBA
     -> DbAccessActions (SumChangeSet id value) id value m
 sumChangeSetDBA getImpl iterImpl =
     DbAccessActions
-      getter
-      modifySumChgSetA
+      (chgAccumGetter getImpl)
       (chgAccumIter iterImpl)
-  where
-    getter = chgAccumGetter getImpl
-
-    modifySumChgSetA accum = \case
-        CAMChange cs -> processCS cs
-        CAMRevert (Undo cs _sn) -> processCS cs
-      where
-        processCS cs' =
-          (liftA2 (,) $ accum `modifySumChgSet` cs')
-            <$> runExceptT (flip Undo BS.empty <$> computeUndo accum cs')
-
-    computeUndo
-        :: SumChangeSet id value
-        -> ChangeSet id value
-        -> ExceptT (CSMappendException id) m (ChangeSet id value)
-    computeUndo ca (ChangeSet cs) = do
-        vals <- lift $ getter ca (M.keysSet cs)
-        let processOne m (k, valueop) = case (valueop, k `M.lookup` vals) of
-              (New _, Nothing)      -> pure $ M.insert k Rem m
-              (Upd _, Just v0)      -> pure $ M.insert k (Upd v0) m
-              (NotExisted, Nothing) -> pure $ M.insert k NotExisted m
-              (Rem, Just v0)        -> pure $ M.insert k (New v0) m
-              _                     -> throwError (CSMappendException k)
-        ChangeSet <$> foldM processOne mempty (M.toList cs)
 
 chgAccumIter
     :: (IdSumPrefixed id, Ord id, Applicative m)
