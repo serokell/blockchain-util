@@ -8,14 +8,18 @@ module Snowdrop.Core.BaseM
        , BaseM (..)
        , Effectful (..)
        , CtxConcurrently (..)
+       , concurrently
+       , raceMany
        ) where
 
 import           Universum hiding (log)
 
 import           Data.Default (Default (def))
+import           Data.List.NonEmpty (fromList)
 
 import           Control.Monad.Except (MonadError (..))
 import qualified Snowdrop.Util as Log
+import           Snowdrop.Util (HasLens, sett)
 
 data CtxConcurrently =
       Parallel -- ^ TODO: not used currently
@@ -24,6 +28,20 @@ data CtxConcurrently =
 
 instance Default CtxConcurrently where
     def = Sequential
+
+concurrently :: (MonadReader ctx m, HasLens ctx CtxConcurrently) => m a -> m b -> m (a, b)
+concurrently = local (flip sett Parallel) ... liftA2 (,)
+
+-- | TODO: make an effective implementation
+raceMany :: (MonadReader ctx m, HasLens ctx CtxConcurrently) => NonEmpty (m a) -> m a
+raceMany (a :| []) = a
+raceMany a = concurrently left right >>= pure . fst
+  where
+    len   = length a
+    left  = run $ fromList $ take (len `div` 2) $ toList a
+    right = run $ fromList $ drop (len `div` 2) $ toList a
+    run (b :| [])   = b
+    run (b :| rest) = b <* (run $ fromList rest)
 
 class Monad m => Effectful eff m where
     -- | Executes effect `eff` in monad `m`.
