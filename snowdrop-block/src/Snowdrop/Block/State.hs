@@ -19,8 +19,8 @@ import qualified Data.Text.Buildable
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), BlockUndo, Blund (..), CurrentBlockRef (..),
-                                       BlockRef, BlockHeader, Payload, RawBlk, RawPayload)
+import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
+                                       CurrentBlockRef (..), Payload, RawBlk, RawPayload)
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx,
                                 ChgAccumModifier (..), ERwComp, Expander (..), HasKeyValue,
                                 IdSumPrefixed (..), StateModificationException,
@@ -91,11 +91,12 @@ inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
         blkPayload <- liftERoComp $ expandUnionRawTxs mkProof expander (gett rawBlock)
         pure (mkBlock rawBlock blkPayload)
     , bscApplyPayload = \txs -> do
-        undos <- forM (gett txs) $ \tx -> do
+        undos <-
+          forM (gett txs) $ \tx -> do
             liftERoComp $ runValidator validator tx
             modifyRwCompChgAccum (CAMChange $ txBody tx)
-        let mergeUndos (Undo cs1 sn1) (Undo cs2 _) = flip Undo sn1 <$> mappendChangeSet cs1 cs2
-        case undos of
+        let mergeUndos (Undo cs1 _) (Undo cs2 sn2) = flip Undo sn2 <$> mappendChangeSet cs1 cs2
+        case reverse undos of
             []     -> pure $ Undo def BS.empty
             f:rest -> either throwLocalError pure $ foldM mergeUndos f rest
     , bscApplyUndo = void . modifyRwCompChgAccum . CAMRevert
