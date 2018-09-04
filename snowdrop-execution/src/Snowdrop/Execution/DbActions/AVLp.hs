@@ -192,7 +192,7 @@ initAVLPureStorage (M.toList -> kvs) = reThrowAVLEx @k $ do
     pure $ AMS { amsRootHash = rootH, amsState = st, amsRequested = mempty }
 
 type KVConstraint k v = (IdSumPrefixed k, Typeable k, Ord k, Show k,
-                         Serialisable k, Serialisable v, Show v, Eq v)
+                         Serialisable k, Show v)
 
 instance (AvlHashable h, MonadCatch m) => RetrieveImpl (ReaderT (ClientTempState h k v m) m) h where
     retrieveImpl k = asks ctRetrieve >>=
