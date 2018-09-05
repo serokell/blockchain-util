@@ -53,6 +53,10 @@ library
       Snowdrop.Execution.DbActions.Types
       Snowdrop.Execution.DbActions.Simple
       Snowdrop.Execution.DbActions.AVLp
+      Snowdrop.Execution.DbActions.AVLp.Accum
+      Snowdrop.Execution.DbActions.AVLp.Actions
+      Snowdrop.Execution.DbActions.AVLp.Avl
+      Snowdrop.Execution.DbActions.AVLp.State
       Snowdrop.Execution.DbActions.Composite
       Snowdrop.Execution.IOExecutor
       Snowdrop.Execution.Restrict
