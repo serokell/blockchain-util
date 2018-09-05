@@ -112,8 +112,9 @@ inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
                     >>= maybe (throwLocalError @(BlockStateException id) TipNotFound) (pure . unTipValue)
     , bscSetTip = \newTip' -> do
         let newTip = inj $ TipValue newTip'
-        let tipChg = \cons -> ChangeSet $ M.singleton (inj TipKey) (cons newTip)
+        let tipChg = \c -> ChangeSet $ M.singleton (inj TipKey) (c newTip)
         oldTipMb <- liftERoComp $ queryOne TipKey
         -- TODO check that tip corresponds to blund storage
-        void . modifyRwCompChgAccum . CAMChange . tipChg $ maybe New (const Upd) oldTipMb
+        void . modifyRwCompChgAccum . CAMChange . tipChg $
+            maybe New (\_ n -> Upd (Right . const n)) oldTipMb
     }

@@ -1,59 +1,76 @@
-{-# LANGUAGE DeriveFoldable    #-}
-{-# LANGUAGE DeriveFunctor     #-}
-{-# LANGUAGE DeriveTraversable #-}
-
 module Snowdrop.Core.ChangeSet.ValueOp
-       (
-         ValueOp (..)
-       , ValueOpEx (..)
-       ) where
+    (
+      ValueOp (..)
+    , ValueOpEx (..)
+    , ValueOpErr (..)
+    ) where
 
 import           Universum hiding (head, init, last)
 
+import qualified Prelude
 import           Snowdrop.Util
 
 data ValueOp v
     = New v
-    | Upd v
+    | Upd (v -> Either ValueOpErr v)
     | Rem
     | NotExisted
-    deriving (Functor, Foldable, Traversable, Show, Eq, Ord, Generic)
+    deriving (Generic)
 
-instance HasReview v v1 => HasReview (ValueOp v) (ValueOp v1) where
-    inj = fmap inj
+instance Prelude.Show v => Prelude.Show (ValueOp v) where
+    show (New v)    = "New " <> show v
+    show (Upd _)    = "Upd <function>"
+    show Rem        = "Rem"
+    show NotExisted = "NotExisted"
+
+instance HasPrism v v1 => HasReview (ValueOp v) (ValueOp v1) where
+    inj (Upd f)    = Upd $ (fmap inj . f) <=< (maybe (Left BasicErr) Right . proj)
+    inj (New x)    = New (inj x)
+    inj Rem        = Rem
+    inj NotExisted = NotExisted
 
 instance HasPrism v v1 => HasPrism (ValueOp v) (ValueOp v1) where
     proj Rem        = Just Rem
     proj NotExisted = Just NotExisted
     proj (New v)    = New <$> proj v
-    proj (Upd v)    = Upd <$> proj v
+    proj (Upd f)    = Just $ Upd $ (maybe (Left BasicErr) Right . proj) <=< (f . inj)
 
 data ValueOpEx v
     = Op (ValueOp v)
-    | Err
-    deriving (Functor, Show, Eq)
+    | Err ValueOpErr
+    deriving (Show)
+
+data ValueOpErr
+    = ValueOpErr Text
+    | BasicErr
+    deriving (Eq, Show)
+
+instance Exception ValueOpErr where
+  displayException (ValueOpErr t) = show t
+  displayException BasicErr       = "BasicErr occured"
 
 instance Semigroup (ValueOpEx v) where
-    Err <> _ = Err
-    _ <> Err = Err
+    Err e <> _ = Err e
+    _ <> Err e = Err e
 
-    Op NotExisted <> Op (Upd _) = Err
+    Op NotExisted <> Op (Upd _) = Err BasicErr
     Op NotExisted <> Op (New v) = Op (New v)
-    Op NotExisted <> Op Rem     = Err
+    Op NotExisted <> Op Rem     = Err BasicErr
 
-    Op (Upd _) <> Op NotExisted    = Err
-    Op (New _) <> Op NotExisted    = Err
+    Op (Upd _) <> Op NotExisted    = Err BasicErr
+    Op (New _) <> Op NotExisted    = Err BasicErr
     Op Rem     <> Op NotExisted    = Op Rem
     Op NotExisted <> Op NotExisted = Op NotExisted
 
-    Op Rem <> Op (New x) = Op $ Upd x
-    Op Rem <> Op Rem     = Err
-    Op Rem <> Op (Upd _) = Err
+    Op Rem <> Op (New x) = Op $ New x -- NOTE: @id: is it ok?
+    Op Rem <> Op Rem     = Err BasicErr
+    Op Rem <> Op (Upd _) = Err BasicErr
 
-    Op (New _) <> Op (New _) = Err
+    Op (New _) <> Op (New _) = Err BasicErr
     Op (New _) <> Op Rem     = Op NotExisted
-    Op (New _) <> Op (Upd x) = Op $ New x
+    Op (New _) <> Op (Upd x) = Op $ Upd x -- NOTE: @id: is it ok?
 
-    Op (Upd _) <> Op (New _) = Err
+    Op (Upd _) <> Op (New _) = Err BasicErr
     Op (Upd _) <> Op Rem     = Op Rem
-    Op (Upd _) <> Op (Upd y) = Op $ Upd y
+    Op (Upd f1) <> Op (Upd f2) = Op $ Upd $ f2 <=< f1
+

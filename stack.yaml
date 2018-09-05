@@ -24,7 +24,7 @@ extra-deps:
     - code/prelude
 
 - git: https://github.com/serokell/auth-data-structures.git
-  commit: c46d81fac79bbc1e4efcc6c4568a1500b273bd60
+  commit: b6594189f8ab3398d19dc183796cd1042d123aef
 
 # Forced by lootbox #
 - base-noprelude-4.10.1.0

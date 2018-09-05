@@ -33,7 +33,7 @@ import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessAc
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccumModifier (..), IdSumPrefixed (..),
                                 Prefix (..), StateP, StateR, Undo (..), ValueOp (..),
-                                changeSetToList, idSumPrefix)
+                                ValueOpErr (..), changeSetToList, idSumPrefix)
 import           Snowdrop.Util (HasGetter (..))
 
 instance Hashable AVL.Tilt
@@ -192,7 +192,7 @@ initAVLPureStorage (M.toList -> kvs) = reThrowAVLEx @k $ do
     pure $ AMS { amsRootHash = rootH, amsState = st, amsRequested = mempty }
 
 type KVConstraint k v = (IdSumPrefixed k, Typeable k, Ord k, Show k,
-                         Serialisable k, Serialisable v, Show v, Eq v)
+                         Serialisable k, Show v)
 
 instance (AvlHashable h, MonadCatch m) => RetrieveImpl (ReaderT (ClientTempState h k v m) m) h where
     retrieveImpl k = asks ctRetrieve >>=
@@ -377,7 +377,7 @@ modAccum' (AVLChgAccum initAvl initAcc initTouched) cMod pState = do
       CAMChange (changeSetToList -> cs) ->
         ( Right . Just . doUncurry AVLChgAccum
           <$> runAVLCacheT (foldM modAVL (initAvl, initTouched) cs) initAcc pState )
-            `catch` \e@(CSMappendException _) -> pure $ Left e
+            `catch` \e@(CSMappendException _ _) -> pure $ Left e
       CAMRevert (Undo _cs sn) ->
         case (BS.null sn, deserialise sn) of
           (False, Left str) ->
@@ -408,8 +408,12 @@ modAccum' (AVLChgAccum initAvl initAcc initTouched) cMod pState = do
             (NotExisted ,_     ) -> pure (avl', touched')
             (New v      ,_     ) -> (, touched') . snd <$> AVL.insert' k v avl'
             (Rem        ,Just _) -> (, touched') . snd <$> AVL.delete' k avl'
-            (Upd v      ,Just _) -> (, touched') . snd <$> AVL.insert' k v avl'
-            _                    -> throwM $ CSMappendException k
+            (Upd f      ,Just oldVal) -> do
+              newVal <- case f oldVal of
+                Right res -> return res
+                Left e    -> throwM $ CSMappendException k e
+              (, touched') . snd <$> AVL.insert' k newVal avl'
+            _                    -> throwM $ CSMappendException k (ValueOpErr "modAccum: AVL keys corrupted")
 
 modAccum
     :: forall k v ctx h m .

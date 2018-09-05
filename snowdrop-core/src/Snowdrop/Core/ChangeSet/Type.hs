@@ -6,7 +6,6 @@ module Snowdrop.Core.ChangeSet.Type
        , csRemove
        , csNew
        , csUpdate
-       , changeSetToMap
        , changeSetToList
        , CSMappendException (..)
        , mappendChangeSet
@@ -27,14 +26,14 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text.Buildable
 
-import           Snowdrop.Core.ChangeSet.ValueOp (ValueOp (..), ValueOpEx (..))
+import           Snowdrop.Core.ChangeSet.ValueOp (ValueOp (..), ValueOpErr (..), ValueOpEx (..))
 import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
 import           Snowdrop.Util
 
 newtype ChangeSet id v = ChangeSet {changeSet :: M.Map id (ValueOp v)}
-    deriving (Functor, Eq, Ord, Show)
+    deriving (Show)
 
-instance (Ord id, HasReview id id1, HasReview value value1)
+instance (Ord id, HasReview id id1, HasReview value value1, HasPrism value value1)
       => HasReview (ChangeSet id value) (ChangeSet id1 value1) where
     inj (ChangeSet mp) = ChangeSet (inj mp)
 
@@ -45,7 +44,7 @@ instance (Ord id, Ord id1, HasPrism id id1, HasPrism value value1)
 data Undo id value = Undo
     { undoChangeSet :: ChangeSet id value
     , undoSnapshot  :: ByteString
-    } deriving (Show, Eq, Generic)
+    } deriving (Show, Generic)
 
 csRemove :: ChangeSet id v -> Set id
 csRemove = M.keysSet . M.filter isRem . changeSet
@@ -59,19 +58,11 @@ csNew = M.mapMaybe isNew . changeSet
     isNew (New x) = Just x
     isNew _       = Nothing
 
-csUpdate :: ChangeSet id v -> Map id v
+csUpdate :: ChangeSet id v -> Map id (v -> Either ValueOpErr v)
 csUpdate = M.mapMaybe isUpd . changeSet
   where
-    isUpd (Upd x) = Just x
+    isUpd (Upd f) = Just f
     isUpd _       = Nothing
-
-changeSetToMap :: ChangeSet id v -> Map id v
-changeSetToMap = M.mapMaybe toJust . changeSet
-  where
-    toJust Rem        = Nothing
-    toJust NotExisted = Nothing
-    toJust (Upd x)    = Just x
-    toJust (New x)    = Just x
 
 changeSetToList :: ChangeSet id v -> [(id, ValueOp v)]
 changeSetToList (ChangeSet mp) = M.toList mp
@@ -79,14 +70,18 @@ changeSetToList (ChangeSet mp) = M.toList mp
 instance Default (ChangeSet id v) where
     def = ChangeSet def
 
-newtype CSMappendException id = CSMappendException id
+data CSMappendException id = CSMappendException id ValueOpErr
     deriving (Show, Eq)
 
 instance (Show id, Typeable id) => Exception (CSMappendException id)
 
 instance Buildable id => Buildable (CSMappendException id) where
-    build (CSMappendException i) =
-        bprint ("Failed to mappend ChangeSets due to conflict for key "%build) i
+    build (CSMappendException i valueOpErr) =
+        bprint ("Failed to mappend ChangeSets due to conflict for key "%build) i <>
+        printValueOpErr valueOpErr
+      where
+        printValueOpErr BasicErr       = bprint "BasicErr occured"
+        printValueOpErr (ValueOpErr t) = bprint ("ValueOpErr: "%build) t
 
 -- This tricky implementation works for O(min(N, M) * log(max(N, M)))
 mappendChangeSet
@@ -108,7 +103,7 @@ mappendChangeSet (ChangeSet m1) (ChangeSet m2) = if leftAppRight
                         then Op v <> Op op
                         else Op op <> Op v
             in case resOp of
-                Err   -> Left $ CSMappendException i
+                Err e -> Left $ CSMappendException i e
                 Op ro -> Right $ M.insert i ro m
 
 mconcatChangeSets :: Ord id => [ChangeSet id v] -> Either (CSMappendException id) (ChangeSet id v)
