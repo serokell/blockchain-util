@@ -8,6 +8,7 @@ module Snowdrop.Execution.DbActions.AVLp.State
        , AMSRequested (..)
        , ClientTempState (..)
        , clientModeToTempSt
+       , ClientError (..)
        , reThrowAVLEx
        , AVLPureStorage (..)
        , initAVLPureStorage

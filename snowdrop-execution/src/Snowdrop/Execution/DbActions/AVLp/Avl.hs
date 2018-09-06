@@ -37,6 +37,7 @@ newtype RootHash h = RootHash { unRootHash :: h }
 saveAVL :: forall h k v m . (AVL.Stores h k v m, MonadCatch m) => AVL.Map h k v -> m (RootHash h)
 saveAVL avl = AVL.save avl $> avlRootHash avl
 
+-- | Load whole tree from disk in memory.
 materialize :: forall h k v m . AVL.Stores h k v m => AVL.Map h k v -> m (AVL.Map h k v)
 materialize initAVL = flip AVL.openAndM initAVL $ \case
     MLBranch h m c t l r -> fmap Free $ MLBranch h m c t <$> materialize l <*> materialize r
@@ -45,6 +46,7 @@ materialize initAVL = flip AVL.openAndM initAVL $ \case
 mkAVL :: RootHash h -> AVL.Map h k v
 mkAVL = pure . unRootHash
 
+-- | Get root hash of AVL tree.
 avlRootHash :: AVL.Map h k v -> RootHash h
 avlRootHash = RootHash . AVL.rootHash
 

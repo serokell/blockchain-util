@@ -54,6 +54,7 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
         -> DbModifyActions (AVLChgAccum h k v) k v m ()
     mkActions var ctMode =
         DbModifyActions (mkAccessActions var ctMode) (reThrowAVLEx @k . apply var)
+
     mkAccessActions
         :: TVar (RootHash h)
         -> ClientMode (AVL.Proof h k v)
@@ -68,6 +69,7 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
           (\cA p b f -> reThrowAVLEx @k $ iter cA p b f =<< createState)
       where
         createState = clientModeToTempSt retrieveF ctMode =<< atomically (readTVar var)
+
     apply :: AvlHashable h => TVar (RootHash h) -> AVLChgAccum h k v -> m ()
     apply var (Just (AVLChgAccum accAvl _acc _accTouched)) =
         liftIO $ atomically $ writeTVar var (avlRootHash accAvl)
@@ -134,25 +136,26 @@ avlServerDbActions = fmap mkActions . newTVarIO
             -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h k v)
         computeProof (mkAVL -> oldAvl) requested =
             case requested of
-                AMSWholeTree -> computeProofWhole
-                AMSKeys ks   -> computeProofKeys ks
-          where
-            computeProofWhole :: AVLCacheT h (ReaderT (AVLPureStorage h ) IO) (AVL.Proof h k v)
-            computeProofWhole = AVL.Proof <$> materialize oldAvl
+                AMSWholeTree -> computeProofWhole oldAvl
+                AMSKeys ks   -> computeProofKeys oldAvl ks
 
-            computeProofKeys
-                :: Set k
-                -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h k v)
-            computeProofKeys ks = do
-                (avl', allTouched) <- foldM computeTouched (oldAvl, mempty) ks
-                AVL.prune (allTouched <> accTouched) =<< materialize avl'
+        computeProofWhole :: AVL.Map h k v -> AVLCacheT h (ReaderT (AVLPureStorage h ) IO) (AVL.Proof h k v)
+        computeProofWhole = fmap AVL.Proof . materialize
 
-            computeTouched
-                :: (AVL.Map h k v, Set h)
-                -> k
-                -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Map h k v, Set h)
-            computeTouched (avl, touched) key = do
-                ((_res, touched'), avl') <- AVL.lookup' key avl
-                pure (avl', touched' <> touched)
+        computeProofKeys
+            :: AVL.Map h k v
+            -> Set k
+            -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h k v)
+        computeProofKeys tree ks = do
+            (avl', allTouched) <- foldM computeTouched (tree, mempty) ks
+            AVL.prune (allTouched <> accTouched) =<< materialize avl'
+
+        computeTouched
+            :: (AVL.Map h k v, Set h)
+            -> k
+            -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Map h k v, Set h)
+        computeTouched (avl, touched) key = do
+            ((_res, touched'), avl') <- AVL.lookup' key avl
+            pure (avl', touched' <> touched)
 
     apply var Nothing = AVL.Proof . mkAVL . amsRootHash <$> atomically (readTVar var)
