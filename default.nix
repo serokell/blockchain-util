@@ -8,14 +8,14 @@ in
 with nixpkgs;
 
 buildStackApplication {
-  package = "impl";
+  packages = [ "snowdrop-block" "snowdrop-core" "snowdrop-execution" "snowdrop-util" ];
   src = lib.cleanSource ./.;
   ghc = pkgs.haskell.compiler.ghc822;
   
-  overrides = final: previous: with haskell.lib; {
-    snowdrop = haskell.lib.doCheck (overrideCabal previous.snowdrop (super: with final; {
-      buildDepends = (super.buildDepends or []) ++ [ hspec tasty-hedgehog QuickCheck ];
-      buildTools = [ cpphs ];
-    }));
-  };
+  #overrides = final: previous: with haskell.lib; {
+  #  snowdrop = haskell.lib.doCheck (overrideCabal previous.snowdrop (super: with final; {
+  #    buildDepends = (super.buildDepends or []) ++ [ hspec tasty-hedgehog QuickCheck ];
+  #    buildTools = [ cpphs ];
+  #  }));
+  #};
 }
