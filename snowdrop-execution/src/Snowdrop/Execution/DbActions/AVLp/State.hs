@@ -25,6 +25,7 @@ import           Data.Default (Default (..))
 import qualified Data.Map.Strict as M
 import           Data.Tree.AVL (KVStoreMonad (..), MapLayer (..), Serialisable (..))
 import qualified Data.Tree.AVL as AVL
+import           Loot.Log (MonadLogging, logDebug)
 
 import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbActionsException (..))
 import           Snowdrop.Util (HasGetter (..))
@@ -123,6 +124,7 @@ initAVLPureStorage
     ( MonadIO m
     , MonadCatch m
     , MonadThrow m
+    , MonadLogging m
     , KVConstraint k v
     , AvlHashable h
     , AVL.Hash h k v
@@ -135,7 +137,7 @@ initAVLPureStorage (M.toList -> kvs) = reThrowAVLEx @k $ do
         (foldM (\b (k, v) -> snd <$> AVL.insert @h k v b) AVL.empty kvs >>= saveAVL)
         def (AVLPureStorage @h def)
     fullAVL <- runAVLCacheT @_ @h (materialize @h @k @v $ mkAVL rootH) def st
-    putStrLn $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)
+    logDebug . fromString $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)
     pure $ AMS { amsRootHash = rootH, amsState = st, amsRequested = mempty }
 
 -- | Accumulator for changes emerging from `save` operations
