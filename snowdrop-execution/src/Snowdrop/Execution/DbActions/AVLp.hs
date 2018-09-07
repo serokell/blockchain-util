@@ -22,6 +22,7 @@ import           Control.Monad.Free (Free (Free))
 import qualified Data.ByteString as BS
 import           Data.Tree.AVL (KVStoreMonad (..), MapLayer (..), Serialisable (..))
 import qualified Data.Tree.AVL as AVL
+import           Loot.Log (MonadLogging, logDebug)
 
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
@@ -158,7 +159,15 @@ materialize initAVL = flip AVL.openAndM initAVL $ \case
 
 initAVLPureStorage
     :: forall k v m h .
-    ( MonadIO m, MonadCatch m, MonadThrow m, KVConstraint k v, AvlHashable h, AVL.Hash h k v, Serialisable (MapLayer h k v h))
+    ( MonadIO m
+    , MonadCatch m
+    , MonadThrow m
+    , MonadLogging m
+    , KVConstraint k v
+    , AvlHashable h
+    , AVL.Hash h k v
+    , Serialisable (MapLayer h k v h)
+    )
     => Map k v -> m (AVLServerState h k)
 initAVLPureStorage (M.toList -> kvs) = reThrowAVLEx @k $ do
     (rootH, AVLPureStorage . unAVLCache -> st) <-
@@ -166,7 +175,7 @@ initAVLPureStorage (M.toList -> kvs) = reThrowAVLEx @k $ do
         (foldM (\b (k, v) -> snd <$> AVL.insert @h k v b) AVL.empty kvs >>= saveAVL)
         def (AVLPureStorage @h def)
     fullAVL <- runAVLCacheT @_ @h (materialize @h @k @v $ mkAVL rootH) def st
-    putStrLn $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)
+    logDebug . fromString $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)
     pure $ AMS { amsRootHash = rootH, amsState = st, amsRequested = mempty }
 
 type KVConstraint k v = (IdSumPrefixed k, Typeable k, Ord k, Show k, Serialisable k, Serialisable v, Show v, Eq v)
