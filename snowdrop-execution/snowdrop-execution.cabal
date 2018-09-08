@@ -40,6 +40,8 @@ library
     , stm
     , text-format
     , universum >= 1.1.0
+  build-tool-depends:
+    autoexporter:autoexporter
 
   exposed-modules:
       Snowdrop.Execution

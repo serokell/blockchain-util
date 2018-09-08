@@ -1,15 +1,12 @@
-let
-  nixpkgs = fetchTarball "https://github.com/serokell/nixpkgs/archive/master.tar.gz";
-  serokell-overlay = fetchGit "ssh://git@github.com/serokell/serokell-overlay";
-in
-
-with import nixpkgs {
-  config.allowUnfree = true;
-  overlays = [ (import "${serokell-overlay}/pkgs") ];
-};
+{ pkgs ? import ./nixpkgs.nix }:
 
 let
-  closure = (stackClosure haskell.compiler.ghc822 ./.);
+  stack4nix = fetchGit {
+    url = https://github.com/serokell/stack4nix;
+    rev = "26a46991270749ecc57d5842d391435b314dc26f";
+  };
+
+  buildStackProject = import stack4nix { inherit pkgs; };
 in
 
-{ inherit (closure) snowdrop-block snowdrop-core snowdrop-execution snowdrop-util; }
+buildStackProject ./.
