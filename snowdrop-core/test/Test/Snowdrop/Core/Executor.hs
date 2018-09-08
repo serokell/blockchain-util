@@ -17,10 +17,9 @@ import qualified Data.Map.Strict as M
 
 import           Loot.Log (NameSelector (..))
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx (..),
-                                ChgAccumModifier (..), Concurrently (..), DbAccess (..), ERoComp,
-                                Effectful (..), FoldF (..), IdSumPrefixed (..), Race (..), StateP,
-                                Undo (..), ValueOp (..), changeSetToList, getCAOrDefault,
-                                mappendChangeSet, unBaseM)
+                                ChgAccumModifier (..), DbAccess (..), ERoComp, Effectful (..),
+                                FoldF (..), IdSumPrefixed (..), StateP, Undo (..), ValueOp (..),
+                                changeSetToList, getCAOrDefault, mappendChangeSet, unBaseM)
 import           Snowdrop.Util
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
@@ -92,13 +91,6 @@ instance Monad m => MonadLogging (TestExecutorT e id value m) where
 
 instance Monad m => ModifyLogName (TestExecutorT e id value m) where
     modifyLogNameSel _ = id
-
-instance Monad m => Race e (TestExecutorT e id value m) where
-    race a b = (Left <$> a) `catchError` \_ -> Right <$> b
-
-instance Monad m => Concurrently (TestExecutorT e id value m) where
-    concurrentlySgImpl append a b = liftA2 append a b
-    concurrently a b = liftA2 (,) a b
 
 applyDiff
     :: (Ord id, HasException e (CSMappendException id), MonadError e m)
