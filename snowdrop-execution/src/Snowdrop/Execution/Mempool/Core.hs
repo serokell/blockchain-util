@@ -38,7 +38,7 @@ type RwActionWithMempool e id value rawtx ctx a =
     ERwComp e id value ctx (MempoolState id value (ChgAccum ctx) rawtx) a
 
 type ProcessStateTx e id proof value rawtx ctx =
-    StateTx id proof value -> RwActionWithMempool e id value rawtx ctx (Undo id value)
+    StateTx id proof value -> RwActionWithMempool e id value rawtx ctx (Undo (ChgAccum ctx))
 
 data MempoolConfig e id proof value ctx rawtx = MempoolConfig
     { mcExpandTx  :: ExpanderRawTx e id proof value ctx rawtx
@@ -46,7 +46,7 @@ data MempoolConfig e id proof value ctx rawtx = MempoolConfig
     }
 
 data MempoolState id value chgAccum rawtx = MempoolState
-    { msTxs      :: [(rawtx, Undo id value)]
+    { msTxs      :: [(rawtx, Undo chgAccum)]
     , msChgAccum :: chgAccum
     }
 
@@ -61,7 +61,7 @@ instance HasGetter (MempoolState id value chgAccum rawtx) chgAccum where
 instance HasLens (MempoolState id value chgAccum rawtx) chgAccum where
     sett s x = s {msChgAccum = x}
 
-msTxsL :: Lens' (MempoolState id value chgAccum rawtx) [(rawtx, Undo id value)]
+msTxsL :: Lens' (MempoolState id value chgAccum rawtx) [(rawtx, Undo chgAccum)]
 msTxsL = lens msTxs (\s x -> s {msTxs = x})
 
 instance Default chgAccum => Default (MempoolState id value chgAccum rawtx) where
@@ -120,5 +120,5 @@ createMempool = Mempool <$> atomically (newTVar def)
 getMempoolTxs
     :: (Default chgAccum, MonadIO m)
     => Mempool id value chgAccum rawtx
-    -> m [(rawtx, Undo id value)]
+    -> m [(rawtx, Undo chgAccum)]
 getMempoolTxs Mempool{..} = msTxs . vsData <$> atomically (readTVar mempoolState)

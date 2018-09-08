@@ -57,6 +57,7 @@ library
 
   other-modules:
       Snowdrop.Core.BaseM
+      Snowdrop.Core.Undo
       Snowdrop.Core.ChangeSet
       Snowdrop.Core.ChangeSet.Type
       Snowdrop.Core.ChangeSet.ValueOp

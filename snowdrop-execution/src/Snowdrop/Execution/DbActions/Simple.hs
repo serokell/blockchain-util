@@ -13,15 +13,14 @@ module Snowdrop.Execution.DbActions.Simple
 import           Universum
 
 import           Control.Monad.Except (throwError)
-import qualified Data.ByteString as BS
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccumModifier (..),
-                                IdSumPrefixed (..), Prefix (..), StateP, StateR, Undo (..),
+                                IdSumPrefixed (..), Prefix (..), StateP, StateR,
                                 ValueOp (..), changeSetToMap, csNew, filterByPrefix,
-                                mappendChangeSet)
+                                mappendChangeSet, Undo)
 import           Snowdrop.Util
 
 import           Snowdrop.Execution.DbActions.Types
@@ -42,6 +41,7 @@ mappendStOrThrow chg = (flip modifySumChgSet chg) <$> get >>=
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
 newtype SumChangeSet id value = SumChangeSet {unSumCS :: ChangeSet id value}
     deriving Show
+type instance Undo (SumChangeSet id value) = ChangeSet id value
 
 instance Default (SumChangeSet id value) where
     def = SumChangeSet def
@@ -83,11 +83,11 @@ sumChangeSetDBA getImpl iterImpl =
 
     modifySumChgSetA accum = \case
         CAMChange cs -> processCS cs
-        CAMRevert (Undo cs _sn) -> processCS cs
+        CAMRevert undo -> processCS undo
       where
         processCS cs' =
           (liftA2 (,) $ accum `modifySumChgSet` cs')
-            <$> runExceptT (flip Undo BS.empty <$> computeUndo accum cs')
+            <$> runExceptT (computeUndo accum cs')
 
     computeUndo
         :: SumChangeSet id value

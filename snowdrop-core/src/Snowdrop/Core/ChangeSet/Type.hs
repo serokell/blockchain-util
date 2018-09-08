@@ -2,7 +2,6 @@
 
 module Snowdrop.Core.ChangeSet.Type
        ( ChangeSet (..)
-       , Undo (..)
        , csRemove
        , csNew
        , csUpdate
@@ -41,11 +40,6 @@ instance (Ord id, HasReview id id1, HasReview value value1)
 instance (Ord id, Ord id1, HasPrism id id1, HasPrism value value1)
       => HasPrism (ChangeSet id value) (ChangeSet id1 value1) where
     proj (ChangeSet mp) = ChangeSet <$> proj mp
-
-data Undo id value = Undo
-    { undoChangeSet :: ChangeSet id value
-    , undoSnapshot  :: ByteString
-    } deriving (Show, Eq, Generic)
 
 csRemove :: ChangeSet id v -> Set id
 csRemove = M.keysSet . M.filter isRem . changeSet

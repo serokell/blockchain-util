@@ -29,7 +29,7 @@ import           Snowdrop.Util
 
 evictMempool
     :: Default (ChgAccum ctx)
-    => RwActionWithMempool e id value rawtx ctx [(rawtx, Undo id value)]
+    => RwActionWithMempool e id value rawtx ctx [(rawtx, Undo (ChgAccum ctx))]
 evictMempool = gets msTxs <* put def
 
 processTxAndInsertToMempool

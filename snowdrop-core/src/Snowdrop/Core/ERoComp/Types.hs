@@ -20,7 +20,8 @@ import           Universum
 
 import           Snowdrop.Core.BaseM (BaseM)
 
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..), Undo)
+import           Snowdrop.Core.Undo
+import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..))
 import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
 
 type StateR id = Set id             -- ^Request of state
@@ -45,9 +46,9 @@ instance Semigroup res => Semigroup (FoldF a res) where
 
 -- | Change accum modifier object.
 -- Holds either change set or undo object which is to be applied to change accumulator.
-data ChgAccumModifier id value
+data ChgAccumModifier id value undo
     = CAMChange { camChg  :: ChangeSet id value }
-    | CAMRevert { camUndo :: Undo id value }
+    | CAMRevert { camUndo :: Undo undo }
 
 -- Datatype for access to database.
 --
@@ -63,8 +64,8 @@ data DbAccess chgAccum id value res
     | DbIterator Prefix (FoldF (id, value) res)
     | DbModifyAccum
         chgAccum
-        (ChgAccumModifier id value)
-        (Either (CSMappendException id) (chgAccum, Undo id value) -> res)
+        (ChgAccumModifier id value chgAccum)
+        (Either (CSMappendException id) (chgAccum, Undo chgAccum) -> res)
     deriving (Functor)
 
 -- | Reader computation which allows you to query for part of bigger state

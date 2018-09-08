@@ -10,7 +10,8 @@ import           Universum
 import           Control.Lens ((.=))
 import           Control.Monad.Except (MonadError)
 
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), Undo)
+import           Snowdrop.Core.Undo
+import           Snowdrop.Core.ChangeSet (CSMappendException (..))
 import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), ChgAccumModifier, ERoComp,
                                         StatePException (..), initAccumCtx, modifyAccum)
 import           Snowdrop.Util
@@ -48,8 +49,8 @@ modifyRwCompChgAccum
     ( HasException e (CSMappendException id)
     , HasLens s (ChgAccum ctx)
     )
-    => ChgAccumModifier id value
-    -> ERwComp e id value ctx s (Undo id value)
+    => ChgAccumModifier id value (ChgAccum ctx)
+    -> ERwComp e id value ctx s (Undo (ChgAccum ctx))
 modifyRwCompChgAccum chgSet = do
     chgAcc <- gets (gett @_ @(ChgAccum ctx))
     newChgAccOrE <- ERwComp $ lift $ modifyAccum chgAcc chgSet

@@ -10,7 +10,6 @@ module Snowdrop.Block.State
 
 import           Universum
 
-import qualified Data.ByteString as BS
 import           Data.Default (def)
 import           Data.Default (Default)
 import qualified Data.Map as M
@@ -24,7 +23,7 @@ import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockU
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx,
                                 ChgAccumModifier (..), ERwComp, Expander (..), HasKeyValue,
                                 IdSumPrefixed (..), StateModificationException,
-                                StatePException (..), StateTx (..), StateTxType, Undo (..),
+                                StatePException (..), StateTx (..), StateTxType, Undo,
                                 Validator, ValidatorExecException, ValueOp (..), liftERoComp,
                                 mappendChangeSet, modifyRwCompChgAccum, queryOne, queryOneExists,
                                 runValidator)
@@ -58,8 +57,13 @@ data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
 inmemoryBlkStateConfiguration
   :: forall blkType e id proof value ctx rawTx .
     ( HasKeyValue id value TipKey (TipValue (BlockRef blkType))
-    , HasKeyValue id value (BlockRef blkType) (Blund (BlockHeader blkType) (RawPayload blkType) (Undo id value))
-    , BlockUndo blkType ~ Undo id value
+    , HasKeyValue
+        id
+        value
+        (BlockRef blkType)
+        (Blund (BlockHeader blkType) (RawPayload blkType) (Undo (ChgAccum ctx)))
+    , BlockUndo blkType ~ Undo (ChgAccum ctx)
+    , Undo (ChgAccum ctx) ~ ChangeSet id value
     , HasExceptions e
         [ StatePException
         , BlockStateException id
@@ -95,9 +99,9 @@ inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
           forM (gett txs) $ \tx -> do
             liftERoComp $ runValidator validator tx
             modifyRwCompChgAccum (CAMChange $ txBody tx)
-        let mergeUndos (Undo cs1 _) (Undo cs2 sn2) = flip Undo sn2 <$> mappendChangeSet cs1 cs2
+        let mergeUndos cs1 cs2 = mappendChangeSet cs1 cs2
         case reverse undos of
-            []     -> pure $ Undo def BS.empty
+            []     -> pure $ def
             f:rest -> either throwLocalError pure $ foldM mergeUndos f rest
     , bscApplyUndo = void . modifyRwCompChgAccum . CAMRevert
     , bscStoreBlund = \blund -> do
@@ -105,7 +109,7 @@ inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
           let chg = ChangeSet $ M.singleton (inj $ blockRef) (New $ inj blund)
           void $ modifyRwCompChgAccum $ CAMChange chg
     , bscRemoveBlund = \blockRef ->
-        void $ modifyRwCompChgAccum $ CAMRevert $ Undo (ChangeSet $ M.singleton (inj $ blockRef) Rem) BS.empty
+        void $ modifyRwCompChgAccum $ CAMRevert $ ChangeSet $ M.singleton (inj $ blockRef) Rem
     , bscGetBlund = liftERoComp . queryOne
     , bscBlockExists = liftERoComp . queryOneExists
     , bscGetTip = liftERoComp (queryOne TipKey)

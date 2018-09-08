@@ -38,7 +38,8 @@ import           Formatting (bprint, build, stext, (%))
 import           Data.Default (Default (def))
 
 import           Snowdrop.Core.BaseM (effect)
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..), Undo)
+import           Snowdrop.Core.Undo
+import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..))
 import           Snowdrop.Core.ERoComp.Types (ChgAccum, ChgAccumCtx (..), ChgAccumModifier (..),
                                               DbAccess (..), ERoComp, FoldF (..), Prefix (..),
                                               StateP, StateR)
@@ -48,8 +49,8 @@ import           Snowdrop.Util
 modifyAccum
     :: forall e id value ctx .
        ChgAccum ctx
-    -> ChgAccumModifier id value
-    -> ERoComp e id value ctx (Either (CSMappendException id) (ChgAccum ctx, Undo id value))
+    -> ChgAccumModifier id value (ChgAccum ctx)
+    -> ERoComp e id value ctx (Either (CSMappendException id) (ChgAccum ctx, Undo (ChgAccum ctx)))
 modifyAccum chgAccum chgSet = effect $ DbModifyAccum chgAccum chgSet id
 
 query :: forall e id value ctx . StateR id -> ERoComp e id value ctx (StateP id value)

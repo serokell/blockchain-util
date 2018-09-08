@@ -22,8 +22,8 @@ data DbAccessActions chgAccum id value m = DbAccessActions
     { daaGetter      :: chgAccum -> StateR id -> m (StateP id value)
       -- ^ Retrieves values corresponding to specified keys (doesn't modify the state)
     , daaModifyAccum :: chgAccum
-                     -> ChgAccumModifier id value
-                     -> m (Either (CSMappendException id) (chgAccum, Undo id value))
+                     -> ChgAccumModifier id value chgAccum
+                     -> m (Either (CSMappendException id) (chgAccum, Undo chgAccum))
       -- ^ Modify change accumulater with specified change set (doesn't modify the state)
     , daaIter        :: forall b . chgAccum -> Prefix -> b -> ((id, value) -> b -> b) -> m b
       -- ^ Iterate through keys with specified prefix (doesn't modify the state)
