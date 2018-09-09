@@ -31,7 +31,8 @@ import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbActionsE
 import           Snowdrop.Util (HasGetter (..))
 
 import           Snowdrop.Execution.DbActions.AVLp.Avl (AvlHashable, KVConstraint, RootHash (..),
-                                                        deserialiseM, materialize, mkAVL, saveAVL)
+                                                        avlRootHash, deserialiseM, materialize,
+                                                        mkAVL, saveAVL)
 
 ----------------------------------------------------------------------------
 -- Server state
@@ -133,9 +134,7 @@ initAVLPureStorage
     => Map k v -> m (AVLServerState h k)
 initAVLPureStorage (M.toList -> kvs) = reThrowAVLEx @k $ do
     (rootH, AVLPureStorage . unAVLCache -> st) <-
-      runAVLCacheT
-        (foldM (\b (k, v) -> snd <$> AVL.insert @h k v b) AVL.empty kvs >>= saveAVL)
-        def (AVLPureStorage @h def)
+      runAVLCacheT (avlRootHash <$> AVL.fromList kvs) def (AVLPureStorage @h def)
     fullAVL <- runAVLCacheT @_ @h (materialize @h @k @v $ mkAVL rootH) def st
     logDebug . fromString $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)
     pure $ AMS { amsRootHash = rootH, amsState = st, amsRequested = mempty }
