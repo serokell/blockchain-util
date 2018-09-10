@@ -14,6 +14,7 @@ module Snowdrop.Block.Types
        , RawBlund
        , RawPayload
        , OSParams
+       , Time
        ) where
 
 import           Universum
