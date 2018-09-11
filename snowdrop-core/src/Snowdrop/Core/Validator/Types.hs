@@ -1,70 +1,89 @@
 module Snowdrop.Core.Validator.Types
        ( PreValidator (..)
        , mkPreValidator
-       , Validator (..)
-       , ValidatorExecException (..)
+       , Validator
        , mkValidator
        , runValidator
+       , upcastPreValidator
+       , downcastPreValidator
+       , castPreValidator
+       , fromPreValidator
+       , getPreValidator
        ) where
 
 import           Universum
 
-import qualified Data.Map.Strict as M
-import qualified Data.Text.Buildable
-import           Formatting (bprint, build, (%))
+import           Control.Monad.Except (throwError)
+import           Data.Vinyl
 
 import           Snowdrop.Core.ERoComp.Types
 import           Snowdrop.Core.Transaction
-import           Snowdrop.Util
+
+import           Snowdrop.Util (HasGetter, HasPrism (..), RContains)
 
 -- | Prevalidator validates part of the transaction.
-newtype PreValidator e id proof value ctx =
-    PreValidator (StateTx id proof value -> ERoComp e id value ctx ())
+newtype PreValidator e id value ctx txtype =
+    PreValidator { runPrevalidator :: StateTx id value txtype -> ERoComp e id value ctx () }
 
 mkPreValidator
-    :: (StateTx id proof value -> ERoComp e id value ctx ())
-    -> PreValidator e id proof value ctx
+    :: (StateTx id value txtype -> ERoComp e id value ctx ())
+    -> PreValidator e id value ctx txtype
 mkPreValidator = PreValidator
 
--- | StateTxValidatos is a union of several (pre)validators for
+-- | Validator is a union of several (pre)validators for
 -- different transaction types.
-newtype Validator e id proof value ctx =
-    Validator (Map StateTxType (PreValidator e id proof value ctx))
+type Validator e id value ctx (txtypes :: [*]) = Rec (PreValidator e id value ctx) txtypes
 
-instance Ord id => Semigroup (PreValidator e id proof value ctx) where
+instance Ord id => Semigroup (PreValidator e id value ctx txtype) where
      PreValidator a <> PreValidator b = PreValidator $ a <> b
 
-instance Ord id => Monoid (PreValidator e id proof value ctx) where
+instance Ord id => Monoid (PreValidator e id value ctx txtype) where
     mempty = PreValidator $ const (pure ())
     mappend = (<>)
 
-mkValidator
-    :: Ord id
-    => StateTxType
-    -> [PreValidator e id proof value ctx]
-    -> Validator e id proof value ctx
-mkValidator txType = Validator . M.singleton txType . mconcat
+mkValidator ::
+    Ord id
+    => [PreValidator e id value ctx txtype]
+    -> Validator e id value ctx '[txtype]
+mkValidator ps = mconcat ps :& RNil
 
-data ValidatorExecException = PreValidatorNotFound StateTxType
-    deriving (Show)
+fromPreValidator :: PreValidator e id value ctx txtype -> Validator e id value ctx '[txtype]
+fromPreValidator ps = ps :& RNil
 
-instance Buildable ValidatorExecException where
-    build (PreValidatorNotFound stxType) =
-        bprint ("Prevalidator was not found for "%build) stxType
+getPreValidator :: Validator e id value ctx '[txtype] -> PreValidator e id value ctx txtype
+getPreValidator (ps :& RNil) = ps
 
 runValidator
-    :: (HasException e ValidatorExecException)
-    => Validator e id proof value ctx
-    -> StateTx id proof value
+    :: forall e id txtype value ctx txtypes . (RContains txtypes txtype)
+    => Validator e id value ctx txtypes
+    -> StateTx id value txtype
     -> ERoComp e id value ctx ()
-runValidator (Validator prevalidators) statetx =
-    case M.lookup (txType statetx) prevalidators of
-        Nothing                    -> throwLocalError $ PreValidatorNotFound $ txType statetx
-        Just (PreValidator action) -> action statetx
+runValidator prevalidators statetx =
+    runPrevalidator (rget (Proxy @txtype) prevalidators) statetx
 
-instance Ord id => Semigroup (Validator e id proof value ctx) where
-    Validator m1 <> Validator m2 = Validator $ M.unionWith mappend m1 m2
+-- | TODO: consider renaming to make those more consistent with Validator casts
+--
+-- Current naming is inspired by bubtyping relationship:
+-- * cast from child to parent (from concrete to more general type) is an upcast and it never fails
+-- * cast from parent to child (from more general to concrete type) is a downcast and can fail
+-- But it can be viewed slightly differently when considering Validators and other more tricky types.
+upcastPreValidator
+    :: forall id value txtype1 txtype2 e ctx . HasGetter (TxProof txtype2) (TxProof txtype1)
+    => PreValidator e id value ctx txtype1
+    -> PreValidator e id value ctx txtype2
+upcastPreValidator prev = PreValidator $ runPrevalidator prev . downcastStateTx
 
-instance Ord id => Monoid (Validator e id proof value ctx) where
-    mempty = Validator M.empty
-    mappend = (<>)
+downcastPreValidator
+    :: forall id value txtype1 txtype2 e ctx . HasPrism (TxProof txtype2) (TxProof txtype1)
+    => e
+    -> PreValidator e id value ctx txtype1
+    -> PreValidator e id value ctx txtype2
+downcastPreValidator err prev = PreValidator $ maybe (throwError err) (runPrevalidator prev) . upcastStateTx
+
+castPreValidator
+    :: forall id value txtype1 txtype2 e ctx .
+       e
+    -> (TxProof txtype2 -> Maybe (TxProof txtype1))
+    -> PreValidator e id value ctx txtype1
+    -> PreValidator e id value ctx txtype2
+castPreValidator err castProof prev = PreValidator $ maybe (throwError err) (runPrevalidator prev) . castStateTx castProof
