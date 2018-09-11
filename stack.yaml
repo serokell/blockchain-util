@@ -48,9 +48,6 @@ extra-deps:
 # fails with "shadowed package" error.
 # - parsec-3.1.13.0
 
-# Because it fixes CI (ask @yorick)
-- yaml-0.8.32
-
 ghc-options:
     snowdrop-block:      -Werror
     snowdrop-core:       -Werror

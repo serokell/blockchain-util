@@ -19,7 +19,6 @@ library
       src
   build-depends:
       base >=4.7 && <5
-    , autoexporter
     , ansi-terminal
     , containers
     , data-default
@@ -41,6 +40,8 @@ library
     , universum >= 1.1.0
     , unordered-containers
     , yaml
+  build-tool-depends:
+      autoexporter:autoexporter
 
   exposed-modules:
       Snowdrop.Util

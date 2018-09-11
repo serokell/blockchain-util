@@ -51,6 +51,8 @@ library
     , unliftio-core
     , unordered-containers
     , yaml
+  build-tool-depends:
+      autoexporter:autoexporter
 
   exposed-modules:
       Snowdrop.Core
@@ -125,6 +127,8 @@ test-suite snowdrop-core-test
     , universum
     , snowdrop-core
     , snowdrop-util
+  build-tool-depends:
+      hspec-discover:hspec-discover
   other-modules:
       Spec
       Test.Snowdrop.Core.ChangeSet
