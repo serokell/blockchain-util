@@ -27,10 +27,10 @@ import           Snowdrop.Block.Types (Block (..), BlockRef, Blund (..),
                                        RawBlund, OSParams, PrevBlockRef (..))
 import           Snowdrop.Util
 
-data ForkVerResult blkType
+data ForkVerResult blkType undo
   = ApplyFork
       { fvrToApply    :: OldestFirst NonEmpty (BlockHeader blkType)
-      , fvrToRollback :: NewestFirst [] (RawBlund blkType)
+      , fvrToRollback :: NewestFirst [] (RawBlund blkType undo)
       , fvrLCA        :: Maybe (BlockRef blkType)
       }
     | RejectFork
@@ -62,15 +62,15 @@ instance Buildable (ForkVerificationException blockRef) where
 --  5. evaluates `bcIsBetterThan` for loaded part of currently adopted "best" chain and fork,
 --  returns `ApplyFork` iff evaluation results in `True`.
 verifyFork
-    :: forall blkType e m .
+    :: forall blkType e undo m .
        ( MonadError e m
        , Eq (BlockRef blkType)
        , HasException e (ForkVerificationException (BlockRef blkType))
        )
-    => BlkStateConfiguration blkType m
+    => BlkStateConfiguration blkType undo m
     -> OSParams blkType
     -> OldestFirst NonEmpty (BlockHeader blkType)
-    -> m (ForkVerResult blkType)
+    -> m (ForkVerResult blkType undo)
 verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
     let lcaRefMb = unPrevBlockRef $ bcPrevBlockRef bscConfig $ head altHeaders
     let firstBlockRef = unCurrentBlockRef $ bcBlockRef bscConfig $ head altHeaders
@@ -95,7 +95,7 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
   where
     loadBlocksFromTo
         :: Int -> Maybe (BlockRef blkType) -> Maybe (BlockRef blkType)
-        -> m (NewestFirst [] (RawBlund blkType))
+        -> m (NewestFirst [] (RawBlund blkType undo))
     loadBlocksFromTo maxForkDepth toMb fromMb
         | toMb == fromMb        = pure $ NewestFirst []
         | maxForkDepth <= 0 = throwLocalError @(ForkVerificationException (BlockRef blkType)) TooDeepFork
@@ -110,17 +110,17 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
         | otherwise = throwLocalError @(ForkVerificationException (BlockRef blkType)) OriginOfBlockchainReached
 
 iterateChain
-    :: forall blkType m .
+    :: forall blkType undo m .
     ( Monad m
     )
-    => BlkStateConfiguration blkType m
+    => BlkStateConfiguration blkType undo m
     -> Int
-    -> m (NewestFirst [] (RawBlund blkType))
+    -> m (NewestFirst [] (RawBlund blkType undo))
 iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDepth
   where
     loadBlock
         :: Int -> Maybe (BlockRef blkType)
-        -> m (NewestFirst [] (RawBlund blkType))
+        -> m (NewestFirst [] (RawBlund blkType undo))
     loadBlock _ Nothing = pure $ NewestFirst []
     loadBlock depth (Just blockRef)
         | depth <= 0 = pure $ NewestFirst []

@@ -18,7 +18,7 @@ import qualified Data.Text.Buildable
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
+import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, Blund (..),
                                        CurrentBlockRef (..), Payload, RawBlk, RawPayload)
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx,
                                 ChgAccumModifier (..), ERwComp, Expander (..), HasKeyValue,
@@ -62,8 +62,6 @@ inmemoryBlkStateConfiguration
         value
         (BlockRef blkType)
         (Blund (BlockHeader blkType) (RawPayload blkType) (Undo (ChgAccum ctx)))
-    , BlockUndo blkType ~ Undo (ChgAccum ctx)
-    , Undo (ChgAccum ctx) ~ ChangeSet id value
     , HasExceptions e
         [ StatePException
         , BlockStateException id
@@ -87,7 +85,7 @@ inmemoryBlkStateConfiguration
     -> (rawTx -> (StateTxType, proof))
     -> Expander e id proof value ctx rawTx
     -> (RawBlk blkType -> [StateTx id proof value] -> Block (BlockHeader blkType) (Payload blkType))
-    -> BlkStateConfiguration blkType (ERwComp e id value ctx (ChgAccum ctx))
+    -> BlkStateConfiguration blkType (Undo (ChgAccum ctx)) (ERwComp e id value ctx (ChgAccum ctx))
 inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
     BlkStateConfiguration {
       bscConfig = cfg
@@ -109,6 +107,7 @@ inmemoryBlkStateConfiguration cfg validator mkProof expander mkBlock =
           let chg = ChangeSet $ M.singleton (inj $ blockRef) (New $ inj blund)
           void $ modifyRwCompChgAccum $ CAMChange chg
     , bscRemoveBlund = \blockRef ->
+        -- TODO: remove changeset from here
         void $ modifyRwCompChgAccum $ CAMRevert $ ChangeSet $ M.singleton (inj $ blockRef) Rem
     , bscGetBlund = liftERoComp . queryOne
     , bscBlockExists = liftERoComp . queryOneExists

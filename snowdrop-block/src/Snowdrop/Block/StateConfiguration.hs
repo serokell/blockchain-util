@@ -7,7 +7,7 @@ module Snowdrop.Block.StateConfiguration
 import           Universum
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), BlockRef, BlockUndo,
+import           Snowdrop.Block.Types (Block (..), BlockRef,
                                        BlockHeader, Payload, RawBlund, RawBlk)
 
 -- | Block handling configuration.
@@ -24,8 +24,8 @@ import           Snowdrop.Block.Types (Block (..), BlockRef, BlockUndo,
 --  (including tip block, currently adopted "best" chain),
 --  while state contains actual blockchain state
 --  as result of application of currently adopted "best" chain on initial blockchain state.
-data BlkStateConfiguration blkType m = BlkStateConfiguration
-    { bscApplyPayload :: Payload blkType -> m (BlockUndo blkType)
+data BlkStateConfiguration blkType undo m = BlkStateConfiguration
+    { bscApplyPayload :: Payload blkType -> m undo
     -- ^ Apply block payload to state. Note, that this method encapsulates validation of
     -- payload (and inidividual transactions contained in it) as well as actual application
     -- of payload to state.
@@ -35,18 +35,18 @@ data BlkStateConfiguration blkType m = BlkStateConfiguration
     , bscExpand       :: RawBlk blkType -> m (Block (BlockHeader blkType) (Payload blkType))
     -- ^ Expand raw block
 
-    , bscApplyUndo    :: BlockUndo blkType -> m ()
+    , bscApplyUndo    :: undo -> m ()
     -- ^ Apply undo: revert changes made by application of block,
     -- which produced the passed undo object.
 
     , bscRemoveBlund  :: BlockRef blkType -> m ()
     -- ^ Remove block from block storage
 
-    , bscStoreBlund   :: RawBlund blkType -> m ()
+    , bscStoreBlund   :: RawBlund blkType undo -> m ()
     -- ^ Store block along with undo in block storage
 
     , bscGetBlund     :: BlockRef blkType
-                      -> m (Maybe (RawBlund blkType))
+                      -> m (Maybe (RawBlund blkType undo))
     -- ^ Retrieve block along with undo from block storage
 
     , bscBlockExists  :: BlockRef blkType -> m Bool

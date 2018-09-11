@@ -9,7 +9,6 @@ module Snowdrop.Block.Types
        , BlockRef
        , Payload
        , BlockHeader
-       , BlockUndo
        , RawBlk
        , RawBlund
        , RawPayload
@@ -33,8 +32,6 @@ type family Payload a :: *
 
 type family BlockHeader a :: *
 
-type family BlockUndo a :: *
-
 type family OSParams a :: *
 
 type family RawBlk a :: *
@@ -57,8 +54,8 @@ data Blund header payload undo = Blund
     , buUndo  :: undo
     } deriving (Eq, Ord, Show, Generic)
 
-type RawBlund blkType =
-    (Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))
+type RawBlund blkType undo =
+    (Blund (BlockHeader blkType) (RawPayload blkType) undo)
 
 instance HasBlock header payload (Blund header payload undo) where
     getBlock = getBlock . buBlock

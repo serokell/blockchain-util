@@ -41,21 +41,21 @@ instance Buildable blockRef => Buildable (BlockApplicationException blockRef) wh
 -- Current implementation checks only block integrity,
 -- no comparison with `bcIsBetterThan` is performed (which is better to be changed).
 applyBlock
-    :: forall blkType e m
+    :: forall blkType e undo m
     . ( MonadError e m
       , Eq (BlockRef blkType)
       , HasException e (BlockApplicationException (BlockRef blkType))
       , HasGetter (RawBlk blkType) (RawPayload blkType)
       )
     => OSParams blkType
-    -> BlkStateConfiguration blkType m
+    -> BlkStateConfiguration blkType undo m
     -> RawBlk blkType
     -> m ()
 -- TODO: compare old chain with new one via `bcIsBetterThan`
 applyBlock = expandAndApplyBlock True
 
 expandAndApplyBlock
-    :: forall blkType e m
+    :: forall blkType e undo m
     . ( MonadError e m
       , Eq (BlockRef blkType)
       , HasException e (BlockApplicationException (BlockRef blkType))
@@ -63,7 +63,7 @@ expandAndApplyBlock
       )
     => Bool
     -> OSParams blkType
-    -> BlkStateConfiguration blkType m
+    -> BlkStateConfiguration blkType undo m
     -> RawBlk blkType
     -> m ()
 expandAndApplyBlock checkBIV osParams bsc rawBlk = do
@@ -71,14 +71,14 @@ expandAndApplyBlock checkBIV osParams bsc rawBlk = do
     applyBlockImpl checkBIV osParams bsc (gett rawBlk) blk
 
 applyBlockImpl
-    :: forall blkType e m
+    :: forall blkType e undo m
     . ( MonadError e m
       , Eq (BlockRef blkType)
       , HasException e (BlockApplicationException (BlockRef blkType))
       )
     => Bool
     -> OSParams blkType
-    -> BlkStateConfiguration blkType m
+    -> BlkStateConfiguration blkType undo m
     -> RawPayload blkType
     -> Block (BlockHeader blkType) (Payload blkType)
     -> m ()
@@ -106,7 +106,7 @@ applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawPayload blk@Blo
 -- 3. for each block in the fork: payload is applied, blund is stored and tip updated.
 tryApplyFork
     -- TODO `undo` is not Monoid, even for ChangeSet
-    :: forall blkType e m
+    :: forall blkType e undo m
     . ( HasGetter (RawBlk blkType) (BlockHeader blkType)
       -- pva701: TODO ^ this constraint should be eliminated and
       -- either expanding of headers should be made separately from blocks
@@ -121,7 +121,7 @@ tryApplyFork
                         , BlockApplicationException (BlockRef blkType)]
       , MonadError e m
       )
-    => BlkStateConfiguration blkType m
+    => BlkStateConfiguration blkType undo m
     -> OSParams blkType
     -> OldestFirst NonEmpty (RawBlk blkType)
     -> m Bool
