@@ -25,15 +25,17 @@ import qualified Data.Tree.AVL as AVL
 
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import qualified Data.Text.Buildable as Buildable
+import           Snowdrop.Execution.DbActions.Simple (SumChangeSet (..))
 import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessActions (..),
                                                      DbActionsException (DbProtocolError),
                                                      DbActionsException (..), DbModifyActions (..),
                                                      RememberForProof (..))
 
-import           Snowdrop.Core (CSMappendException (..), ChgAccumModifier (..), ChgAccumOps (..),
-                                IdSumPrefixed (..), Prefix (..), StateP, StateR, Undo (..),
-                                ValueOp (..), changeSetToList, idSumPrefix)
+import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccumModifier (..), changeSetToMap,
+                                ChgAccumOps (..), IdSumPrefixed (..), Prefix (..), StateP, StateR,
+                                Undo (..), ValueOp (..), changeSetToList, idSumPrefix)
 import           Snowdrop.Util (HasGetter (..))
 
 instance Hashable AVL.Tilt
@@ -95,6 +97,10 @@ newtype AVLCacheT h m a = AVLCacheT (StateT (AVLCache h) m a)
     deriving (Functor, Applicative, Monad, MonadThrow,
               MonadCatch, MonadState (AVLCache h), MonadTrans)
 
+newtype AVLCacheSCST k v m a = AVLCacheSCST (StateT (SumChangeSet k v) m a)
+    deriving (Functor, Applicative, Monad, MonadThrow,
+              MonadCatch, MonadState (SumChangeSet k v), MonadTrans)
+
 runAVLCacheT
     :: MonadThrow m
     => AVLCacheT h (ReaderT ctx m) a
@@ -102,6 +108,14 @@ runAVLCacheT
     -> ctx
     -> m (a, AVLCache h)
 runAVLCacheT (AVLCacheT ma) initSt ctx = runReaderT (runStateT ma initSt) ctx
+
+runAVLCacheSCST
+    :: MonadThrow m
+    => AVLCacheSCST k v (ReaderT ctx m) a
+    -> SumChangeSet k v
+    -> ctx
+    -> m (a, SumChangeSet k v)
+runAVLCacheSCST (AVLCacheSCST ma) initSt ctx = runReaderT (runStateT ma initSt) ctx
 
 instance (Show h, Show k, Show v) => Buildable (AVL.Map h k v) where
     build = Buildable.build . AVL.showMap
@@ -135,6 +149,12 @@ instance (MonadThrow m, AvlHashable h, RetrieveImpl m h) => KVStoreMonad h (AVLC
         checkInState = lift (retrieveImpl k) >>= maybe (throwM $ AVL.NotFound k) pure
     store k v = modify' $ AVLCache . M.insert k (serialise v) . unAVLCache
 
+-- class ChgAccumOps e id value chgAccum where
+--   modifyAccum :: chgAccum
+--                  -> ChgAccumModifier id value
+--                  -> Either (CSMappendException id) chgAccum
+--   computeUndo :: chgAccum -> ERoComp e id value ctx (Undo id value)
+
 instance
     ( MonadIO Identity
     , MonadCatch Identity
@@ -144,40 +164,50 @@ instance
     , AVL.Hash h k v
     , Serialisable (MapLayer h k v h)
     , RetrieveImpl (ReaderT (ClientTempState h k v n) Identity) h
-    ) => ChgAccumOps k v (AVLChgAccum h k v)
+    ) => ChgAccumOps e k v (AVLChgAccum h k v)
   where
-    modifyAccum accum cs = runIdentity $ modAccum accum cs clientTempState -- Identity, ups, how to get rid of monadic context in modAccum?
+    modifyAccum accum cs = undefined --modAccum accum cs clientTempState -- Identity, ups, how to get rid of monadic context in modAccum?
       where clientTempState :: (ClientTempState h k v n) = undefined -- How to get state?
 
 -- | Change accumulator type for AVL tree.
-data AVLChgAccum' h k v = AVLChgAccum
-    { acaMap     :: AVL.Map h k v
-    -- ^ AVL map, which contains avl tree with most-recent updates
-    , acaStorage :: AVLCache h
-    -- ^ AVL tree cache, which stores results of all `save` operations performed on AVL tree
-    , acaTouched :: Set h
-    -- ^ Set of nodes, which were touched during all of change operations applied on tree
-    }
+-- data AVLChgAccum' h k v = AVLChgAccum
+--     { acaMap     :: AVL.Map h k v
+--     -- ^ AVL map, which contains avl tree with most-recent updates
+--     , acaStorage :: AVLCache h
+--     -- ^ AVL tree cache, which stores results of all `save` operations performed on AVL tree
+--     , acaTouched :: Set h
+--     -- ^ Set of nodes, which were touched during all of change operations applied on tree
+--     }
 
 -- | Change accumulator type for AVL tree, wrapped with Maybe.
 -- `Nothing` is treated identically to `Just $ AVLChgAccum (Pure rootHash) def mempty`,
 -- where `rootHash` is root hash of current state
-type AVLChgAccum h k v = Maybe (AVLChgAccum' h k v)
+--type AVLChgAccum h k v = Maybe (AVLChgAccum' h k v)
+
+data AVLChgAccum h k v = AVLChgAccum
+    { acaRootHash :: Maybe (RootHash h)
+    , acaSumCs    :: SumChangeSet k v
+    , acaHistory  :: [ChangeSet k v]
+    }
+
 
 saveAVL :: forall h k v m . (AVL.Stores h k v m, MonadCatch m) => AVL.Map h k v -> m (RootHash h)
 saveAVL avl = AVL.save avl $> avlRootHash avl
 
 resolveAvlCA
     :: AvlHashable h
+    => Default k
+    => Default h
     => HasGetter state (RootHash h)
     => state
     -> AVLChgAccum h k v
-    -> AVLChgAccum' h k v
-resolveAvlCA _ (Just cA) = cA
-resolveAvlCA st  _ = AVLChgAccum
-    { acaMap = pure $ unRootHash $ gett st
-    , acaStorage = mempty
-    , acaTouched = mempty
+resolveAvlCA st = AVLChgAccum
+    { --acaMap = pure $ unRootHash $ gett st
+      acaRootHash = Just $ gett st
+    , acaSumCs    = SumChangeSet $ ChangeSet  def
+    , acaHistory  = []
+    -- , acaStorage = mempty
+    -- , acaTouched = mempty
     }
 
 materialize :: forall h k v m . AVL.Stores h k v m => AVL.Map h k v -> m (AVL.Map h k v)
@@ -269,7 +299,7 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
     mkAccessActions var ctMode =
         DbAccessActions
           -- adding keys to amsRequested
-          (\cA req -> reThrowAVLEx @k $ query cA req =<< createState)
+          (\cA req -> reThrowAVLEx @k $ query undefined cA req =<< createState)
        -- |(\cA cs -> reThrowAVLEx @k $ modAccum cA cs =<< createState)
           -- setting amsRequested to AMSWholeTree as iteration with
           -- current implementation requires whole tree traversal
@@ -278,9 +308,9 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
         createState :: m (ClientTempState h k v n)
         createState = clientModeToTempSt retrieveF ctMode =<< atomically (readTVar var)
     apply :: AvlHashable h => TVar (RootHash h) -> AVLChgAccum h k v -> m ()
-    apply var (Just (AVLChgAccum accAvl _acc _accTouched)) =
-        liftIO $ atomically $ writeTVar var (avlRootHash accAvl)
-    apply _ Nothing = pure ()
+    apply var (AVLChgAccum accAvl _ _) =
+      maybe (pure ()) (liftIO . atomically . writeTVar var) accAvl
+    --apply _ Nothing = pure ()
 
 reThrowAVLEx :: forall k m a . (MonadCatch m, Show k, Typeable k) => m a -> m a
 reThrowAVLEx m =
@@ -311,7 +341,7 @@ avlServerDbActions = fmap mkActions . newTVarIO
     mkAccessActions var recForProof =
         DbAccessActions
           -- adding keys to amsRequested
-          (\cA req -> liftIO $ reThrowAVLEx @k $ query cA req =<<
+          (\cA req -> liftIO $ reThrowAVLEx @k $ query undefined cA req =<<
             atomically (retrieveAMS var recForProof $ AMSKeys req ))
           --(\cA cs -> liftIO $ reThrowAVLEx @k $ modAccum cA cs =<< atomically (readTVar var))
           -- setting amsRequested to AMSWholeTree as iteration with
@@ -325,7 +355,7 @@ avlServerDbActions = fmap mkActions . newTVarIO
     retrieveAMS var _ _ = readTVar var
 
     apply :: TVar (AVLServerState h k) -> AVLChgAccum h k v -> m (AVL.Proof h k v)
-    apply var (Just (AVLChgAccum accAvl acc accTouched)) =
+    apply var (AVLChgAccum accAvl acc accTouched) =
         liftIO $ applyDo >>= \oldAms -> fst <$>
             runAVLCacheT
               (computeProof (amsRootHash oldAms) (amsRequested oldAms))
@@ -335,7 +365,7 @@ avlServerDbActions = fmap mkActions . newTVarIO
         applyDo :: IO (AVLServerState h k)
         applyDo = atomically $ do
             ams <- readTVar var
-            (h', acc') <- runAVLCacheT (saveAVL accAvl) acc (amsState ams)
+            (h', acc') <- runAVLCacheT (saveAVL (undefined :: AVL.Map h k v)) undefined (amsState ams)
             let newState = AMS {
                   amsRootHash = h'
                 , amsState = AVLPureStorage $ unAVLCache acc' <> unAVLPureStorage (amsState ams)
@@ -360,7 +390,7 @@ avlServerDbActions = fmap mkActions . newTVarIO
                 -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h k v)
             computeProofKeys ks = do
                 (avl', allTouched) <- foldM computeTouched (oldAvl, mempty) ks
-                AVL.prune (allTouched <> accTouched) =<< materialize avl'
+                AVL.prune (allTouched <> undefined) =<< materialize avl'
 
             computeTouched
                 :: (AVL.Map h k v, Set h)
@@ -370,7 +400,7 @@ avlServerDbActions = fmap mkActions . newTVarIO
                 ((_res, touched'), avl') <- AVL.lookup' key avl
                 pure (avl', touched' <> touched)
 
-    apply var Nothing = AVL.Proof . mkAVL . amsRootHash <$> atomically (readTVar var)
+    --apply var Nothing = AVL.Proof . mkAVL . amsRootHash <$> atomically (readTVar var)
 
 mkAVL :: RootHash h -> AVL.Map h k v
 mkAVL = pure . unRootHash
@@ -383,31 +413,35 @@ modAccum'
     ( AvlHashable h, RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
     , KVConstraint k v, Serialisable (MapLayer h k v h)
     )
-    => AVLChgAccum' h k v
+    => AVLChgAccum h k v
     -> ChgAccumModifier k v
     -> ctx
     -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
 modAccum' (AVLChgAccum initAvl initAcc initTouched) cMod pState = do
+    let
+      --aca :: AVL.Map h k v -> AVLCache h -> Set h -> AVLChgAccum h k v = AVLChgAccum
+      --ww :: ((AVL.Map h k v, Set h), AVLCache h) -> AVLChgAccum h k v = doUncurry aca
     returnWithUndo =<< case cMod of
       CAMChange (changeSetToList -> cs) ->
-        ( Right . Just . doUncurry AVLChgAccum
-          <$> runAVLCacheT (foldM modAVL (initAvl, initTouched) cs) initAcc pState )
-            `catch` \e@(CSMappendException _) -> pure $ Left e
+        undefined
+        -- (Right . doUncurry AVLChgAccum
+        --   <$> runAVLCacheT (foldM modAVL (undefined :: Maybe (RootHash h), undefined :: Set h) cs) undefined pState)
+        --     `catch` \e@(CSMappendException _) -> pure $ Left e
       CAMRevert (Undo _cs sn) ->
         case (BS.null sn, deserialise sn) of
           (False, Left str) ->
             throwM $ DbApplyException $ "Error parsing AVL snapshot from undo: " <> toText str
           (False, Right rootH) ->
-            pure $ Right $ Just $ AVLChgAccum (mkAVL rootH) initAcc initTouched
-          _ -> pure $ Right $ Just $ AVLChgAccum initAvl initAcc initTouched
+            --pure $ Right $ AVLChgAccum (mkAVL rootH) initAcc initTouched
+            pure $ Right $ AVLChgAccum (Just rootH) initAcc initTouched
+          _ -> pure $ Right $ AVLChgAccum initAvl initAcc initTouched
   where
     returnWithUndo
         :: Either (CSMappendException k) (AVLChgAccum h k v)
         -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
     returnWithUndo (Left e)   = pure $ Left e
     returnWithUndo (Right cA) =
-        pure $ Right (cA, Undo def $ serialise $ avlRootHash initAvl) -- TODO compute undo
-
+        pure $ Right (cA, Undo def $ serialise $ maybe undefined id initAvl) -- TODO compute undo
 
     doUncurry :: (a -> b -> c -> d) -> ((a, c), b) -> d
     doUncurry f ((a, c), b) = f a b c
@@ -437,8 +471,39 @@ modAccum
     -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
 -- modAccum accM (changeSetToList -> []) _ = pure $ Right accM
 -- empty changeset won't alter accumulator
-modAccum (Just acc) cs sth = modAccum' @k @v @ctx acc cs sth
-modAccum cA cs sth         = modAccum' @k @v @ctx (resolveAvlCA sth cA) cs sth
+modAccum acc cs sth = modAccum' @k @v @ctx acc cs sth
+--modAccum cA cs sth         = modAccum' @k @v @ctx (resolveAvlCA sth cA) cs sth
+
+
+-- | Accumulator for changes emerging from `save` operations
+-- being performed on AVL tree
+-- newtype AVLCache h = AVLCache { unAVLCache :: Map h ByteString }
+--     deriving (Default, Semigroup, Monoid)
+
+
+-- | Change accumulator type for AVL tree.
+-- data AVLChgAccum' h k v = AVLChgAccum
+--     { acaMap     :: AVL.Map h k v
+--     -- ^ AVL map, which contains avl tree with most-recent updates
+--     , acaStorage :: AVLCache h
+--     -- ^ AVL tree cache, which stores results of all `save` operations performed on AVL tree
+--     , acaTouched :: Set h
+--     -- ^ Set of nodes, which were touched during all of change operations applied on tree
+--     }
+
+-- | data AVLChgAccum h k v = AVLChgAccum
+--     { acaRootHash :: Maybe (RootHash h)
+--     , acaSumCs    :: SumChangeSet k v
+--     , acaHistory  :: [ChangeSet k v]
+-- }
+
+-- | SumChangeSet holds some change set which is sum of several ChangeSet
+-- newtype SumChangeSet id value = SumChangeSet {unSumCS :: ChangeSet id value}
+--     deriving Show
+
+-- | newtype ChangeSet id v = ChangeSet {changeSet :: M.Map id (ValueOp v)}
+--     deriving (Functor, Eq, Ord, Show)
+
 
 query
     :: forall k v ctx h m .
@@ -446,15 +511,37 @@ query
     , RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
     , KVConstraint k v, Serialisable (MapLayer h k v h)
     )
-    => AVLChgAccum h k v -> StateR k -> ctx -> m (StateP k v)
-query (Just (AVLChgAccum initAvl initAcc _)) req sth = fmap fst $ runAVLCacheT queryDo initAcc sth
+    => (StateR k -> m (StateP k v)) -> AVLChgAccum h k v -> StateR k -> ctx -> m (StateP k v)
+query getter (AVLChgAccum _ initAvl history) req sth = fmap fst $ runAVLCacheSCST queryDo initAvl sth
   where
-    queryDo = fst <$> foldM queryDoOne (mempty, initAvl) req
-    queryDoOne (m, avl) key = first processResp <$> AVL.lookup' key avl
-      where
-        processResp (Just v, _touched) = M.insert key v m
-        processResp _                  = m
-query cA req sth = query (Just $ resolveAvlCA sth cA) req sth
+     historyMaps :: [Map k v] = changeSetToMap <$> history
+
+     lookupInHistory :: [Map k v] -> k -> Maybe v
+     lookupInHistory [] _ = Nothing
+     lookupInHistory (x:xs) k = case M.lookup k x of
+       Just v -> Just v
+       Nothing -> lookupInHistory xs k
+
+     lookupInAccum :: SumChangeSet k v -> k -> Maybe v
+     lookupInAccum (SumChangeSet (changeSetToMap -> lookup)) k = M.lookup k lookup
+
+     historyInAccum :: k -> First (k, v)
+     historyInAccum k = First ((k,) <$> lookupInHistory historyMaps k) <> First ((k,) <$> lookupInAccum initAvl k)
+
+     valuesFromHistory :: [(k,v)]
+     valuesFromHistory = catMaybes $ getFirst . historyInAccum <$> S.toList req
+
+     kFromHistory :: StateP k v
+     kFromHistory = M.fromList valuesFromHistory
+
+     reqToFetchFromDb :: StateR k
+     reqToFetchFromDb = req `S.difference` S.fromList (fst <$> valuesFromHistory)
+
+     queryDo :: AVLCacheSCST k v (ReaderT ctx m) (StateP k v)
+     queryDo = lift $ lift $ do
+       res :: (StateP k v) <- getter reqToFetchFromDb -- Should getter be replaced by `retrieveImpl` from RetrieveImpl?
+       pure (res <> kFromHistory) -- Is `<>` safe here? Shouldn't `mappendChangeSet` be used instead?
+
 
 iter
     :: forall k v ctx b h m.
@@ -463,11 +550,11 @@ iter
     , KVConstraint k v,  Serialisable (MapLayer h k v h)
     )
     => AVLChgAccum h k v -> Prefix -> b -> ((k, v) -> b -> b) -> ctx -> m b
-iter (Just (AVLChgAccum initAvl initAcc _)) pr initB f sth =
-    fmap fst $ runAVLCacheT (AVL.fold (initB, f', id) initAvl) initAcc sth
-  where
-    f' kv@(k, _) b =
-      if idSumPrefix k == pr
-      then f kv b
-      else b
-iter cA pr b f sth = iter (Just $ resolveAvlCA sth cA) pr b f sth
+iter (AVLChgAccum initAvl initAcc _) pr initB f sth = undefined
+    -- fmap fst $ runAVLCacheT (AVL.fold (initB, f', id) initAvl) initAcc sth
+--   where
+--     f' kv@(k, _) b =
+--       if idSumPrefix k == pr
+--       then f kv b
+--       else b
+-- iter cA pr b f sth = iter (resolveAvlCA sth) pr b f sth

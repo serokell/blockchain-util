@@ -77,7 +77,7 @@ inmemoryBlkStateConfiguration
     , HasGetter payload [StateTx id proof value]
     , HasGetter rawBlock [rawTx]
     , Default (ChgAccum ctx)
-    , ChgAccumOps id value (ChgAccum ctx)
+    , ChgAccumOps e id value (ChgAccum ctx)
     )
     => BlkConfiguration header payload blockRef
     -> Validator e id proof value ctx

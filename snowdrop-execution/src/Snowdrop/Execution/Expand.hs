@@ -94,7 +94,7 @@ expandRawTxs
     , HasLens ctx (ChgAccumCtx ctx)
     , Default (ChgAccum ctx)
     , HasLens ctx RestrictCtx
-    , ChgAccumOps id value (ChgAccum ctx)
+    , ChgAccumOps e id value (ChgAccum ctx)
     )
     => (rawTx -> (StateTxType, proof))
     -> [rawTx]
@@ -182,7 +182,7 @@ expandUnionRawTxs
     , HasLens ctx (ChgAccumCtx ctx)
     , HasLens ctx RestrictCtx
     , Default (ChgAccum ctx)
-    , ChgAccumOps id value (ChgAccum ctx)
+    , ChgAccumOps e id value (ChgAccum ctx)
     )
     => (rawTx -> (StateTxType, proof))
     -> Expander e id proof value ctx rawTx
@@ -211,7 +211,7 @@ runSeqExpandersSequentially
     , HasLens ctx (ChgAccumCtx ctx)
     , HasLens ctx RestrictCtx
     , Default (ChgAccum ctx)
-    , ChgAccumOps id value (ChgAccum ctx)
+    , ChgAccumOps e id value (ChgAccum ctx)
     )
     => (rawTx -> (StateTxType, proof))
     -> [(rawTx, PreExpandersSeq' e id proof value ctx rawTx)]

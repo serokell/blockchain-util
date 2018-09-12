@@ -82,7 +82,7 @@ defaultMempoolConfig
            ]
        , Ord id
        , HasLens ctx (ChgAccumCtx ctx)
-       , ChgAccumOps id value (ChgAccum ctx)
+       , ChgAccumOps e id value (ChgAccum ctx)
        )
     => ExpanderRawTx e id proof value ctx rawtx
     -> Validator e id proof value ctx

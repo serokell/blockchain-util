@@ -15,8 +15,9 @@ import qualified Data.Set as S
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccumModifier (..),
                                 ChgAccumOps (..), IdSumPrefixed (..), Prefix (..), Undo (..),
                                 filterByPrefixPred, filterSetByPrefixPred, mappendChangeSet)
-
 import           Snowdrop.Execution.DbActions.Types
+import           Snowdrop.Util (HasReview, throwLocalError)
+
 
 data CompositeChgAccum chgAccumPrimary chgAccumSecondary ps = CompositeChgAccum
     { ccaPrimary   :: chgAccumPrimary
@@ -28,25 +29,36 @@ instance (Default chgAccumPrimary, Default chgAccumSecondary)
     def = CompositeChgAccum def def
 
 instance ( Reifies ps (Set Prefix), IdSumPrefixed id, Ord id
-         , ChgAccumOps id value chgAccumPrimary, ChgAccumOps id value chgAccumSecondary) =>
-    ChgAccumOps id value (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps)
+         , ChgAccumOps e id value chgAccumPrimary
+         , ChgAccumOps e id value chgAccumSecondary
+         , HasReview e (CSMappendException id)
+         ) =>
+    ChgAccumOps e id value (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps)
   where
+    computeUndo (CompositeChgAccum cP cS) = do
+         a <- computeUndo cP
+         b <- computeUndo cS
+         either throwLocalError pure $ mergeUndos a b
+
+       where
+         mergeUndos :: Undo id value -> Undo id value -> Either (CSMappendException id) (Undo id value)
+         mergeUndos (Undo csP snP) (Undo csS snS) =
+            if BS.null snP || BS.null snS
+            then flip Undo (snP `BS.append` snS)
+                <$> (csP `mappendChangeSet` csS)
+            else Left $ CSMappendException $
+                     error "Dunno what to pass here. Leave it now"
+
     modifyAccum (CompositeChgAccum cP cS) chgAccMod = do
-        (accP, undoP) <- modifyAccum cP camP
-        (accS, undoS) <- modifyAccum cS camS
-        (,) (CompositeChgAccum accP accS) <$> mergeUndos undoP undoS
+        accP <- modifyAccum @e cP camP
+        accS <- modifyAccum @e cS camS
+        pure $ (CompositeChgAccum accP accS)
       where
         prefixes = reflect (Proxy @ps)
         processCS f = bimap f f . splitCS
         (camP, camS) = case chgAccMod of
             CAMChange cs           -> processCS CAMChange cs
             CAMRevert (Undo cs sn) -> processCS (CAMRevert . flip Undo sn) cs
-        mergeUndos (Undo csP snP) (Undo csS snS) =
-            if BS.null snP || BS.null snS
-            then flip Undo (snP `BS.append` snS)
-                <$> (csP `mappendChangeSet` csS)
-            else Left $ CSMappendException $
-                     error "Dunno what to pass here. Leave it now"
         splitCS cs =
             let csP = filterByPrefixPred (`S.member` prefixes) cs in
             let csS = ChangeSet $ changeSet cs M.\\ changeSet csP in

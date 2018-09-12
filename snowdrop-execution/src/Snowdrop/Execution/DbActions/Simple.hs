@@ -12,16 +12,15 @@ module Snowdrop.Execution.DbActions.Simple
 
 import           Universum
 
-import           Control.Monad.Except (throwError)
 import qualified Data.ByteString as BS
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccumModifier (..),
-                                ChgAccumOps (..), IdSumPrefixed (..), Prefix (..), StateP, StateR,
-                                Undo (..), ValueOp (..), changeSetToMap, csNew, filterByPrefix,
-                                mappendChangeSet)
+                                ChgAccumOps (..), ERoComp, IdSumPrefixed (..), Prefix (..), StateP,
+                                StateR, Undo (..), ValueOp (..), changeSetToMap, csNew,
+                                filterByPrefix, mappendChangeSet, query)
 import           Snowdrop.Util
 
 import           Snowdrop.Execution.DbActions.Types
@@ -70,32 +69,29 @@ queryAccumOne (SumChangeSet (ChangeSet csm)) = flip M.lookup csm
 getNewKeys :: IdSumPrefixed id => SumChangeSet id value -> Prefix -> Map id value
 getNewKeys (SumChangeSet cs) p = csNew $ filterByPrefix p cs
 
-instance Ord id => ChgAccumOps id value (SumChangeSet id value)
+instance (Ord id, HasReview e (CSMappendException id)) => ChgAccumOps e id value (SumChangeSet id value)
   where
     modifyAccum accum = \case
-        CAMChange cs -> processCS cs
-        CAMRevert (Undo cs _sn) -> processCS cs
+        CAMChange cs -> processCS' cs
+        CAMRevert (Undo cs _sn) -> processCS' cs
       where
-        processCS :: ChangeSet id value -> Either (CSMappendException id) (SumChangeSet id value, Undo id value)
-        processCS cs' = (,) <$> accum `modifySumChgSet` cs' <*> (flip Undo BS.empty <$> computeUndo accum cs')
+        processCS' :: ChangeSet id value -> Either (CSMappendException id) (SumChangeSet id value)
+        processCS' cs' = accum `modifySumChgSet` cs'
 
-        computeUndo
-            :: forall id value
-            .
-            ( Ord id
-            )
-            => SumChangeSet id value
-            -> ChangeSet id value
-            -> Either (CSMappendException id) (ChangeSet id value)
-        computeUndo (SumChangeSet accum) (ChangeSet cs) = let
-            vals = changeSetToMap accum -- <- I'm not sure about this line
-            processOne m (k, valueop) = case (valueop, k `M.lookup` vals) of
+    computeUndo accum = flip Undo BS.empty <$> computeUndo' accum
+      where
+        computeUndo'
+            :: SumChangeSet id value
+            -> ERoComp e id value ctx (ChangeSet id value)
+        computeUndo' (SumChangeSet (ChangeSet cs))  = do
+            vals <- query (M.keysSet cs)
+            let processOne m (k, valueop) = case (valueop, k `M.lookup` vals) of
                   (New _, Nothing)      -> pure $ M.insert k Rem m
                   (Upd _, Just v0)      -> pure $ M.insert k (Upd v0) m
                   (NotExisted, Nothing) -> pure $ M.insert k NotExisted m
                   (Rem, Just v0)        -> pure $ M.insert k (New v0) m
-                  _                     -> throwError (CSMappendException k)
-            in ChangeSet <$> foldM processOne mempty (M.toList cs)
+                  _                     -> throwLocalError (CSMappendException k)
+            ChangeSet <$> foldM processOne mempty (M.toList cs)
 
 sumChangeSetDBA
     :: forall id value m . (IdSumPrefixed id, Ord id, MonadCatch m)

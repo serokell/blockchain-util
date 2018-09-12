@@ -45,11 +45,15 @@ import           Snowdrop.Core.ERoComp.Types (ChgAccum, ChgAccumCtx (..), ChgAcc
 import           Snowdrop.Core.Transaction (HasKeyValue, StateTxType)
 import           Snowdrop.Util
 
-class ChgAccumOps id value chgAccum where
+class ChgAccumOps e id value chgAccum where
     modifyAccum
         :: chgAccum
         -> ChgAccumModifier id value
-        -> Either (CSMappendException id) (chgAccum, Undo id value)
+        -> Either (CSMappendException id) chgAccum
+
+    computeUndo
+        :: chgAccum
+        -> ERoComp e id value ctx (Undo id value)
 
 -- modifyAccum
 --     :: forall e id value ctx .
@@ -171,17 +175,17 @@ withModifiedAccumCtx
     ( HasException e (CSMappendException id)
     , HasLens ctx (ChgAccumCtx ctx)
     , Default (ChgAccum ctx)
-    , ChgAccumOps id value (ChgAccum ctx)
+    , ChgAccumOps e id value (ChgAccum ctx)
     )
     => ChangeSet id value
     -> ERoComp e id value ctx a
     -> ERoComp e id value ctx a
 withModifiedAccumCtx chgSet comp = do
     ctxAcc <- getCAOrDefault @ctx . gett <$> ask
-    let newAccOrErr = modifyAccum ctxAcc $ CAMChange chgSet
+    let newAccOrErr = modifyAccum @e ctxAcc $ CAMChange chgSet
     case newAccOrErr of
         Left err   -> throwLocalError err
-        Right (acc', _undo) ->
+        Right acc' ->
             local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
 
 initAccumCtx

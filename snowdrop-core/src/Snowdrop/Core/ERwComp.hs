@@ -47,13 +47,16 @@ liftERoComp comp = gets (gett @_ @(ChgAccum ctx)) >>= ERwComp . lift . flip init
 modifyRwCompChgAccum
     :: forall e id value ctx s .
     ( HasException e (CSMappendException id)
+    , HasReview e StatePException
+    , HasLens ctx (ChgAccumCtx ctx)
     , HasLens s (ChgAccum ctx)
-    , ChgAccumOps id value (ChgAccum ctx)
+    , ChgAccumOps e id value (ChgAccum ctx)
     )
     => ChgAccumModifier id value
     -> ERwComp e id value ctx s (Undo id value)
 modifyRwCompChgAccum chgSet = do
     chgAcc <- gets (gett @_ @(ChgAccum ctx))
-    let newChgAccOrE = modifyAccum chgAcc chgSet
+    undo <- liftERoComp $ computeUndo chgAcc
+    let newChgAccOrE = modifyAccum @e chgAcc chgSet
     flip (either $ ERwComp . throwLocalError) newChgAccOrE $
-      \(chgAcc', undo) -> (lensFor @s @(ChgAccum ctx) .= chgAcc') $> undo
+      \chgAcc' -> (lensFor @s @(ChgAccum ctx) .= chgAcc') $> undo
