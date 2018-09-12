@@ -512,24 +512,17 @@ query
     , KVConstraint k v, Serialisable (MapLayer h k v h)
     )
     => (StateR k -> m (StateP k v)) -> AVLChgAccum h k v -> StateR k -> ctx -> m (StateP k v)
-query getter (AVLChgAccum _ initAvl history) req sth = fmap fst $ runAVLCacheSCST queryDo initAvl sth
+query getter (AVLChgAccum _ sumCs _) req sth = fmap fst $ runAVLCacheSCST queryDo sumCs sth
   where
-     historyMaps :: [Map k v] = changeSetToMap <$> history
-
-     lookupInHistory :: [Map k v] -> k -> Maybe v
-     lookupInHistory [] _ = Nothing
-     lookupInHistory (x:xs) k = case M.lookup k x of
-       Just v -> Just v
-       Nothing -> lookupInHistory xs k
 
      lookupInAccum :: SumChangeSet k v -> k -> Maybe v
      lookupInAccum (SumChangeSet (changeSetToMap -> lookup)) k = M.lookup k lookup
 
-     historyInAccum :: k -> First (k, v)
-     historyInAccum k = First ((k,) <$> lookupInHistory historyMaps k) <> First ((k,) <$> lookupInAccum initAvl k)
+     historyInAccum :: k -> Maybe (k, v)
+     historyInAccum k = ((k,) <$> lookupInAccum sumCs k)
 
      valuesFromHistory :: [(k,v)]
-     valuesFromHistory = catMaybes $ getFirst . historyInAccum <$> S.toList req
+     valuesFromHistory = catMaybes $ historyInAccum <$> S.toList req
 
      kFromHistory :: StateP k v
      kFromHistory = M.fromList valuesFromHistory
