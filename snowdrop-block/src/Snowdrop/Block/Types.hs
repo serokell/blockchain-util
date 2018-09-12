@@ -19,6 +19,9 @@ module Snowdrop.Block.Types
 
 import           Universum
 
+import           Data.Time.Clock (UTCTime)
+
+type Time = UTCTime
 -------------------------------
 -- Block storage
 -------------------------------
