@@ -39,6 +39,7 @@ library
     , transformers-base
     , universum >= 1.1.0
     , unordered-containers
+    , vinyl
     , yaml
   build-tool-depends:
       autoexporter:autoexporter
@@ -51,6 +52,8 @@ library
 
       Snowdrop.Util.Containers
       Snowdrop.Util.Helpers
+      Snowdrop.Util.Hetero
+      Snowdrop.Util.Hetero.Constraints
       Snowdrop.Util.Lens
       Snowdrop.Util.Logging
       Snowdrop.Util.Prism
