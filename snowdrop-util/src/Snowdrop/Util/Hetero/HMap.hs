@@ -1,18 +1,20 @@
+{-# LANGUAGE Rank2Types              #-}
+{-# LANGUAGE TypeInType              #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
-{-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE TypeInType #-}
 
 module Snowdrop.Util.Hetero.HMap where
 
 import           Universum hiding (show)
 
+import           Data.Default (Default (..))
+import           Data.Kind
 import qualified Data.Map as M
 import qualified Data.Set as S
-import           Data.Kind
-import           Data.Default (Default (..))
-import           Data.Vinyl (Rec (..), RecSubset, rcast)
-import           Data.Vinyl.TypeLevel (Fst, Snd)
-import           Snowdrop.Util.Hetero.Constraints (type Rest)
+import           Data.Vinyl (Rec (..), rcast)
+import           Data.Vinyl.Lens (RSubset)
+import           Data.Vinyl.TypeLevel (Fst, RImage, Snd)
+import           Snowdrop.Util.Containers (toDummyMap)
+import           Snowdrop.Util.Hetero.Constraints (RecAll', Rest)
 
 ------------------------
 -- HMap and HSet
@@ -22,17 +24,47 @@ type family HKeyVal (t :: u) :: (*, *)
 type HKey t = Fst (HKeyVal t)
 type HVal t = Snd (HKeyVal t)
 
+class Ord (HKey t) => OrdHKey t
+instance Ord (HKey t) => OrdHKey t
+
+class (Ord (HKey t), Show (HKey t), Buildable (HKey t)) => ExnHKey t
+instance (Ord (HKey t), Show (HKey t), Buildable (HKey t)) => ExnHKey t
+
 newtype HMapEl (t :: u) = HMapEl {unHMapEl :: Map (HKey t) (HVal t)}
 type HMap = Rec HMapEl
 
-hmapElFromList :: Ord (HKey t) => [(HKey t, HVal t)] -> HMapEl t
-hmapElFromList = HMapEl . M.fromList
+instance Default (HMapEl t) where
+    def = HMapEl M.empty
+
+hmapEl :: OrdHKey t => [(HKey t, HVal t)] -> HMapEl t
+hmapEl = HMapEl . M.fromList
+
+hmapFromMap :: OrdHKey t => Map (HKey t) (HVal t) -> HMap '[t]
+hmapFromMap = (:& RNil) . HMapEl
+
+hmapToMap :: OrdHKey t => HMap '[t] -> Map (HKey t) (HVal t)
+hmapToMap (HMapEl x :& RNil) = x
 
 newtype HSetEl (t :: u) = HSetEl {unHSetEl :: Set (HKey t)}
 type HSet = Rec HSetEl
 
-hsetElFromList :: Ord (HKey t) => [HKey t] -> HSetEl t
-hsetElFromList = HSetEl . S.fromList
+instance Default (HSetEl t) where
+    def = HSetEl S.empty
+
+hsetEl :: OrdHKey t  => [HKey t] -> HSetEl t
+hsetEl = HSetEl . S.fromList
+
+hsetFromSet :: OrdHKey t => Set (HKey t) -> HSet '[t]
+hsetFromSet = (:& RNil) . HSetEl
+
+hsetToSet :: OrdHKey t => HSet '[t] -> Set (HKey t)
+hsetToSet (HSetEl x :& RNil) = x
+
+instance Default (Rec f '[]) where
+    def = RNil
+
+instance (Default (f x), Default (Rec f xs')) => Default (Rec f (x ': xs')) where
+    def = def :& def
 
 ------------------------
 -- HRemoveElement
@@ -97,34 +129,9 @@ instance {-# OVERLAPPABLE #-}
 -- type GMappendableSet' xs = GMappendable (Const ()) xs
 -- type GMappendableMap' xs = GMappendable Identity xs
 
--- ------------------------
--- -- GIntersectable
--- ------------------------
-
--- -- GIntersectable doesn't impose restrictions on @xs@ and @res@.
--- -- If @xs@ isn't subset of @res@ then absent types in @res@ will be mempty.
--- class GIntersectable f res xs where
---     gintersect :: GMap f res -> GMap g xs -> GMap f xs
-
--- instance GIntersectable f res '[] where
---     gintersect _ GNil = GNil
-
--- instance (Ord (GKey t), GIntersectable f (Rest t res) xs', RemoveElem t res)
---          => GIntersectable f res (t ': xs') where
---     gintersect r (x :> xs) = case removeElem @t @res r of
---         (Nothing, rest) -> mempty @(MapKV f t) :> gintersect rest xs
---         (Just rx, rest) -> intersectMaps rx x :> gintersect rest xs
-
--- type GIntersectableMap' = GIntersectable Identity
-
--- gintersectMap :: GIntersectableMap' res xs => GMap' res -> GMap g xs -> GMap' xs
--- gintersectMap = gintersect @Identity
-
 ------------------------
 -- Castable
 ------------------------
-
--- TODO UpCastable equalents to HasReview
 
 -- @xs@ must be subset of @res@
 class HUpCastable f xs res where
@@ -142,30 +149,47 @@ instance ( Default (f t)
         (Nothing, rest) -> def :& hupcast @f @(Rest t xs) @res' rest
         (Just rx, rest) -> rx :& hupcast @f @(Rest t xs) @res' rest
 
-type HUpCastableMap xs res = HUpCastable HMapEl xs res
-type HUpCastableSet xs res = HUpCastable HSetEl xs res
+type HUpCastableMap = HUpCastable HMapEl
+type HUpCastableSet = HUpCastable HSetEl
 
-hupcastMap :: HUpCastableMap xs res => HMap xs -> HMap res
-hupcastMap = hupcast
+-- hupcastMap :: HUpCastableMap xs res => HMap xs -> HMap res
+-- hupcastMap = hupcast
 
-hupcastSet :: HUpCastableSet xs res => HSet xs -> HSet res
-hupcastSet = hupcast
+-- hupcastSet :: HUpCastableSet xs res => HSet xs -> HSet res
+-- hupcastSet = hupcast
 
 -- @xs@ must be superset of @res@
-class HDownCastable f xs res where
-    hdowncast :: Rec f xs -> Rec f res
+type HDownCastable xs res = RSubset res xs (RImage res xs)
 
-instance RecSubset Rec res xs is => HDownCastable f xs res where
-    hdowncast = rcast
+hdowncast :: HDownCastable xs res => Rec f xs -> Rec f res
+hdowncast = rcast
 
-type HDownCastableMap xs res = HDownCastable HMapEl xs res
-type HDownCastableSet xs res = HDownCastable HSetEl xs res
+------------------------
+-- Intersectable
+------------------------
 
-gdowncastMap :: HDownCastableMap xs res => HMap xs -> HMap res
-gdowncastMap = hdowncast
+class HIntersectableF f g where
+    hintersectf :: OrdHKey t => f t -> g t -> f t
 
-gdowncastSet :: HDownCastableSet xs res => HSet xs -> HSet res
-gdowncastSet = hdowncast
+instance HIntersectableF HMapEl HMapEl where
+    hintersectf (HMapEl a) (HMapEl b) = HMapEl $ a `M.intersection` b
+
+instance HIntersectableF HMapEl HSetEl where
+    hintersectf (HMapEl a) (HSetEl b) = HMapEl $ a `M.intersection` (toDummyMap b)
+
+type HIntersectable xs res =
+    ( HDownCastable xs res
+    , RecAll' res OrdHKey
+    )
+
+hintersect
+    :: forall xs res f g . (HIntersectableF f g, HIntersectable xs res)
+    => Rec f xs -> Rec g res -> Rec f res
+hintersect a b = hdowncast a `hintrsect'` b
+  where
+    hintrsect' :: RecAll' res1 OrdHKey => Rec f res1 -> Rec g res1 -> Rec f res1
+    hintrsect' RNil RNil           = RNil
+    hintrsect' (x :& xs) (y :& ys) = (x `hintersectf` y) :& (xs `hintrsect'` ys)
 
 -- ------------------------
 -- -- Semigroup
@@ -226,28 +250,28 @@ gdowncastSet = hdowncast
 -- class (Ord (GKey t), Show (GKey t), Buildable (GKey t)) => GKeyC t
 -- instance (Ord (GKey t), Show (GKey t), Buildable (GKey t)) => GKeyC t
 
--- ------------------------
--- -- Examples
--- ------------------------
+------------------------
+-- Examples
+------------------------
 
--- data Component1
--- type instance HKeyVal Component1 = '(Int, Sum Int)
+data Component1
+type instance HKeyVal Component1 = '(Int, Sum Int)
 
--- data Component2
--- type instance HKeyVal Component2 = '(Int, String)
+data Component2
+type instance HKeyVal Component2 = '(Int, String)
 
--- data Component3
--- type instance HKeyVal Component3 = '(Int, Sum Word16)
+data Component3
+type instance HKeyVal Component3 = '(Int, Sum Word16)
 
--- type K1 = '[Component1, Component2]
--- type K2 = '[Component2, Component3]
--- type K1K2Union = '[Component1, Component2, Component3]
+type K1 = '[Component1, Component2]
+type K2 = '[Component2, Component3]
+type K1K2Union = '[Component1, Component2, Component3]
 
--- k1map :: HMap K1
--- k1map = M.fromList [(1, 1), (1, 3)] :> (M.fromList [(3, "aaa"), (4, "bbb")] :> GNil)
+k1map :: HMap K1
+k1map = hmapEl [(1, 1), (1, 3)] :& (hmapEl [(3, "aaa"), (4, "bbb")] :& RNil)
 
--- k2map :: HMap K2
--- k2map = M.fromList [(3, "ccc"), (5, "ddd")] :> (M.fromList [(3, 1), (4, 1)] :> GNil)
+k2map :: HMap K2
+k2map = hmapEl [(3, "ccc"), (5, "ddd")] :& (hmapEl [(3, 1), (4, 1)] :& RNil)
 
 -- res1 :: HMap K1
 -- res1 = gmappend @Identity @'[] @K1 GNil k1map

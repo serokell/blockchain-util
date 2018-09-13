@@ -10,6 +10,7 @@ module Snowdrop.Core.BaseM
        , CtxConcurrently (..)
        , concurrently
        , raceMany
+       , hoistEffectful
        ) where
 
 import           Universum hiding (log)
@@ -18,8 +19,8 @@ import           Data.Default (Default (def))
 import           Data.List.NonEmpty (fromList)
 
 import           Control.Monad.Except (MonadError (..))
-import qualified Snowdrop.Util as Log
 import           Snowdrop.Util (HasLens, sett)
+import qualified Snowdrop.Util as Log
 
 data CtxConcurrently =
       Parallel
@@ -98,3 +99,58 @@ instance Log.MonadLogging (BaseM e eff ctx) where
 
 instance Log.ModifyLogName (BaseM e eff ctx) where
     modifyLogNameSel f (BaseM ma) = BaseM $ Log.modifyLogNameSel f ma
+
+------------------------
+-- Hoist effectful
+------------------------
+
+data TranformEff eff1 eff2 = TranformEff {getTransformEff :: forall b . eff1 b -> eff2 b }
+
+newtype EffT eff1 eff2 m a = EffT { runEffT :: ReaderT (TranformEff eff1 eff2) m a }
+
+deriving instance Functor m => Functor (EffT eff1 eff2 m)
+
+instance Applicative m => Applicative (EffT eff1 eff2 m) where
+    pure = EffT . pure
+    EffT a <*> EffT b = EffT $ a <*> b
+
+instance Monad m => Monad (EffT eff1 eff2 m) where
+    a >>= b = EffT $ runEffT a >>= runEffT . b
+
+instance MonadTrans (EffT eff1 eff2) where
+    lift = EffT . lift
+
+askF :: Monad m => EffT eff eff1 m (eff b -> eff1 b)
+askF = EffT $ asks getTransformEff
+
+-- instance Race e m => Race e (EffT eff eff1 m) where
+--     race (EffT ma) (EffT mb) = EffT $ ReaderT $ \ctx -> race (runReaderT ma ctx) (runReaderT mb ctx)
+
+-- instance Concurrently m => Concurrently (EffT eff eff1 m) where
+--     concurrentlySgImpl f ma mb = EffT $ concurrentlySgImpl f (runEffT ma) (runEffT mb)
+--     concurrently ma mb = EffT $ concurrently (runEffT ma) (runEffT mb)
+
+instance MonadError e m => MonadError e (EffT eff eff1 m) where
+    throwError = EffT . throwError
+    catchError ma handler = EffT $ runEffT ma `catchError` (runEffT . handler)
+
+instance Effectful eff2 m => Effectful eff1 (EffT eff1 eff2 m) where
+    effect eff1a = askF >>= lift . effect . (eff1a &)
+
+instance MonadReader ctx m => MonadReader ctx (EffT eff eff1 m) where
+    local f r = EffT $ ReaderT $ \tr -> local f $ runReaderT (runEffT r) tr
+    ask = EffT (lift ask)
+
+instance (Log.MonadLogging m, Monad m) => Log.MonadLogging (EffT eff eff1 m) where
+    log l s t = EffT $ lift $ Log.log l s t
+    logName = EffT $ lift Log.logName
+
+instance (Log.ModifyLogName m, Monad m) => Log.ModifyLogName (EffT eff eff1 m) where
+    modifyLogNameSel f (EffT ma) = EffT $ ReaderT $ \ctx -> Log.modifyLogNameSel f (runReaderT ma ctx)
+
+hoistEffectful
+    :: forall e eff1 eff2 ctx a .
+       (forall b . eff1 b -> eff2 b)
+    -> BaseM e eff1 ctx a
+    -> BaseM e eff2 ctx a
+hoistEffectful f (BaseM ma) = BaseM $ runReaderT (runEffT ma) (TranformEff f)

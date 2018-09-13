@@ -68,7 +68,7 @@ library
       Snowdrop.Core.ERoComp.Types
       Snowdrop.Core.ERwComp
       Snowdrop.Core.Expander
-      Snowdrop.Core.Prefix
+      Snowdrop.Core.Stuff
       Snowdrop.Core.Transaction
       Snowdrop.Core.Validator
       Snowdrop.Core.Validator.Basic
