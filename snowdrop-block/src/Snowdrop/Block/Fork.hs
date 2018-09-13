@@ -29,7 +29,6 @@ import           Snowdrop.Util
 -- | Result of fork verification.
 data ForkVerResult blkType
     = ApplyFork
-    -- ^ Fork verification decision is to apply given fork.
       { fvrToApply    :: OldestFirst NonEmpty (BlockHeader blkType)
       -- ^ Headers of blocks to apply.
       , fvrToRollback :: NewestFirst [] (RawBlund blkType)
@@ -38,6 +37,7 @@ data ForkVerResult blkType
       -- ^ Last block to be remained after rollback and predecessor of first block to apply.
       -- $Nothing in case of whole blockchain is rolled back.
       }
+    -- ^ Fork verification decision is to apply given fork.
     | RejectFork
     -- ^ Fork verification decision is to reject given fork.
 
