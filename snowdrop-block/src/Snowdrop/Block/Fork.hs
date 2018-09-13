@@ -35,7 +35,7 @@ data ForkVerResult blkType
       -- ^ Blocks to rollback.
       , fvrLCA        :: Maybe (BlockRef blkType)
       -- ^ Last block to be remained after rollback and predecessor of first block to apply.
-      -- $Nothing in case of whole blockchain is rolled back.
+      -- Value @Nothing@ is returned in case of whole blockchain is rolled back.
       }
     -- ^ Fork verification decision is to apply given fork.
     | RejectFork
