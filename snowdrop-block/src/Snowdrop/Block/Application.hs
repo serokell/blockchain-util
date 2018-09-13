@@ -18,14 +18,17 @@ import           Formatting (bprint, build, (%))
 import           Snowdrop.Block.Configuration (BlkConfiguration (..), unBIV)
 import           Snowdrop.Block.Fork (ForkVerResult (..), ForkVerificationException, verifyFork)
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), BlockRef, Blund (..), CurrentBlockRef (..),
-                                       BlockHeader, Payload, PrevBlockRef (..), RawBlk,
-                                       OSParams, RawPayload)
+import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, Blund (..),
+                                       CurrentBlockRef (..), OSParams, Payload, PrevBlockRef (..),
+                                       RawBlk, RawPayload)
 import           Snowdrop.Util
 
+-- | Exception type for block application.
 data BlockApplicationException blockRef
     = TipMismatched (Maybe blockRef) (Maybe blockRef)
+    -- ^ Expected one tip value, but encountered another.
     | BlockIntegrityVerifierFailed
+    -- ^ Block integrity verification produced negative result.
     deriving (Show)
 
 instance Buildable blockRef => Buildable (BlockApplicationException blockRef) where
@@ -137,36 +140,3 @@ tryApplyFork bcs@(BlkStateConfiguration {..}) osParams (OldestFirst rawBlocks) =
             bscSetTip fvrLCA
             mapM_ (applyBlock osParams bcs) $ NE.toList rawBlocks
             pure True
-
--- How to express functionality which shall decide upon inclusion of fork into blockchain?
---
-
--- For block application we need diff of change a.k.a. undo
-
--- Can Storage be used to represent whole state?
--- Can Transaction with validator considering only inputs/outputs uniquely represent state change?
---    No.
---    1) We need periodically do some recomputation w/o any actual transactions
---        ^ Block boundary is a transaction? Which inputs to use?
---    2) Validator sometimes would require whole state traversal:
---         * leader computation
---         * update system stake snapshots
--- So we need to think how to restrict access of validator, while allowing it to read needed data.
--- Validator to state ids it needs after considering transaction in O(|payload size|)?
--- And via proofs express this set of ids to be bounded?
-
-
---
--- -------------------------
---
--- Also, what's the model of accounting? If Id ~> Value is upayloado,
--- we need to maintain accounts somehow. How?
---   ^ This is precisely doing some (Id ~> Value) transition in addition to what's state
---   in transaction. Perhaps it can be expressed via appropriate transaction type?
---   I.e. do a straightforward transition in-memory
--- This is easy, only thing we need to ensure is that each transaction
--- shall be a O(|payload size|) change of state
---
--- But Block boundary payload can not always be processed in O(|payload size|)!
--- We may do more elaborate analysis per payload type and explicitly distinguish transactions
--- for block boundaries for blocks `8k`, `10k` (or few other interesting blocks)

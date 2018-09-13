@@ -32,15 +32,18 @@ import           Snowdrop.Util
 -- Basic storage: model
 ------------------------------------------
 
+-- | Type family, which specifies value type for a given id type
 type family SValue id :: *
 
 type family TxProof (txtype :: k) :: *
 
+-- | Constraint, ensuring proper value type is used with id type
+-- Uses $SValue type family in order to maintain relation.
 type HasKeyValue id val id1 val1 = (HasPrism id id1, HasPrism val val1, SValue id1 ~ val1)
 
 -- | Transaction which modifies state.
 -- There is also RawTx, which is posted on the blockchain.
--- Ideally, RawStateTx and any action which modifies a state can be converted into StateStateTx.
+-- Ideally, RawStateTx and any action which modifies a state can be converted into $StateTx.
 data StateTx id value (txtype :: *) = StateTx
     { txProof :: TxProof txtype
     , txBody  :: ChangeSet id value
@@ -72,6 +75,8 @@ deriving instance (Ord  (TxProof txtype), Ord  id, Ord  value) => Ord  (StateTx 
 deriving instance (Show (TxProof txtype), Show id, Show value) => Show (StateTx id value txtype)
 deriving instance Generic (StateTx id txtype value)
 
+-- | Traverse change set and ensure all keys have the same prefixes, construct $PartialStateTx as result.
+-- Throws an error in case of multiple prefixes found in given change set.
 mkPartialStateTx
     :: forall id1 txtype value . Ord id1
     => (id1 -> Prefix)
@@ -100,6 +105,12 @@ instance (Ord id, Ord id1, HasPrism id id1, HasPrism value value1, HasPrism (TxP
       => HasPrism (StateTx id value txtype) (StateTx id1 value1 txtype1) where
     proj StateTx{..} = StateTx <$> (proj txProof) <*> (proj txBody)
 
+-- | Tries to project change set with general key type to change set with concrete key subtype.
+-- Returns
+-- @
+--  Left prefix
+-- @
+-- if it failed to project a keypair with the prefix.
 selectKeyValueCS
     :: forall id1 value1 id value .
     ( HasKeyValue id value id1 value1

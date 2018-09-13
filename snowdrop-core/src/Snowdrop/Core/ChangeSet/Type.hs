@@ -1,5 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 
+-- | Description of ChangeSet and basic functions to work with it.
+
 module Snowdrop.Core.ChangeSet.Type
        ( ChangeSet (..)
        , Undo (..)
@@ -11,11 +13,9 @@ module Snowdrop.Core.ChangeSet.Type
        , CSMappendException (..)
        , mappendChangeSet
        , mconcatChangeSets
-       , splitByPrefix
        , filterByPrefix
        , filterByPrefixPred
        , filterSetByPrefixPred
-       , mapKeysMonotonicCS
        ) where
 
 import           Universum hiding (head, init, last)
@@ -31,8 +31,15 @@ import           Snowdrop.Core.ChangeSet.ValueOp (ValueOp (..), ValueOpEx (..))
 import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
 import           Snowdrop.Util
 
+-- | ChangeSet is a basic datatype. It reflects changes over a key-value storage.
+-- ChangeSet holds Map from a key in database to an operation
+-- which should be performed over the state by this key.
+-- For more information see Snowdrop.Core.ChangeSet.ValueOp.
 newtype ChangeSet id v = ChangeSet {changeSet :: M.Map id (ValueOp v)}
     deriving (Functor, Eq, Ord, Show)
+
+instance Default (ChangeSet id v) where
+    def = ChangeSet def
 
 instance (Ord id, HasReview id id1, HasReview value value1)
       => HasReview (ChangeSet id value) (ChangeSet id1 value1) where
@@ -42,29 +49,38 @@ instance (Ord id, Ord id1, HasPrism id id1, HasPrism value value1)
       => HasPrism (ChangeSet id value) (ChangeSet id1 value1) where
     proj (ChangeSet mp) = ChangeSet <$> proj mp
 
+-- | Undo holds changes which must be applied to state to get a previous state.
 data Undo id value = Undo
     { undoChangeSet :: ChangeSet id value
     , undoSnapshot  :: ByteString
+    -- ^ Version of AVL tree to rollback. To be removed and abstracted.
     } deriving (Show, Eq, Generic)
 
+-- | Returns a set of keys which Rem operation should be applied to.
 csRemove :: ChangeSet id v -> Set id
 csRemove = M.keysSet . M.filter isRem . changeSet
   where
     isRem Rem = True
     isRem _   = False
 
+-- | Returns a map containg keys which New operation should be applied to
+-- and corresponding new values according to ChangeSet.
 csNew :: ChangeSet id v -> Map id v
 csNew = M.mapMaybe isNew . changeSet
   where
     isNew (New x) = Just x
     isNew _       = Nothing
 
+-- | Returns a map containg keys which Upd operation should be applied to
+-- and corresponding new values according to ChangeSet.
 csUpdate :: ChangeSet id v -> Map id v
 csUpdate = M.mapMaybe isUpd . changeSet
   where
     isUpd (Upd x) = Just x
     isUpd _       = Nothing
 
+-- | Returns map consisted of keys corresponding to New and Upd operations and
+-- values from operations themselves.
 changeSetToMap :: ChangeSet id v -> Map id v
 changeSetToMap = M.mapMaybe toJust . changeSet
   where
@@ -73,12 +89,11 @@ changeSetToMap = M.mapMaybe toJust . changeSet
     toJust (Upd x)    = Just x
     toJust (New x)    = Just x
 
+-- | Like @changeSetToMap@ but returns a list.
 changeSetToList :: ChangeSet id v -> [(id, ValueOp v)]
 changeSetToList (ChangeSet mp) = M.toList mp
 
-instance Default (ChangeSet id v) where
-    def = ChangeSet def
-
+-- | Exception throwing from @mappendChangeSet@.
 newtype CSMappendException id = CSMappendException id
     deriving (Show, Eq)
 
@@ -88,7 +103,12 @@ instance Buildable id => Buildable (CSMappendException id) where
     build (CSMappendException i) =
         bprint ("Failed to mappend ChangeSets due to conflict for key "%build) i
 
--- This tricky implementation works for O(min(N, M) * log(max(N, M)))
+-- | Combine @ValueOp@s corresponding the same keys.
+-- @CSMappendException@ will be returned if after an aplication of
+-- the first ChangeSet to a state it won't be possible to apply the second ChangeSet
+-- without violation ValueOp's invariant.
+-- Don't apply any changes to state itself.
+-- This implementation works for O(min(N, M) * log(max(N, M)))
 mappendChangeSet
     :: Ord id
     => ChangeSet id v
@@ -111,29 +131,19 @@ mappendChangeSet (ChangeSet m1) (ChangeSet m2) = if leftAppRight
                 Err   -> Left $ CSMappendException i
                 Op ro -> Right $ M.insert i ro m
 
+-- | Like @mconcatChangeSet@ but for list of ChangeSet.
 mconcatChangeSets :: Ord id => [ChangeSet id v] -> Either (CSMappendException id) (ChangeSet id v)
 mconcatChangeSets = foldM mappendChangeSet def
 
-splitByPrefix
-    :: forall id v . (IdSumPrefixed id, Ord id)
-    => ChangeSet id v
-    -> M.Map Prefix (ChangeSet id v)
-splitByPrefix (ChangeSet c) = M.foldrWithKey f mempty c
-  where
-    f i v = M.alter (alterF i v) (idSumPrefix i)
-
-    alterF i csVal Nothing   = Just $ ChangeSet $ M.singleton i csVal
-    alterF i csVal (Just cs) = Just $ ChangeSet $ M.insert i csVal $ changeSet cs
-
-filterByPrefix :: IdSumPrefixed id => Prefix -> ChangeSet id v -> ChangeSet id v
-filterByPrefix p = filterByPrefixPred (== p)
-
+-- | Returns only those entries where key's prefix satisfies the predicate.
 filterByPrefixPred :: IdSumPrefixed id => (Prefix -> Bool) -> ChangeSet id v -> ChangeSet id v
 filterByPrefixPred predicate
     = ChangeSet . M.filterWithKey (curry (predicate . idSumPrefix . fst)) . changeSet
 
+-- | Returns only those entries where key's prefix equals to the passed prefix.
+filterByPrefix :: IdSumPrefixed id => Prefix -> ChangeSet id v -> ChangeSet id v
+filterByPrefix p = filterByPrefixPred (== p)
+
+-- | Returns only those elements where key's prefix satisfies the predicate.
 filterSetByPrefixPred :: IdSumPrefixed id => (Prefix -> Bool) -> Set id -> Set id
 filterSetByPrefixPred predicate mp = S.filter (predicate . idSumPrefix) mp
-
-mapKeysMonotonicCS :: Ord id1 => (id -> id1) -> ChangeSet id val -> ChangeSet id1 val
-mapKeysMonotonicCS f = ChangeSet . M.mapKeysMonotonic f . changeSet

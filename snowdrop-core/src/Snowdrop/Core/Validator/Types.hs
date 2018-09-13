@@ -21,17 +21,24 @@ import           Snowdrop.Core.Transaction
 
 import           Snowdrop.Util (HasGetter, HasPrism (..), RContains)
 
--- | Prevalidator validates part of the transaction.
+-- | Function which validates transaction, assuming a transaction
+-- of appropriate type is supplied.
+-- It's expected to project some id types and validate them alone
+-- without considering other id types.
 newtype PreValidator e id value ctx txtype =
     PreValidator { runPrevalidator :: StateTx id value txtype -> ERoComp e id value ctx () }
 
+-- | Alias for $PreValidator constructor
 mkPreValidator
     :: (StateTx id value txtype -> ERoComp e id value ctx ())
     -> PreValidator e id value ctx txtype
 mkPreValidator = PreValidator
 
--- | Validator is a union of several (pre)validators for
--- different transaction types.
+-- | Object to validate transaction fully.
+-- Contains a mapping from transaction type to a corresponding pre-validator
+-- (which may be a concatenation of few other pre-validators).
+-- Each entry in the mapping (a pre-validator) is expected to fully validate
+-- the transaction, consider all id types in particular.
 type Validator e id value ctx (txtypes :: [*]) = Rec (PreValidator e id value ctx) txtypes
 
 instance Ord id => Semigroup (PreValidator e id value ctx txtype) where
@@ -41,6 +48,7 @@ instance Ord id => Monoid (PreValidator e id value ctx txtype) where
     mempty = PreValidator $ const (pure ())
     mappend = (<>)
 
+-- | Smart constructor for $Validator type
 mkValidator ::
     Ord id
     => [PreValidator e id value ctx txtype]
@@ -53,6 +61,7 @@ fromPreValidator ps = ps :& RNil
 getPreValidator :: Validator e id value ctx '[txtype] -> PreValidator e id value ctx txtype
 getPreValidator (ps :& RNil) = ps
 
+-- | Execute validator on a given transaction.
 runValidator
     :: forall e id txtype value ctx txtypes . (RContains txtypes txtype)
     => Validator e id value ctx txtypes

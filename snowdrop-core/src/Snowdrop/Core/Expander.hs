@@ -21,14 +21,14 @@ import           Snowdrop.Core.ChangeSet (ChangeSet (..), ValueOp (..))
 import           Snowdrop.Core.ERoComp (ERoComp)
 import           Snowdrop.Core.Prefix (Prefix)
 
--- type Expander e id value ctx rawTx (txtypes :: [*]) = Rec (PreExpanderSeq e id value ctx rawTx) txtypes
-
+-- | Sequence of expand stages to be consequently executed upon a given transaction.
 newtype SeqExpander e id value ctx rawTx
   = SeqExpander { getSeqExpanders :: SeqExpander' e id value ctx rawTx }
 
 instance Contravariant (SeqExpander e id value ctx) where
     contramap g = SeqExpander . NE.map (contramap g) . getSeqExpanders
 
+-- | Sequence of expand stages to be consequently executed upon a given transaction (unwrapped).
 type SeqExpander' e id value ctx rawTx = NonEmpty (PreExpander e id value ctx rawTx)
 
 -- | PreExpander allows you to convert one raw tx to StateTx.
@@ -46,8 +46,9 @@ data PreExpander e id value ctx rawTx = PreExpander
 instance Contravariant (PreExpander e id value ctx) where
     contramap g (PreExpander s1 s2 f) = PreExpander s1 s2 (f . g)
 
--- | DiffChangeSet holds changes which one expander returns
+-- | DiffChangeSet holds changes which one $PreExpander returns
 newtype DiffChangeSet id value = DiffChangeSet {unDiffCS :: ChangeSet id value}
 
+-- | Smart constructor for $DiffChangeSet
 mkDiffCS :: Map id (ValueOp v) -> DiffChangeSet id v
 mkDiffCS = DiffChangeSet . ChangeSet

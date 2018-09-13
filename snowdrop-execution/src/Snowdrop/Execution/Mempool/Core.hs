@@ -19,10 +19,9 @@ import           Control.Lens (lens)
 import           Data.Default (Default (..))
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx,
-                                ChgAccumModifier (..), ERoComp, ERwComp, SomeTx,
-                                StateModificationException, StatePException, StateTx (..), Undo,
-                                Validator, applySomeTx, liftERoComp, modifyRwCompChgAccum,
-                                runValidator)
+                                ChgAccumModifier (..), ERoComp, ERwComp, SomeTx, StatePException,
+                                StateTx (..), Undo, Validator, applySomeTx, liftERoComp,
+                                modifyRwCompChgAccum, runValidator)
 import           Snowdrop.Execution.DbActions (DbAccessActions)
 import           Snowdrop.Execution.IOExecutor (IOCtx, runERwCompIO)
 import           Snowdrop.Util
@@ -77,8 +76,7 @@ newtype Mempool id value chgAccum rawtx = Mempool
 defaultMempoolConfig
     :: forall e id value ctx txtypes rawtx .
     ( HasExceptions e [
-          StateModificationException id
-        , StatePException
+          StatePException
         , CSMappendException id
         ]
     , Ord id
