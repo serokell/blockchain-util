@@ -28,6 +28,7 @@ import           Universum
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text.Buildable
+import           Data.Vinyl.Lens (rget)
 
 import           Data.Default (Default (def))
 
@@ -35,7 +36,7 @@ import           Snowdrop.Core.BaseM (effect, hoistEffectful)
 import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HUpCastableChSet,
                                           Undo, downcastUndo, upcastUndo)
 import           Snowdrop.Core.ERoComp.Types (ChgAccum, ChgAccumModifier (..), DbAccess (..),
-                                              ERoComp)
+                                              ERoComp, FoldF (..))
 import           Snowdrop.Util
 
 ------------------------
@@ -57,12 +58,11 @@ query req = do
             (hmapToMap . flip (hintersect @xs @'[t]) hreq)
 
 iterator
-    :: forall t b xs e ctx. (Elem t xs)
+    :: forall t b xs e ctx. (HElem t xs)
     => b
     -> ((HKey t, HVal t) -> b -> b)
     -> ERoComp e ctx xs b
-iterator = error "iterator not supported yet"
--- iterator e foldf = effect $ DbIterator @(ChgAccum ctx) @xs @b @t (Proxy @t) (FoldF (e, foldf, id))
+iterator e foldf = effect $ DbIterator @(ChgAccum ctx) @xs @b @t rget (FoldF (e, foldf, id))
 
 modifyAccum
     :: forall xs e ctx .
@@ -142,7 +142,7 @@ upcastDbAccess
     -> DbAccess chgAcc supxs a
 upcastDbAccess (DbQuery s cont) =
     DbQuery (hupcast @_ @xs @supxs s) (\resp -> cont (hintersect @supxs @xs resp s))
--- upcastDbAccess (DbIterator pr foldf) = DbIterator pr foldf
+upcastDbAccess (DbIterator pr foldf) = DbIterator (pr . hdowncast) foldf
 upcastDbAccess (DbModifyAccum acc md cont) = case md of
     CAMChange cs -> DbModifyAccum acc (CAMChange $ hupcast @_ @xs @supxs cs) (cont . fmap (fmap downcastUndo))
     CAMRevert undo -> DbModifyAccum acc (CAMRevert $ upcastUndo @xs @supxs undo) (cont . fmap (fmap downcastUndo))

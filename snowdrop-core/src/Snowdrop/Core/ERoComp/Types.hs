@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE Rank2Types    #-}
 
 module Snowdrop.Core.ERoComp.Types
        ( FoldF (..)
@@ -10,6 +11,8 @@ module Snowdrop.Core.ERoComp.Types
        ) where
 
 import           Universum
+
+import           Data.Vinyl.Core (Rec)
 
 import           Snowdrop.Core.BaseM (BaseM)
 
@@ -58,10 +61,7 @@ data DbAccess chgAccum (components :: [*]) (res :: *)
     -- The second one is a callback which accepts result of request: Map key value
     -- and returns a continuation (a next request to state).
 
-    -- @t@ must belong to @components@, but it's extremely hard to manage with existential quantifier
-    -- so let's prohibit construction of DbAccess outside of this module
-    -- | forall t . DbIterator (Proxy t) (FoldF (GKey t, GVal t) res)
-    -- TODO manage with DbIterator
+    | forall t . DbIterator (forall f . Rec f components -> f t) (FoldF (HKey t, HVal t) res)
     | DbModifyAccum
         chgAccum
         (ChgAccumModifier components)

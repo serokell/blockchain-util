@@ -119,4 +119,4 @@ runValidator
     -> StateTx txtype
     -> ERoComp e ctx (TxComponents txtype) ()
 runValidator prevalidators statetx =
-    runPrevalidator (rget (Proxy @txtype) prevalidators) statetx
+    runPrevalidator (rget @txtype prevalidators) statetx

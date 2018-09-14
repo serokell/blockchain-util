@@ -96,5 +96,5 @@ type instance TxProof (UnitedTxType (x ': y ': xs)) = Rec Prf (x ': y ': xs)
 instance (prftype ~ TxProof x) => HasGetter (Prf x) prftype where
     gett = unPrf
 instance (prftype ~ TxProof x, x ∈ xs) => HasGetter (Rec Prf xs) prftype where
-    gett = gett . rget (Proxy @x)
-    getterOf = to (gett . rget (Proxy @x)) -- to avoid some troubles with @x@, dunno
+    gett = gett . (rget @x)
+    getterOf = to (gett . (rget @x)) -- to avoid some troubles with @x@, dunno

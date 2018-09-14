@@ -39,8 +39,9 @@ type HUpCastableChSet = HUpCastable HChangeSetEl
 data Undo xs = Undo
     { undoChangeSet :: HChangeSet xs
     , undoSnapshot  :: ByteString
-    } deriving (Show, Generic)
+    } deriving (Generic)
 
+deriving instance Show (HChangeSet xs) => Show (Undo xs)
 deriving instance Eq (HChangeSet xs) => Eq (Undo xs)
 
 upcastUndo :: HUpCastableChSet xs supxs => Undo xs -> Undo supxs

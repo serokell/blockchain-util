@@ -11,8 +11,8 @@ import           Data.Kind
 import qualified Data.Map as M
 import qualified Data.Set as S
 import           Data.Vinyl (Rec (..), rcast)
-import           Data.Vinyl.Lens (RSubset)
-import           Data.Vinyl.TypeLevel (Fst, RImage, Snd)
+import           Data.Vinyl.Lens (RElem, RSubset)
+import           Data.Vinyl.TypeLevel (Fst, RImage, RIndex, Snd)
 import           Snowdrop.Util.Containers (toDummyMap)
 import           Snowdrop.Util.Hetero.Constraints (RecAll', Rest)
 
@@ -163,6 +163,8 @@ type HDownCastable xs res = RSubset res xs (RImage res xs)
 
 hdowncast :: HDownCastable xs res => Rec f xs -> Rec f res
 hdowncast = rcast
+
+type HElem r rs = RElem r rs (RIndex r rs)
 
 ------------------------
 -- Intersectable
