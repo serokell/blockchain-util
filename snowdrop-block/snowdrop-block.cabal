@@ -33,6 +33,7 @@ library
     , time
     , time-units
     , hashable-time
+    , reflection
     , text-format
     , universum >= 1.1.0
   build-tool-depends:

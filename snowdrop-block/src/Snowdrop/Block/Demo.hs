@@ -8,19 +8,24 @@
 -- import of snowdrop-block lead to import cycle.
 module Snowdrop.Block.Demo
     ( client
-    , ClientConf (..)
-    , ServerActions (..)
+    , forkDepthChain
+    , nDepthChain
+    , getCurrentBlockRef
+    , runCompositeAction
+    , ClientConfAbstract (..)
+    , ServerActionsAbstract (..)
     , PauseSync (..)
-    , TxSource (..)
+    , TxSourceAbstract (..)
 
-    , ComputationCtx (..)
-    , NodeConf (..)
-    , OsParamsBuilder (..)
+    , ComputationCtxAbstract (..)
+    , NodeConfAbstract (..)
+    , OsParamsBuilderAbstract (..)
     ) where
 
 import           Universum
 
 import           Control.Concurrent (threadDelay)
+import           Data.Reflection (reify, Reifies)
 import           Control.Exception (SomeException)
 import           Control.Concurrent.Async.Lifted (race_)
 import           Data.Default (Default (def))
@@ -38,14 +43,16 @@ import           Snowdrop.Block.Types (CurrentBlockRef (..), BlockHeader, RawPay
 import           Snowdrop.Block.Application (tryApplyFork, BlockApplicationException)
 import           Snowdrop.Block.Fork (ForkVerificationException, iterateChain)
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
-import           Snowdrop.Core (ERwComp, StatePException (..))
-import           Snowdrop.Execution (CompositeChgAccum, BaseMException, MempoolConfig (..), runERwCompIO, ClientMode (..), IOCtx,
-                                                DbModifyActions (..), Mempool, actionWithMempool,
+import           Snowdrop.Core (ERwComp, StatePException (..), Prefix (..), IdSumPrefixed)
+
+import           Snowdrop.Execution (DbAccessActions, CompositeChgAccum (..), BaseMException, MempoolConfig (..), runERwCompIO, ClientMode (..), IOCtx,
+                                                DbModifyActions (..), Mempool, actionWithMempool, constructCompositeActions,
                                                 normalizeMempool, processTxAndInsertToMempool)
 
 import           Snowdrop.Util
 
-newtype TxSource blkType rawTx = TxSource
+-- TODO: Do we still need this?
+newtype TxSourceAbstract blkType rawTx = TxSourceAbstract
     { unTxSource :: MVar rawTx
     }
 
@@ -58,26 +65,26 @@ newtype PauseSync = PauseSync
 ------------------------------------------
 
 -- | Actions used by client to communicate with server part
-data ServerActions proof blkType rawTx = ServerActions
+data ServerActionsAbstract blkType rawTx = ServerActionsAbstract
     { saSubmitTx  :: rawTx -> ExecM ()
     , saBlockSync :: [(BlockRef blkType)] -> ExecM [RawBlk blkType]
     }
 
 -- | Configuration for client
-data ClientConf stateChgAccum blockChgAccum proof ids values sigScheme blkType rawTx = ClientConf
-    { ccNodeConf      :: ClientMode proof -> NodeConf stateChgAccum blockChgAccum proof ids values sigScheme
+data ClientConfAbstract stateChgAccum blockChgAccum proof ids values sigScheme blkType rawTx = ClientConfAbstract
+    { ccNodeConf      :: ClientMode rawTx -> NodeConfAbstract stateChgAccum blockChgAccum proof ids values sigScheme
     -- ^ This method takes ClientMode as param in order to allow client methods to
     -- be executed either with proof of block (containing necessary data for all
     -- requests that will happen) or function to load neccessary parts of state on demand
-    , ccServerActions :: ServerActions proof blkType rawTx
+    , ccServerActions :: ServerActionsAbstract blkType rawTx
     , ccMempool       :: Mempool ids values stateChgAccum rawTx
-    , ccIncomingTx    :: TxSource blkType rawTx
+    , ccIncomingTx    :: TxSourceAbstract blkType rawTx -- TODO: Do we still need this?
     , ccPauseSync     :: PauseSync
     , ccSyncDelay     :: Second
     -- ^ If true pause block sync on client
     }
 
-data NodeConf stateChgAccum blockChgAccum proof ids values sigScheme = NodeConf
+data NodeConfAbstract stateChgAccum blockChgAccum proof ids values sigScheme = NodeConfAbstract
     { -- TODO in real application we probably need RawBlund in storage
       -- to reply to others nodes.
       nsStateDBActions :: DbModifyActions stateChgAccum ids values ExecM proof
@@ -86,7 +93,7 @@ data NodeConf stateChgAccum blockChgAccum proof ids values sigScheme = NodeConf
     }
 
 -- TODO: remove it from the snowdrop
--- TODO: Is it general enough? (needed for ComputationCtx which is needed for runCompositeAction)
+-- TODO: Is it general enough? (needed for ComputationCtxAbstract which is needed for runCompositeAction)
 -- data DemoConfiguration =
 --     DemoConfiguration
 --       { enableFee          :: Bool
@@ -98,17 +105,17 @@ data NodeConf stateChgAccum blockChgAccum proof ids values sigScheme = NodeConf
 --       }
 
 -- TODO: remove it from the snowdrop
-newtype OsParamsBuilder blkType = OsParamsBuilder { unOSParamsBuilder :: Time -> OSParams blkType }
+newtype OsParamsBuilderAbstract blkType = OsParamsBuilderAbstract { unOSParamsBuilder :: Time -> OSParams blkType }
 
 -- TODO: remove it from snowdrop
-data ComputationCtx stateChgAccum blockChgAccum compositeChgAccum proof blkType ids values sigScheme e = ComputationCtx
-    { nodeConf :: NodeConf stateChgAccum blockChgAccum proof ids values sigScheme
+data ComputationCtxAbstract stateChgAccum blockChgAccum compositeChgAccum proof blkType ids values sigScheme e = ComputationCtxAbstract
+    { nodeConf :: NodeConfAbstract stateChgAccum blockChgAccum proof ids values sigScheme
     , bsConf   :: BlkStateConfiguration blkType (ERwComp e ids values (IOCtx compositeChgAccum ids values) compositeChgAccum)
     , osParams :: OSParams blkType
     }
 
 client
-    :: forall stateChgAccum blockChgAccum proof txtypes blkType ids values sigScheme rawTx e ps.
+    :: forall stateChgAccum blockChgAccum compositeChgAccum proof txtypes blkType ids values sigScheme rawTx e ps.
     ( Default stateChgAccum
     , Default blockChgAccum
     , DBuildable rawTx
@@ -120,21 +127,27 @@ client
     , Eq (BlockRef blkType)
     , HasGetter (RawBlk blkType) (RawPayload blkType)
     , HasGetter (RawBlk blkType) (BlockHeader blkType)
+    , IdSumPrefixed ids
+    , Ord ids
     , HasExceptions e
         [ StatePException
         , (ForkVerificationException (BlockRef blkType))
         , (BlockApplicationException (BlockRef blkType))
         ]
+    , compositeChgAccum ~ (CompositeChgAccum blockChgAccum stateChgAccum ps)
+    , Reifies ps (Set Prefix)
     )
-    => OsParamsBuilder blkType
-    -> ClientConf stateChgAccum blockChgAccum proof ids values sigScheme blkType rawTx
+    => OsParamsBuilderAbstract blkType
+    -> ClientConfAbstract stateChgAccum blockChgAccum proof ids values sigScheme blkType rawTx
+    -- TODO: Try to use one BlkStateConfiguration.
+    -> BlkStateConfiguration blkType (ERwComp e ids values (IOCtx compositeChgAccum ids values) compositeChgAccum)
     -> BlkStateConfiguration blkType (ERwComp e ids values (IOCtx blockChgAccum ids values) blockChgAccum)
     -- @id: have no idea what (RContains txtypes) is.
     -> MempoolConfig e ids (RContains txtypes) values (IOCtx stateChgAccum ids values) rawTx
     -> ExecM rawTx
     -> ([RawBlk blkType] -> ExecM ())
     -> ExecM ()
-client osParamsBuilder ClientConf {..} bsConf mempoolCfg rcvTx onSync =
+client osParamsBuilder ClientConfAbstract {..} bsConfCompositeChgAccum bsConfBlockChgAccum mempoolCfg rcvTx onSync =
     race_ blockApplyThread txRcvThread
   where
     clientLog = modifyLogName (const "Client")
@@ -166,7 +179,7 @@ client osParamsBuilder ClientConf {..} bsConf mempoolCfg rcvTx onSync =
                     logInfo "====== Client synchronisation paused ======"
                     return [] -- TODO: Should onSync be excecuted in that case?
                 else do
-                  hashes    <- fst <$> runERwCompIO blockDba def (forkDepthChain bsConf)
+                  hashes    <- fst <$> runERwCompIO blockDba def (forkDepthChain bsConfBlockChgAccum)
                   rawBlocks <- saBlockSync ccServerActions (unCurrentBlockRef <$> unOldestFirst hashes)
                   logDoc logInfo (const $ sformat ("Asked for  : " %listF ", " build) (unCurrentBlockRef <$> unOldestFirst hashes))
                   osParams <- liftIO $ unOSParamsBuilder osParamsBuilder <$> getCurrentTime
@@ -177,6 +190,7 @@ client osParamsBuilder ClientConf {..} bsConf mempoolCfg rcvTx onSync =
                         neRawBlocks = OldestFirst (x :| xs)
                       in do
                             void $ runCompositeAction
+                                    bsConfCompositeChgAccum
                                     osParams
                                     (ccNodeConf RemoteMode)
                                     (undoAndApplyBlocks neRawBlocks)
@@ -193,9 +207,9 @@ client osParamsBuilder ClientConf {..} bsConf mempoolCfg rcvTx onSync =
 
         undoAndApplyBlocks
             :: OldestFirst NonEmpty (RawBlk blkType)
-            -> ComputationCtx stateChgAccum blockChgAccum compositeChgAccum proof blkType ids values sigScheme e
+            -> ComputationCtxAbstract stateChgAccum blockChgAccum compositeChgAccum proof blkType ids values sigScheme e
             -> ERwComp e ids values (IOCtx compositeChgAccum ids values) compositeChgAccum Bool
-        undoAndApplyBlocks neBlocks ComputationCtx {..} =
+        undoAndApplyBlocks neBlocks ComputationCtxAbstract {..} =
                 tryApplyFork bsConf osParams neBlocks
 
 
@@ -219,59 +233,50 @@ nDepthChain bsConf depth = toOldestFirst . fmap (getCurrentBlockRef $ bscConfig 
 getCurrentBlockRef :: BlkConfiguration blkType -> RawBlund blkType -> CurrentBlockRef blkType
 getCurrentBlockRef BlkConfiguration{..} = bcBlockRef . blkHeader . buBlock
 
--- TODO: Do it
--- The problem: `blkStateConfig` uses `getByRawTx` which is specific
--- for `RawTx` at least. So, It can't be used naively.
+-- TODO: Problem: ComputationCtxAbstract need to carry bsConf with compositeChgAccum but for
+-- line `runERwCompIO blockDba def (forkDepthChain bsConf_for_block_dba)` bsConf with blockChgAccum.
+-- Do we really need two distinct chgAccoums?
 runCompositeAction
-    :: forall blockChgAccum stateChgAccum proof a e ids values blkType sigScheme.
+    :: forall blockChgAccum stateChgAccum compositeChgAccum proof a e ids values blkType sigScheme ps.
     ( Default blockChgAccum
     , Default stateChgAccum
+    , compositeChgAccum ~ (CompositeChgAccum blockChgAccum stateChgAccum ps)
+    , HasReview e StatePException
+    , Typeable e
+    , Show e
+    , IdSumPrefixed ids
+    , Ord ids
+    , Reifies ps (Set Prefix)
     )
-    => OSParams blkType
-    -> NodeConf stateChgAccum blockChgAccum proof ids values sigScheme
-    -> (forall ps compositeChgAccum .
-       (compositeChgAccum ~ (CompositeChgAccum blockChgAccum stateChgAccum ps))
-       => ComputationCtx stateChgAccum blockChgAccum compositeChgAccum proof blkType ids values sigScheme e
+    => BlkStateConfiguration blkType (ERwComp e ids values (IOCtx compositeChgAccum ids values) compositeChgAccum)
+    -> OSParams blkType
+    -> NodeConfAbstract stateChgAccum blockChgAccum proof ids values sigScheme
+    -> (  ComputationCtxAbstract stateChgAccum blockChgAccum compositeChgAccum proof blkType ids values sigScheme e
        -> ERwComp e ids values (IOCtx compositeChgAccum ids values) compositeChgAccum a
        )
     -> ExecM (a, proof)
-runCompositeAction osParams nc@NodeConf{..} f = undefined -- do
---     (blockCS, stateCS, a) <- reify blockPrefixes $ \(_ :: Proxy ps) ->
---       let actions = constructCompositeActions @ps blockDba stateDba
---           rwComp = f (ComputationCtx nc bsConf osParams)
---        in runERwCompIO actions def rwComp >>=
---               \(a, (CompositeChgAccum blockCS_ stateCS_)) -> pure (blockCS_, stateCS_, a)
+runCompositeAction bsConf osParams nc@NodeConfAbstract{..} f = do
+    (blockCS, stateCS, a) <- reify blockPrefixes $ \(_ :: Proxy s) ->
+      let
+          actions :: DbAccessActions (CompositeChgAccum blockChgAccum stateChgAccum ps) ids values ExecM
+          actions = constructCompositeActions @ps blockDba stateDba
 
---     proof <- dmaApply nsStateDBActions stateCS
---     void $ dmaApply nsBlockDBActions blockCS
---     pure (a, proof)
---    where
---     blockPrefixes = S.fromList [tipPrefix, blockPrefix]
---     stateDba = dmaAccessActions nsStateDBActions
---     blockDba = dmaAccessActions nsBlockDBActions
+          rwComp :: ERwComp e ids values (IOCtx compositeChgAccum ids values) compositeChgAccum a
+          rwComp = f (ComputationCtxAbstract nc bsConf osParams)
 
---     bsConf :: Default chgAccum => BlkStateConfiguration blkType (ERwComp e ids values (IOCtx chgAccum) chgAccum)
---     bsConf = blkStateConfig demoConf nsStId
+       in runERwCompIO actions def rwComp >>=
+              \(a, (CompositeChgAccum blockCS_ stateCS_)) -> pure (blockCS_, stateCS_, a)
 
+    proof <- dmaApply nsStateDBActions stateCS
+    void $ dmaApply nsBlockDBActions blockCS
+    pure (a, proof)
+   where
+    tipPrefix :: Prefix
+    tipPrefix = Prefix 1
 
--- blkStateConfig
---     :: Default chgAccum
---     => DemoConfiguration
---     -> PublicKey SimpleSigScheme
---     -> BlkStateConfiguration BDemo (ERwComp Exceptions Ids Values (IOCtx chgAccum) chgAccum)
--- blkStateConfig demoConf stId =
---     inmemoryBlkStateConfiguration blkConfLighDlg val (getByRawTx demoConf) (\rawBlock -> Block (gett rawBlock))
---   where
---     verifiers :: [BlockIntegrityVerifier BDemo]
---     verifiers =
---       [ BIV $ \(Block sheader _) -> verify (shSigned sheader)
---       , BIV $ \(Block sheader _) -> stId == (hIssuer . shRawHeader $ sheader)
---       ]
+    blockPrefix :: Prefix
+    blockPrefix = Prefix 2
 
---     blkConf, blkConfLighDlg :: BlkConfiguration BDemo
---     blkConf = posBlkConfiguration verifiers
-
---     blkConfLighDlg = lightDelegationBlkConf (Proxy @(PublicKey SimpleSigScheme, LightDlgSignature SimpleSigScheme)) blkConf
-
---     val :: Validator Exceptions Ids Values (IOCtx chgAccum) AllTransactions
---     val = validator demoConf stId
+    blockPrefixes = S.fromList [tipPrefix, blockPrefix]
+    stateDba = dmaAccessActions nsStateDBActions
+    blockDba = dmaAccessActions nsBlockDBActions
