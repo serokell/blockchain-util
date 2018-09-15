@@ -104,9 +104,9 @@ instance Log.ModifyLogName (BaseM e eff ctx) where
 -- Hoist effectful
 ------------------------
 
-data TranformEff eff1 eff2 = TranformEff {getTransformEff :: forall b . eff1 b -> eff2 b }
+data TransformEff eff1 eff2 = TransformEff {getTransformEff :: forall b . eff1 b -> eff2 b }
 
-newtype EffT eff1 eff2 m a = EffT { runEffT :: ReaderT (TranformEff eff1 eff2) m a }
+newtype EffT eff1 eff2 m a = EffT { runEffT :: ReaderT (TransformEff eff1 eff2) m a }
 
 deriving instance Functor m => Functor (EffT eff1 eff2 m)
 
@@ -153,4 +153,4 @@ hoistEffectful
        (forall b . eff1 b -> eff2 b)
     -> BaseM e eff1 ctx a
     -> BaseM e eff2 ctx a
-hoistEffectful f (BaseM ma) = BaseM $ runReaderT (runEffT ma) (TranformEff f)
+hoistEffectful f (BaseM ma) = BaseM $ runReaderT (runEffT ma) (TransformEff f)
