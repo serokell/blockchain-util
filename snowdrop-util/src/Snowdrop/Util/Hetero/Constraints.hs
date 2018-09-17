@@ -40,10 +40,12 @@ type family NotIntersect (xs::[k]) (ys::[k]) where
     NotIntersect _ '[] = (() :: Constraint)
     NotIntersect (a:xs) ys = (NotElem a ys, NotIntersect xs ys)
 
-type family Rest (t :: k) (xs :: [k]) where
-    Rest t '[] = '[]
-    Rest t (t:xs') = xs'
-    Rest t (x:xs') = x ': Rest t xs'
+-- | RemoveElem type family removes type from the list of types if it's presented.
+-- Otherwise it leaves the list unchanged.
+type family RemoveElem (t :: k) (xs :: [k]) where
+    RemoveElem t '[] = '[]
+    RemoveElem t (t:xs') = xs'
+    RemoveElem t (x:xs') = x ': RemoveElem t xs'
 
 type family RecAll' (rs :: [u]) (c :: u -> Constraint) :: Constraint where
     RecAll' '[] c = ()
@@ -52,7 +54,7 @@ type family RecAll' (rs :: [u]) (c :: u -> Constraint) :: Constraint where
 -- xs ++ ys \ xs
 type family UnionTypes xs ys :: [k] where
     UnionTypes '[] ys = ys
-    UnionTypes (t : xs) ys = t ': UnionTypes xs (Rest t ys)
+    UnionTypes (t : xs) ys = t ': UnionTypes xs (RemoveElem t ys)
 
 class RecToList f xs a where
     recToList :: Rec f xs -> [a]

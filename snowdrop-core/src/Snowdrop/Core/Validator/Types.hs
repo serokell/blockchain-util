@@ -31,7 +31,7 @@ import           Snowdrop.Util (RContains, RecAll', RecToList (..))
 -- PreValidator
 ------------------------------------------------------
 
--- pva701: maybe we should create ValidatorComponents and use it instead of TxComponents
+-- TODO pva701: maybe we should create ValidatorComponents and use it instead of TxComponents
 -- | PreValidator validates part of tx
 newtype PreValidator e ctx txtype
     = PreValidator {runPrevalidator :: StateTx txtype -> ERoComp e ctx (TxComponents txtype) () }

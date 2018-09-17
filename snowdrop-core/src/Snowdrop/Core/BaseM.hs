@@ -107,32 +107,10 @@ instance Log.ModifyLogName (BaseM e eff ctx) where
 data TransformEff eff1 eff2 = TransformEff {getTransformEff :: forall b . eff1 b -> eff2 b }
 
 newtype EffT eff1 eff2 m a = EffT { runEffT :: ReaderT (TransformEff eff1 eff2) m a }
-
-deriving instance Functor m => Functor (EffT eff1 eff2 m)
-
-instance Applicative m => Applicative (EffT eff1 eff2 m) where
-    pure = EffT . pure
-    EffT a <*> EffT b = EffT $ a <*> b
-
-instance Monad m => Monad (EffT eff1 eff2 m) where
-    a >>= b = EffT $ runEffT a >>= runEffT . b
-
-instance MonadTrans (EffT eff1 eff2) where
-    lift = EffT . lift
+    deriving (Functor, Applicative, Monad, MonadTrans, MonadError e)
 
 askF :: Monad m => EffT eff eff1 m (eff b -> eff1 b)
 askF = EffT $ asks getTransformEff
-
--- instance Race e m => Race e (EffT eff eff1 m) where
---     race (EffT ma) (EffT mb) = EffT $ ReaderT $ \ctx -> race (runReaderT ma ctx) (runReaderT mb ctx)
-
--- instance Concurrently m => Concurrently (EffT eff eff1 m) where
---     concurrentlySgImpl f ma mb = EffT $ concurrentlySgImpl f (runEffT ma) (runEffT mb)
---     concurrently ma mb = EffT $ concurrently (runEffT ma) (runEffT mb)
-
-instance MonadError e m => MonadError e (EffT eff eff1 m) where
-    throwError = EffT . throwError
-    catchError ma handler = EffT $ runEffT ma `catchError` (runEffT . handler)
 
 instance Effectful eff2 m => Effectful eff1 (EffT eff1 eff2 m) where
     effect eff1a = askF >>= lift . effect . (eff1a &)

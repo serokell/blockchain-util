@@ -14,7 +14,7 @@ import           Data.Vinyl (Rec (..), rcast)
 import           Data.Vinyl.Lens (RElem, RSubset)
 import           Data.Vinyl.TypeLevel (Fst, RImage, RIndex, Snd)
 import           Snowdrop.Util.Containers (toDummyMap)
-import           Snowdrop.Util.Hetero.Constraints (RecAll', Rest)
+import           Snowdrop.Util.Hetero.Constraints (RecAll', RemoveElem)
 
 ------------------------
 -- HMap and HSet
@@ -70,8 +70,11 @@ instance (Default (f x), Default (Rec f xs')) => Default (Rec f (x ': xs')) wher
 -- HRemoveElement
 ------------------------
 
+-- | If @t@ belongs to the list of types @xs@, @hremoveElem@ methods returns pair
+-- from @Just@ with corresponding element and rest of the list.
+-- Otherwise it returns @Nothing@ and unchanged list.
 class HRemoveElem (t :: *) (xs :: [*]) where
-    hremoveElem :: Rec f xs -> (Maybe (f t), Rec f (Rest t xs))
+    hremoveElem :: Rec f xs -> (Maybe (f t), Rec f (RemoveElem t xs))
 
 instance HRemoveElem t '[] where
     hremoveElem _ = (Nothing, RNil)
@@ -80,7 +83,7 @@ instance HRemoveElem t (t ': xs') where
     hremoveElem (x :& xs) = (Just x, xs)
 
 instance {-# OVERLAPPABLE #-}
-    ( Rest t (x ': xs') ~ (x ': Rest t xs')
+    ( RemoveElem t (x ': xs') ~ (x ': RemoveElem t xs')
     , HRemoveElem t xs')
     => HRemoveElem t (x ': xs') where
     hremoveElem (x :& xs') = (x :&) <$> hremoveElem @t @xs' xs'
@@ -133,7 +136,7 @@ instance {-# OVERLAPPABLE #-}
 -- Castable
 ------------------------
 
--- @xs@ must be subset of @res@
+-- @xs@ must be subset of @res@, i.e. xs ⊆ res
 class HUpCastable f xs res where
     hupcast :: Rec f xs -> Rec f res
 
@@ -141,24 +144,18 @@ instance HUpCastable f '[] '[] where
     hupcast RNil = RNil
 
 instance ( Default (f t)
-         , HUpCastable f (Rest t xs) res'
+         , HUpCastable f (RemoveElem t xs) res'
          , HRemoveElem t xs
          )
          => HUpCastable f xs (t ': res') where
     hupcast xs = case hremoveElem @t @xs xs of
-        (Nothing, rest) -> def :& hupcast @f @(Rest t xs) @res' rest
-        (Just rx, rest) -> rx :& hupcast @f @(Rest t xs) @res' rest
+        (Nothing, rest) -> def :& hupcast @f @(RemoveElem t xs) @res' rest
+        (Just rx, rest) -> rx :& hupcast @f @(RemoveElem t xs) @res' rest
 
 type HUpCastableMap = HUpCastable HMapEl
 type HUpCastableSet = HUpCastable HSetEl
 
--- hupcastMap :: HUpCastableMap xs res => HMap xs -> HMap res
--- hupcastMap = hupcast
-
--- hupcastSet :: HUpCastableSet xs res => HSet xs -> HSet res
--- hupcastSet = hupcast
-
--- @xs@ must be superset of @res@
+-- @xs@ must be superset of @res@, i.e. xs ⊇ res
 type HDownCastable xs res = RSubset res xs (RImage res xs)
 
 hdowncast :: HDownCastable xs res => Rec f xs -> Rec f res
@@ -187,11 +184,11 @@ type HIntersectable xs res =
 hintersect
     :: forall xs res f g . (HIntersectableF f g, HIntersectable xs res)
     => Rec f xs -> Rec g res -> Rec f res
-hintersect a b = hdowncast a `hintrsect'` b
+hintersect a b = hdowncast a `hintersect'` b
   where
-    hintrsect' :: RecAll' res1 OrdHKey => Rec f res1 -> Rec g res1 -> Rec f res1
-    hintrsect' RNil RNil           = RNil
-    hintrsect' (x :& xs) (y :& ys) = (x `hintersectf` y) :& (xs `hintrsect'` ys)
+    hintersect' :: RecAll' res1 OrdHKey => Rec f res1 -> Rec g res1 -> Rec f res1
+    hintersect' RNil RNil           = RNil
+    hintersect' (x :& xs) (y :& ys) = (x `hintersectf` y) :& (xs `hintersect'` ys)
 
 -- ------------------------
 -- -- Semigroup
