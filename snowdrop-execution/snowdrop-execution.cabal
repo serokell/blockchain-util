@@ -38,6 +38,7 @@ library
     , snowdrop-core
     , snowdrop-util
     , stm
+    , vinyl
     , text-format
     , universum >= 1.1.0
   build-tool-depends:

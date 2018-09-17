@@ -3,25 +3,28 @@
 module Snowdrop.Core.ChangeSet.Type
        ( HChangeSet
        , HChangeSetEl (..)
+       , hChangeSetToHSet
+       , hChangeSetToHMap
        , HUpCastableChSet
        , Undo (..)
        , upcastUndo
        , downcastUndo
 
+       , MappendHChSet
        , mappendChangeSet
        , mconcatChangeSets
        , csRemove
        , csNew
        , csUpdate
-       , hchangeSetElToMap
-       , hchangeSetElToList
        , CSMappendException (..)
        ) where
 
 import           Universum hiding (head, init, last)
 
 import           Data.Default (Default (..))
+import qualified Data.Set as S
 import           Data.Vinyl (Rec (..))
+import           Data.Vinyl.Recursive (rmap)
 
 import qualified Data.Map.Strict as M
 
@@ -31,10 +34,25 @@ import           Snowdrop.Util
 newtype HChangeSetEl t = HChangeSetEl {unHChangeSetEl :: Map (HKey t) (ValueOp (HVal t)) }
 type HChangeSet = Rec HChangeSetEl
 
+instance IntersectionF HChangeSetEl HMapEl where
+    intersectf (HChangeSetEl a) (HMapEl b) = HChangeSetEl $ a `M.intersection` b
+
+instance IntersectionF HChangeSetEl HSetEl where
+    intersectf (HChangeSetEl a) (HSetEl b) = HChangeSetEl $ a `M.intersection` (toDummyMap b)
+
+instance DifferenceF HSetEl HChangeSetEl where
+    differencef (HSetEl a) (HChangeSetEl b) = HSetEl $ a `S.difference` (M.keysSet b)
+
 instance Default (HChangeSetEl t) where
     def = HChangeSetEl M.empty
 
 type HUpCastableChSet = HUpCastable HChangeSetEl
+
+hChangeSetToHSet :: HChangeSet xs -> HSet xs
+hChangeSetToHSet = rmap (HSetEl . M.keysSet . unHChangeSetEl)
+
+hChangeSetToHMap :: HChangeSet xs -> HMap xs
+hChangeSetToHMap = rmap hChangeSetElToMap
 
 data Undo xs = Undo
     { undoChangeSet :: HChangeSet xs
@@ -68,16 +86,16 @@ csUpdate = M.mapMaybe isUpd . unHChangeSetEl
     isUpd (Upd x) = Just x
     isUpd _       = Nothing
 
-hchangeSetElToMap :: HChangeSetEl t -> Map (HKey t) (HVal t)
-hchangeSetElToMap = M.mapMaybe toJust . unHChangeSetEl
+hChangeSetElToMap :: HChangeSetEl t -> HMapEl t
+hChangeSetElToMap = HMapEl . M.mapMaybe toJust . unHChangeSetEl
   where
     toJust Rem        = Nothing
     toJust NotExisted = Nothing
     toJust (Upd x)    = Just x
     toJust (New x)    = Just x
 
-hchangeSetElToList :: HChangeSetEl t -> [(HKey t, ValueOp (HVal t))]
-hchangeSetElToList = M.toList . unHChangeSetEl
+-- hchangeSetElToList :: HChangeSetEl t -> [(HKey t, ValueOp (HVal t))]
+-- hchangeSetElToList = M.toList . unHChangeSetEl
 
 data CSMappendException = forall id . (Show id, Eq id) => CSMappendException id
 
@@ -89,15 +107,17 @@ deriving instance Show CSMappendException
 --     build (CSMappendException i) =
 --         bprint ("Failed to mappend ChangeSets due to conflict for key "%build) i
 
+type MappendHChSet xs = RecAll' xs ExnHKey
+
 mappendChangeSet
-    :: RecAll' xs ExnHKey
+    :: MappendHChSet xs
     => HChangeSet xs
     -> HChangeSet xs
     -> Either CSMappendException (HChangeSet xs)
 mappendChangeSet RNil RNil = Right RNil
 mappendChangeSet (x :& xs) (y :& ys) = case x `mappendChangeSetEl` y of
-    Left e -> Left e
-    Right res  -> (res :&) <$> mappendChangeSet xs ys
+    Left e    -> Left e
+    Right res -> (res :&) <$> mappendChangeSet xs ys
 
 -- This tricky implementation works for O(min(N, M) * log(max(N, M)))
 mappendChangeSetEl

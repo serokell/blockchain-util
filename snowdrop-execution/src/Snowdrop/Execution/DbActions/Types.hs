@@ -2,8 +2,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Snowdrop.Execution.DbActions.Types
-       (
-         DbAccessActions (..)
+       ( DbAccessActions (..)
+       , IterAction (..)
+       , DGetter
+       , DGetter'
+       , DIter
+       , DIter'
        , DbModifyActions (..)
        , DbActionsException (..)
        , RememberForProof (..)
@@ -13,25 +17,33 @@ module Snowdrop.Execution.DbActions.Types
 import           Universum
 
 import qualified Data.Text.Buildable
+import           Data.Vinyl.Core (Rec)
 import           Formatting (bprint, build, (%))
 
-import           Snowdrop.Core (CSMappendException (..), ChgAccumModifier, Prefix (..), StateP,
-                                StateR, Undo)
+import           Snowdrop.Core (CSMappendException (..), ChgAccumModifier, Undo)
+import           Snowdrop.Util (HKey, HMap, HSet, HVal)
 
-data DbAccessActions chgAccum id value m = DbAccessActions
-    { daaGetter      :: chgAccum -> StateR id -> m (StateP id value)
+type DGetter' xs m = HSet xs -> m (HMap xs)
+type DGetter chgAccum xs m = chgAccum -> DGetter' xs m
+
+type DModify chgAccum xs m = chgAccum -> ChgAccumModifier xs -> m (Either CSMappendException (chgAccum, Undo xs))
+
+newtype IterAction m t = IterAction {runIterAction :: forall b . b -> ((HKey t, HVal t) -> b -> b) -> m b }
+type DIter' xs m = Rec (IterAction m) xs
+type DIter chgAccum xs m = chgAccum -> Rec (IterAction m) xs
+
+data DbAccessActions chgAccum components m = DbAccessActions
+    { daaGetter      :: DGetter chgAccum components m
       -- ^ Retrieves values corresponding to specified keys (doesn't modify the state)
-    , daaModifyAccum :: chgAccum
-                     -> ChgAccumModifier id value
-                     -> m (Either (CSMappendException id) (chgAccum, Undo id value))
+    , daaModifyAccum :: DModify chgAccum components m
       -- ^ Modify change accumulater with specified change set (doesn't modify the state)
-    , daaIter        :: forall b . chgAccum -> Prefix -> b -> ((id, value) -> b -> b) -> m b
-      -- ^ Iterate through keys with specified prefix (doesn't modify the state)
+    , daaIter        :: DIter chgAccum components m
+     -- ^ Iterate through keys with specified prefix (doesn't modify the state)
     }
 
 -- | Db modify access actions model following use of
-data DbModifyActions chgAccum id value m proof = DbModifyActions
-    { dmaAccessActions :: DbAccessActions chgAccum id value m
+data DbModifyActions chgAccum m components proof = DbModifyActions
+    { dmaAccessActions :: DbAccessActions chgAccum components m
     , dmaApply         :: chgAccum -> m proof
     }
 
