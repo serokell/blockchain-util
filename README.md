@@ -30,6 +30,6 @@ of transaction processing in `snowdrop-core` and can be used indendently.
 Its usage with definitions of transaction from `snowdrop-core` is defined
 by configuration in module `Snowdrop.Block.State`.
 
-Prefix `snowdrop` used all over the codebase states for the codename for a project within Serokell,
+Prefix `snowdrop` used all over the codebase states for the codename of a project within Serokell,
 under umbrella of which these building blocks are being developed.
 The whole project (along with its repositories and documentation) will be announced and made public in Q4 2018.
