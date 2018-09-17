@@ -1,80 +1,95 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE Rank2Types    #-}
 
 module Snowdrop.Core.ERoComp.Types
-       (
-         Prefix (..)
-       , IdSumPrefixed (..)
-       , StateR
-       , StateP
-       , FoldF (..)
+       ( FoldF (..)
+       , foldFMappend
        , ERoComp
        , ChgAccum
-       , ChgAccumCtx (..)
        , DbAccess(..)
        , ChgAccumModifier (..)
-
-       , foldFMappend
        ) where
 
 import           Universum
 
+import           Data.Vinyl.Core (Rec)
+
 import           Snowdrop.Core.BaseM (BaseM)
 
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..), Undo)
-import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
+import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, Undo)
+import           Snowdrop.Util
 
-type StateR id = Set id             -- ^Request of state
-type StateP id value = Map id value -- ^Portion of state
+------------------------
+-- FoldF
+------------------------
 
+-- | FoldF holds functions which are intended to accumulate result of iteratio
+-- over entries.
+-- The first field is an initial value.
+-- The second one is an accumulator.
+-- The third one is convertor result of iteration to continuation (a next request to state).
 data FoldF a res = forall b. FoldF (b, a -> b -> b, b -> res)
 
 instance Functor (FoldF a) where
     fmap f (FoldF (e, foldf, applier)) = FoldF (e, foldf, f . applier)
 
+-- | Mappend operation for two @FoldF@s.
 foldFMappend :: (res -> res -> res) -> FoldF a res -> FoldF a res -> FoldF a res
-foldFMappend resMappend (FoldF (e1, f1, applier1)) (FoldF (e2, f2, applier2))
-    = FoldF (e, f, applier)
+foldFMappend resMappend (FoldF (e1, f1, applier1)) (FoldF (e2, f2, applier2)) = FoldF (e, f, applier)
   where
     e = (e1, e2)
     f a (b1, b2) = (f1 a b1, f2 a b2)
     applier (b1, b2) = applier1 b1 `resMappend` applier2 b2
 
--- We can't define Monoid for FoldF a res because we can't define mempty (without undefined)
+-- It can't be defined Monoid instance for @FoldF@ because @mempty@ can't be defined.
 instance Semigroup res => Semigroup (FoldF a res) where
     f1 <> f2 = foldFMappend (<>) f1 f2
 
--- | Change accum modifier object.
--- Holds either change set or undo object which is to be applied to change accumulator.
-data ChgAccumModifier id value
-    = CAMChange { camChg  :: ChangeSet id value }
-    | CAMRevert { camUndo :: Undo id value }
+------------------------
+-- DbAccess
+------------------------
 
--- Datatype for access to database.
---
---     * mappend of two DbQuery executes as one DBQuery (as one Free iteration)
---     * mappend of DBIterator and x makes DBIterator execute one iteration of Free
---     and require one more for x
---
--- It's essential to understand that unlike DBQuery,
--- iterator always requires additional Free iteration.
--- Given iterators are to be used rarely, this shall be ok.
-data DbAccess chgAccum id value res
-    = DbQuery (StateR id) (StateP id value -> res)
-    | DbIterator Prefix (FoldF (id, value) res)
+-- | Datatype describing read only interface for access to a state.
+-- By "access" it's meant any interation with any kind of external state,
+-- including: in-memory, persistent etc.
+-- @id@, @values@ describes types of key and value of key-value storage.
+-- @chgAccum@ is in-memory state of snowdrop.
+data DbAccess chgAccum (components :: [*]) (res :: *)
+    = DbQuery (HSet components) (HMap components -> res)
+    -- ^ Request to state.
+    -- The first field is request set of keys which are requested from state.
+    -- The second one is a callback which accepts result of request: Map key value
+    -- and returns a continuation (a next request to state).
+
+    | forall t . DbIterator (forall f . Rec f components -> f t) (FoldF (HKey t, HVal t) res)
     | DbModifyAccum
         chgAccum
-        (ChgAccumModifier id value)
-        (Either (CSMappendException id) (chgAccum, Undo id value) -> res)
-    deriving (Functor)
+        (ChgAccumModifier components)
+        (Either CSMappendException (chgAccum, Undo components) -> res)
+    -- ^ Operation to modify Change Accumulator.
+    -- This action doesn't imply an explicit access to state,
+    -- but AVL tree requires this access. This operation is read only,
+    -- so it doesn't affect passed @chgAccum@ and doesn't produce any changes id db.
+
+deriving instance Functor (DbAccess chgAccum xs)
+
+-- | Change accum modifier object.
+-- Holds either change set or undo object which is to be applied to change accumulator.
+data ChgAccumModifier xs
+    = CAMChange { camChg  :: HChangeSet xs }
+    | CAMRevert { camUndo :: Undo xs }
+
+------------------------
+-- ERoComp
+------------------------
+
+-- | Change Accumulator is in-memory state of snowdrop's functions.
+-- Most likely it should be consisnted with persistent state because it's just
+-- one more layer of state which must be considered during access to state.
+-- Also it has to be possible to apply ChangeSet to this Change Accumulator.
+type family ChgAccum ctx :: *
 
 -- | Reader computation which allows you to query for part of bigger state
 -- and build computation considering returned result.
---
--- Note, response might contain more records than were requested in `req`
--- (because of monoidal gluing of many computations)
-
-type family ChgAccum ctx :: *
-
-type ERoComp e id value ctx = BaseM e (DbAccess (ChgAccum ctx) id value) ctx
-
-data ChgAccumCtx ctx = CANotInitialized | CAInitialized (ChgAccum ctx)
+-- DbAccess is used as an effect of BaseM.
+type ERoComp e ctx xs = BaseM e (DbAccess (ChgAccum ctx) xs) ctx

@@ -1,217 +1,155 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DeriveFunctor       #-}
-{-# LANGUAGE Rank2Types          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE AllowAmbiguousTypes     #-}
+{-# LANGUAGE DeriveFunctor           #-}
+{-# LANGUAGE Rank2Types              #-}
+{-# LANGUAGE ScopedTypeVariables     #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
 
 module Snowdrop.Core.ERoComp.Helpers
-       (
-         StatePException (..)
-       , TxValidationException (..)
-
+       ( QueryERo
        , query
        , iterator
-       , iteratorFor
-       , querySet
+       , modifyAccum
        , queryOne
        , queryOneExists
-       , modifyAccum
 
+       , ChgAccumCtx (..)
+       , StatePException (..)
        , withModifiedAccumCtx
        , initAccumCtx
        , getCAOrDefault
 
-       , valid
-       , validateIff
-       , validateAll
-
-       , StateModificationException(..)
+       , UpCastableERo
+       , upcastDbAccess
+       , upcastEffERoComp
        ) where
 
 import           Universum
 
-import           Control.Monad.Except (MonadError (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text.Buildable
-import           Formatting (bprint, build, stext, (%))
+import           Data.Vinyl.Lens (rget)
 
 import           Data.Default (Default (def))
 
-import           Snowdrop.Core.BaseM (effect)
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..), Undo)
-import           Snowdrop.Core.ERoComp.Types (ChgAccum, ChgAccumCtx (..), ChgAccumModifier (..),
-                                              DbAccess (..), ERoComp, FoldF (..), Prefix (..),
-                                              StateP, StateR)
-import           Snowdrop.Core.Transaction (HasKeyValue)
+import           Snowdrop.Core.BaseM (effect, hoistEffectful)
+import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HUpCastableChSet,
+                                          Undo, downcastUndo, upcastUndo)
+import           Snowdrop.Core.ERoComp.Types (ChgAccum, ChgAccumModifier (..), DbAccess (..),
+                                              ERoComp, FoldF (..))
 import           Snowdrop.Util
 
-modifyAccum
-    :: forall e id value ctx .
-       ChgAccum ctx
-    -> ChgAccumModifier id value
-    -> ERoComp e id value ctx (Either (CSMappendException id) (ChgAccum ctx, Undo id value))
-modifyAccum chgAccum chgSet = effect $ DbModifyAccum chgAccum chgSet id
+------------------------
+-- Basic operations in ERoComp
+------------------------
 
-query :: forall e id value ctx . StateR id -> ERoComp e id value ctx (StateP id value)
-query req = effect $ DbQuery @(ChgAccum ctx) req id
+class (HUpCastableSet '[t] xs, HIntersectable xs '[t] ) => QueryERo xs t
+instance (HUpCastableSet '[t] xs, HIntersectable xs '[t]) => QueryERo xs t
+
+query
+    :: forall t xs e ctx . QueryERo xs t
+    => Set (HKey t) -> ERoComp e ctx xs (Map (HKey t) (HVal t))
+query req = do
+    let hreq :: HSet '[t]
+        hreq = hsetFromSet req
+    effect $
+        DbQuery @(ChgAccum ctx)
+            (hupcast @_ @_ @xs hreq)
+            (hmapToMap . flip (hintersect @xs @'[t]) hreq)
 
 iterator
-    :: forall e id value ctx b.
-       Prefix
-    -> b
-    -> ((id, value) -> b -> b)
-    -> ERoComp e id value ctx b
-iterator prefix e foldf =
-    effect $ DbIterator @(ChgAccum ctx) prefix (FoldF (e, foldf, id))
+    :: forall t b xs e ctx. (HElem t xs)
+    => b
+    -> ((HKey t, HVal t) -> b -> b)
+    -> ERoComp e ctx xs b
+iterator e foldf = effect $ DbIterator @(ChgAccum ctx) @xs @b @t rget (FoldF (e, foldf, id))
 
-data TxValidationException
-    = PayloadProjectionFailed String Prefix
-    | UnexpectedPayload [Prefix]
-    deriving (Show)
+modifyAccum
+    :: forall xs e ctx .
+       ChgAccum ctx
+    -> ChgAccumModifier xs
+    -> ERoComp e ctx xs (Either CSMappendException (ChgAccum ctx, Undo xs))
+modifyAccum chgAccum chgSet = effect $ DbModifyAccum chgAccum chgSet id
 
-instance Buildable TxValidationException where
-    build = \case
-        PayloadProjectionFailed tx p ->
-            bprint
-              ("Projection of payload is failed during validation of StateTx with type: "
-               %build%", got prefix: "%build)
-              tx
-              p
-        UnexpectedPayload p -> bprint ("Unexpected payload, prefixes: "%listF ", " build) p
-
--- | For each id' from passed set of ids get value' from state of computation.
--- HasAlt id id' satisfies that @id@ may be injected from @id'@.
--- If some value' couldn't be projected from corresponding value, the request will fail.
-querySet
-    :: forall id id' value value' e ctx .
-    ( Ord id, Ord id'
-    , HasKeyValue id value id' value'
-    , HasException e StatePException
-    )
-    => Set id' -> ERoComp e id value ctx (StateP id' value')
-querySet ids' =
-    -- Choose needed ids from state, then try to project all values.
-    maybe (throwLocalError QueryProjectionFailed) pure . proj =<< query ids
-  where
-    ids :: Set id
-    ids = S.fromList $ map inj $ S.toList ids'
-
--- TODO Not Exist shall be different error from getEx Left ()
 queryOne
-    :: forall id id' value value' e ctx .
-    ( Ord id, Ord id'
-    , HasKeyValue id value id' value'
-    , HasException e StatePException
-    )
-    => id' -> ERoComp e id value ctx (Maybe value')
-queryOne id' = M.lookup id' <$> querySet (S.singleton id')
+    :: forall t components e ctx . (QueryERo components t, Ord (HKey t))
+    => HKey t -> ERoComp e ctx components (Maybe (HVal t))
+queryOne k = M.lookup k <$> query @t (S.singleton k)
 
 queryOneExists
-    :: forall id id' value e ctx .
-    ( Ord id, Ord id'
-    , HasPrism id id'
-    )
-    => id' -> ERoComp e id value ctx Bool
-queryOneExists id' = not . M.null <$> query (S.singleton (inj id'))
+    :: forall t components e ctx . (QueryERo components t, Ord (HKey t))
+    => HKey t -> ERoComp e ctx components Bool
+queryOneExists k = isJust <$> queryOne @t k
 
-iteratorFor
-    :: forall id id' value value' b e ctx .
-    ( HasPrism id id'
-    , HasPrism value value'
-    , HasException e StatePException
-    )
-    => Prefix
-    -> b
-    -> ((id', value') -> b -> b)
-    -> ERoComp e id value ctx b
-iteratorFor prefix e foldf = do
-    res <- effect $ DbIterator @(ChgAccum ctx) @id @value prefix (FoldF (e1, foldf1, id))
-    case res of
-        Left ex -> throwLocalError ex
-        Right x -> pure x
-  where
-    e1 = Right e
+------------------------
+-- ChgAccumCtx
+------------------------
 
-    foldf1 _ (Left ex) = Left ex
-    foldf1 (i, value) (Right b) = case fPair (proj i, proj value) of
-        Nothing           -> Left IteratorProjectionFailed
-        Just (i', value') -> Right $ foldf (i', value') b
-
-data StatePException
-    = QueryProjectionFailed
-    | IteratorProjectionFailed
-    | ChgAccumCtxUnexpectedlyInitialized
+data StatePException = ChgAccumCtxUnexpectedlyInitialized
     deriving (Show, Eq)
 
 instance Buildable StatePException where
     build = \case
-        QueryProjectionFailed -> "Projection of query result failed"
-        IteratorProjectionFailed -> "Projection within iterator failed"
         ChgAccumCtxUnexpectedlyInitialized -> "Change accum context is unexpectedly initialized"
 
 deriveIdView withInj ''StatePException
+
+-- | Auxiliary datatype for context-dependant computations.
+data ChgAccumCtx ctx = CANotInitialized | CAInitialized (ChgAccum ctx)
 
 getCAOrDefault :: Default (ChgAccum ctx) => ChgAccumCtx ctx -> ChgAccum ctx
 getCAOrDefault CANotInitialized   = def
 getCAOrDefault (CAInitialized cA) = cA
 
 withModifiedAccumCtx
-    :: forall e id value ctx a .
-    ( HasException e (CSMappendException id)
-    , HasLens ctx (ChgAccumCtx ctx)
-    , Default (ChgAccum ctx)
-    )
-    => ChangeSet id value
-    -> ERoComp e id value ctx a
-    -> ERoComp e id value ctx a
+  :: forall xs e ctx a .
+    (HasException e CSMappendException, HasLens ctx (ChgAccumCtx ctx), Default (ChgAccum ctx))
+  => HChangeSet xs
+  -> ERoComp e ctx xs a
+  -> ERoComp e ctx xs a
 withModifiedAccumCtx chgSet comp = do
     ctxAcc <- getCAOrDefault @ctx . gett <$> ask
     newAccOrErr <- modifyAccum ctxAcc $ CAMChange chgSet
     case newAccOrErr of
-        Left err   -> throwLocalError err
-        Right (acc', _undo) ->
-            local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
+        Left err            -> throwLocalError err
+        Right (acc', _undo) -> local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
 
 initAccumCtx
-    :: forall e id value ctx a .
-    (HasException e StatePException, HasLens ctx (ChgAccumCtx ctx))
-    => ChgAccum ctx
-    -> ERoComp e id value ctx a
-    -> ERoComp e id value ctx a
+  :: forall xs e ctx a .
+     (HasException e StatePException, HasLens ctx (ChgAccumCtx ctx))
+  => ChgAccum ctx
+  -> ERoComp e ctx xs a
+  -> ERoComp e ctx xs a
 initAccumCtx acc' comp = do
     gett @_ @(ChgAccumCtx ctx) <$> ask >>= \case
         CAInitialized _ -> throwLocalError ChgAccumCtxUnexpectedlyInitialized
-        CANotInitialized ->
-            local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
-
-valid :: (Monoid a, Monad m) => m a
-valid = pure mempty
-
-validateIff :: forall e e1 m a . (Monoid a, MonadError e m, HasReview e e1) => e1 -> Bool -> m a
-validateIff e1 = bool (throwLocalError e1) valid
-
-validateAll
-    :: (Foldable f, MonadError e m, Container (f a))
-    => (Element (f a) -> e)
-    -> (Element (f a) -> Bool)
-    -> f a
-    -> m ()
-validateAll ex p ls = maybe (pure ()) (throwError . ex) (find (not . p) ls)
+        CANotInitialized -> local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
 
 ------------------------
--- Compute undo
+-- Cast and hoist
 ------------------------
 
-data StateModificationException id
-    = UnexpectedKeyExists id
-    | UnexpectedKeyAbsent id
-    deriving (Show)
+type UpCastableERo xs supxs =
+    ( HIntersectable supxs xs
+    , HUpCastableMap xs supxs
+    , HUpCastableSet xs supxs
+    , HUpCastableChSet xs supxs
+    )
 
-instance Buildable id => Buildable (StateModificationException id) where
-    build = \case
-        UnexpectedKeyExists i -> problemWithKey "exist" i
-        UnexpectedKeyAbsent i -> problemWithKey "be absent" i
-      where
-        problemWithKey desc key =
-            bprint ("Key "%build%" was not expected to "%stext%
-                " during performed modification") key desc
+upcastDbAccess
+    :: forall xs supxs chgAcc a . UpCastableERo xs supxs
+    => DbAccess chgAcc xs a
+    -> DbAccess chgAcc supxs a
+upcastDbAccess (DbQuery s cont) =
+    DbQuery (hupcast @_ @xs @supxs s) (\resp -> cont (hintersect @supxs @xs resp s))
+upcastDbAccess (DbIterator pr foldf) = DbIterator (pr . hdowncast) foldf
+upcastDbAccess (DbModifyAccum acc md cont) = case md of
+    CAMChange cs -> DbModifyAccum acc (CAMChange $ hupcast @_ @xs @supxs cs) (cont . fmap (fmap downcastUndo))
+    CAMRevert undo -> DbModifyAccum acc (CAMRevert $ upcastUndo @xs @supxs undo) (cont . fmap (fmap downcastUndo))
+
+upcastEffERoComp
+    :: forall xs supxs e ctx a . UpCastableERo xs supxs
+    => ERoComp e ctx xs a
+    -> ERoComp e ctx supxs a
+upcastEffERoComp = hoistEffectful upcastDbAccess
+

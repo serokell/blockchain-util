@@ -3,6 +3,7 @@ module Snowdrop.Core.ERwComp
        , runERwComp
        , modifyRwCompChgAccum
        , liftERoComp
+       , upcastEffERwComp
        ) where
 
 import           Universum
@@ -12,20 +13,21 @@ import           Control.Monad.Except (MonadError)
 
 import           Snowdrop.Core.ChangeSet (CSMappendException (..), Undo)
 import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), ChgAccumModifier, ERoComp,
-                                        StatePException (..), initAccumCtx, modifyAccum)
+                                        StatePException (..), UpCastableERo, initAccumCtx,
+                                        modifyAccum, upcastEffERoComp)
 import           Snowdrop.Util
 
-newtype ERwComp e id value ctx s a = ERwComp { unERwComp :: StateT s (ERoComp e id value ctx) a }
+newtype ERwComp e ctx s xs a = ERwComp { unERwComp :: StateT s (ERoComp e ctx xs) a }
     deriving (Functor, Applicative, Monad, MonadError e, MonadState s)
 
 runERwComp
-  :: forall e id value ctx s a.
+  :: forall e ctx s xs a.
   ( HasException e StatePException
   , HasGetter ctx (ChgAccumCtx ctx)
   )
-  => ERwComp e id value ctx s a
+  => ERwComp e ctx s xs a
   -> s
-  -> ERoComp e id value ctx (a, s)
+  -> ERoComp e ctx xs (a, s)
 runERwComp stComp initS = do
     mChgAccum <- asks (gett @_ @(ChgAccumCtx ctx))
     case mChgAccum of
@@ -34,24 +36,33 @@ runERwComp stComp initS = do
     runStateT (unERwComp stComp) initS
 
 liftERoComp
-    :: forall e id value ctx s a.
+    :: forall e ctx xs s a .
     ( HasException e StatePException
     , HasLens ctx (ChgAccumCtx ctx)
     , HasGetter s (ChgAccum ctx)
     )
-    => ERoComp e id value ctx a
-    -> ERwComp e id value ctx s a
+    => ERoComp e ctx xs a
+    -> ERwComp e ctx s xs a
 liftERoComp comp = gets (gett @_ @(ChgAccum ctx)) >>= ERwComp . lift . flip initAccumCtx comp
 
 modifyRwCompChgAccum
-    :: forall e id value ctx s .
-    ( HasException e (CSMappendException id)
+    :: forall e xs s ctx .
+    ( HasException e CSMappendException
     , HasLens s (ChgAccum ctx)
     )
-    => ChgAccumModifier id value
-    -> ERwComp e id value ctx s (Undo id value)
+    => ChgAccumModifier xs
+    -> ERwComp e ctx s xs (Undo xs)
 modifyRwCompChgAccum chgSet = do
     chgAcc <- gets (gett @_ @(ChgAccum ctx))
     newChgAccOrE <- ERwComp $ lift $ modifyAccum chgAcc chgSet
     flip (either $ ERwComp . throwLocalError) newChgAccOrE $
-      \(chgAcc', undo) -> (lensFor @s @(ChgAccum ctx) .= chgAcc') $> undo
+        \(chgAcc', undo) -> (lensFor @s @(ChgAccum ctx) .= chgAcc') $> undo
+------------------------
+-- Cast and hoist
+------------------------
+
+upcastEffERwComp
+    :: forall xs supxs e ctx s a . UpCastableERo xs supxs
+    => ERwComp e ctx s xs a
+    -> ERwComp e ctx s supxs a
+upcastEffERwComp (ERwComp comp) = ERwComp $ StateT $ upcastEffERoComp . runStateT comp

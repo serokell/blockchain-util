@@ -53,6 +53,7 @@ library
       Snowdrop.Util.Containers
       Snowdrop.Util.Helpers
       Snowdrop.Util.Hetero
+      Snowdrop.Util.Hetero.HMap
       Snowdrop.Util.Hetero.Constraints
       Snowdrop.Util.Lens
       Snowdrop.Util.Logging
