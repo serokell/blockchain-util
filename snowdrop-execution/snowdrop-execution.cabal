@@ -62,7 +62,6 @@ library
       Snowdrop.Execution.DbActions.AVLp.State
       Snowdrop.Execution.DbActions.Composite
       Snowdrop.Execution.IOExecutor
-      Snowdrop.Execution.Restrict
 
   default-language: Haskell2010
   ghc-options:         -Wall
