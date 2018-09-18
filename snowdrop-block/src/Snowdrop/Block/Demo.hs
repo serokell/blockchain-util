@@ -72,7 +72,7 @@ data ServerActions blkType rawTx = ServerActions
 
 -- | Configuration for client
 data ClientConf stateChgAccum blockChgAccum proof ids values sigScheme blkType rawTx = ClientConf
-    { ccNodeConf      :: ClientMode rawTx -> NodeConf stateChgAccum blockChgAccum proof ids values sigScheme
+    { ccNodeConf      :: ClientMode proof -> NodeConf stateChgAccum blockChgAccum proof ids values sigScheme
     -- ^ This method takes ClientMode as param in order to allow client methods to
     -- be executed either with proof of block (containing necessary data for all
     -- requests that will happen) or function to load neccessary parts of state on demand
