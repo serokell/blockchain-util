@@ -3,7 +3,9 @@
 
 module Snowdrop.Execution.DbActions.Simple
        (
-         sumChangeSetDBA
+         sumChangeSetDaa
+       , sumChangeSetDaaM
+       , sumChangeSetDaaU
        , SumChangeSet (..)
        , mappendStOrThrow
        , accumToDiff
@@ -13,15 +15,13 @@ module Snowdrop.Execution.DbActions.Simple
 import           Universum
 
 import           Control.Monad.Except (throwError)
-import qualified Data.ByteString as BS
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 
-import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccumModifier (..),
-                                IdSumPrefixed (..), Prefix (..), StateP, StateR, Undo (..),
-                                ValueOp (..), changeSetToMap, csNew, filterByPrefix,
-                                mappendChangeSet)
+import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), IdSumPrefixed (..),
+                                Prefix (..), StateP, StateR, ValueOp (..), changeSetToMap, csNew,
+                                diffChangeSet, filterByPrefix, mappendChangeSet)
 import           Snowdrop.Util
 
 import           Snowdrop.Execution.DbActions.Types
@@ -68,33 +68,52 @@ queryAccumOne (SumChangeSet (ChangeSet csm)) = flip M.lookup csm
 getNewKeys :: IdSumPrefixed id => SumChangeSet id value -> Prefix -> Map id value
 getNewKeys (SumChangeSet cs) p = csNew $ filterByPrefix p cs
 
-sumChangeSetDBA
+sumChangeSetDaaM
     :: forall id value m . (IdSumPrefixed id, Ord id, MonadCatch m)
-    => (StateR id -> m (StateP id value))
-    -> (forall b. Prefix -> b -> ((id, value) -> b -> b) -> m b)
-    -> DbAccessActions (SumChangeSet id value) id value m
-sumChangeSetDBA getImpl iterImpl =
-    DbAccessActions
-      getter
-      modifySumChgSetA
-      (chgAccumIter iterImpl)
+    => DbAccessActions (SumChangeSet id value) id value m
+    -> DbAccessActionsM (SumChangeSet id value) id value m
+sumChangeSetDaaM daa = daaM
   where
-    getter = chgAccumGetter getImpl
+    liftA' f a b = pure $ f a b
+    daaM = DbAccessActionsM daa (liftA' modifyAccum)
 
-    modifySumChgSetA accum = \case
-        CAMChange cs -> processCS cs
-        CAMRevert (Undo cs _sn) -> processCS cs
+    modifyAccum
+      :: SumChangeSet id value
+      -> OldestFirst [] (ChangeSet id value)
+      -> Either (CSMappendException id) (OldestFirst [] (SumChangeSet id value))
+    modifyAccum initScs (OldestFirst css) = OldestFirst <$> scss
       where
-        processCS cs' =
-          (liftA2 (,) $ accum `modifySumChgSet` cs')
-            <$> runExceptT (flip Undo BS.empty <$> computeUndo accum cs')
+        scss = reverse . snd <$> foldM modScs (initScs, []) css
+        modScs (scs, res) cs = (\scs' -> (scs', scs':res)) <$> scs `modifySumChgSet` cs
+
+sumChangeSetDaaU
+    :: forall id value m . (IdSumPrefixed id, Ord id, MonadCatch m)
+    => DbAccessActions (SumChangeSet id value) id value m
+    -> DbAccessActionsU (SumChangeSet id value) (ChangeSet id value) id value m
+sumChangeSetDaaU daa = daaU
+  where
+    liftA' f a b = pure $ f a b
+    daaU = DbAccessActionsU (sumChangeSetDaaM daa) (liftA' modifyAccumU) computeUndo
+
+    modifyAccumU
+      :: SumChangeSet id value
+      -> NewestFirst [] (ChangeSet id value)
+      -> Either (CSMappendException id) (SumChangeSet id value)
+    modifyAccumU scs (NewestFirst css) = foldM modifySumChgSet scs css
 
     computeUndo
         :: SumChangeSet id value
+        -> SumChangeSet id value
+        -> m (Either (CSMappendException id) (ChangeSet id value))
+    computeUndo scs@(SumChangeSet scs1) (SumChangeSet scs2) =
+        either (pure . Left) (computeUndoDo scs) (scs2 `diffChangeSet` scs1)
+
+    computeUndoDo
+        :: SumChangeSet id value
         -> ChangeSet id value
-        -> ExceptT (CSMappendException id) m (ChangeSet id value)
-    computeUndo ca (ChangeSet cs) = do
-        vals <- lift $ getter ca (M.keysSet cs)
+        -> m (Either (CSMappendException id) (ChangeSet id value))
+    computeUndoDo ca (ChangeSet cs) = runExceptT $ do
+        vals <- lift $ (daaGetter daa) ca (M.keysSet cs)
         let processOne m (k, valueop) = case (valueop, k `M.lookup` vals) of
               (New _, Nothing)      -> pure $ M.insert k Rem m
               (Upd _, Just v0)      -> pure $ M.insert k (Upd v0) m
@@ -102,6 +121,14 @@ sumChangeSetDBA getImpl iterImpl =
               (Rem, Just v0)        -> pure $ M.insert k (New v0) m
               _                     -> throwError (CSMappendException k)
         ChangeSet <$> foldM processOne mempty (M.toList cs)
+
+sumChangeSetDaa
+    :: (IdSumPrefixed id, Ord id, Applicative m)
+    => (StateR id -> m (StateP id value))
+    -> (forall b . Prefix -> b -> ((id, value) -> b -> b) -> m b)
+    -> DbAccessActions (SumChangeSet id value) id value m
+sumChangeSetDaa getterImpl iterImpl =
+    DbAccessActions (chgAccumGetter getterImpl) (chgAccumIter iterImpl)
 
 chgAccumIter
     :: (IdSumPrefixed id, Ord id, Applicative m)
@@ -120,7 +147,6 @@ chgAccumIter iter accum prefix initB foldF =
             Just (Upd newV) -> foldF (i, newV) b
             Just (New _)    -> b -- something strange happened
      in iter prefix newKeysB newFoldF
-
 
 chgAccumGetter
     :: (IdSumPrefixed id, Ord id, Applicative m)

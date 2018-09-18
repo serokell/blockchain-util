@@ -13,9 +13,9 @@ import           Universum
 import           Data.Default (Default (def))
 
 import           Snowdrop.Core (CSMappendException (..), ChangeSet, ChgAccum, ChgAccumCtx (..),
-                                DiffChangeSet (..), ERoComp, IdSumPrefixed (..), PreExpander (..),
-                                SeqExpander (..), SomeTx, StateTx (..), TxProof,
-                                withModifiedAccumCtx)
+                                DiffChangeSet (..), ERoCompM, IdSumPrefixed (..), PreExpander (..),
+                                SeqExpander (..), SomeTx, StateTx (..), TxProof, convertEffect,
+                                withModifiedAccumCtxOne)
 import           Snowdrop.Execution.DbActions (SumChangeSet, accumToDiff, mappendStOrThrow,
                                                modifySumChgSet)
 import           Snowdrop.Execution.Restrict (RestrictCtx, RestrictionInOutException, restrictCS,
@@ -36,7 +36,7 @@ expandUnionRawTxs
     )
     => (rawtx -> SomeData (ProofNExp e id value ctx rawtx) c)
     -> [rawtx]
-    -> ERoComp e id value ctx [SomeTx id value c]
+    -> ERoCompM e id value ctx [SomeTx id value c]
 expandUnionRawTxs f txs = runSeqExpandersSequentially (zip txs $ map f txs)
 
 runSeqExpandersSequentially
@@ -49,20 +49,20 @@ runSeqExpandersSequentially
     , Default (ChgAccum ctx)
     )
     => [(rawtx, SomeData (ProofNExp e id value ctx rawtx) c)]
-    -> ERoComp e id value ctx [SomeTx id value c]
+    -> ERoCompM e id value ctx [SomeTx id value c]
 runSeqExpandersSequentially txWithExp =
     reverse <$> evalStateT (foldM runExps [] txWithExp) def
   where
     runExps :: [SomeTx id value c]
             -> (rawtx, SomeData (ProofNExp e id value ctx rawtx) c)
-            -> StateT (SumChangeSet id value) (ERoComp e id value ctx) [SomeTx id value c]
+            -> StateT (SumChangeSet id value) (ERoCompM e id value ctx) [SomeTx id value c]
     runExps txs (rtx, sd) = usingSomeData sd $ \((ProofNExp (prf, exps)) :: ProofNExp e id value ctx rawtx txtype) -> do
         chgAcc <- get
-        txBody <- lift $ withModifiedAccumCtx (accumToDiff chgAcc) (runSeqExpandersForTx (rtx, exps))
+        txBody <- lift $ withModifiedAccumCtxOne (accumToDiff chgAcc) (runSeqExpandersForTx (rtx, exps))
         let stx = SomeData (StateTx prf txBody :: StateTx id value txtype)
         mappendStOrThrow @e txBody $> (stx : txs)
 
-    runSeqExpandersForTx :: (rawtx, SeqExpander e id value ctx rawtx) -> ERoComp e id value ctx (ChangeSet id value)
+    runSeqExpandersForTx :: (rawtx, SeqExpander e id value ctx rawtx) -> ERoCompM e id value ctx (ChangeSet id value)
     runSeqExpandersForTx (tx, SeqExpander sexp) = accumToDiff <$> foldM (applyPreExpander tx) def sexp
 
 applyPreExpander
@@ -74,13 +74,11 @@ applyPreExpander
     => rawTx
     -> SumChangeSet id value
     -> PreExpander e id value ctx rawTx
-    -> ERoComp e id value ctx (SumChangeSet id value)
+    -> ERoCompM e id value ctx (SumChangeSet id value)
 applyPreExpander tx sumCS ex = do
-    DiffChangeSet diffCS <- restrictDbAccess (inpSet ex) $ expanderAct ex tx
+    DiffChangeSet diffCS <- restrictDbAccess (inpSet ex) $ convertEffect $ expanderAct ex tx
     restrictCS (outSet ex) diffCS
-    case sumCS `modifySumChgSet` diffCS of
-        Left e      -> throwLocalError e
-        Right newCS -> pure newCS
+    either throwLocalError pure $ sumCS `modifySumChgSet` diffCS
 
 -- Auxiliary stuff for expanders
 

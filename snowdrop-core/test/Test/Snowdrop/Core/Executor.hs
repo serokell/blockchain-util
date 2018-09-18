@@ -10,16 +10,15 @@ module Test.Snowdrop.Core.Executor
 import           Universum
 
 import           Control.Lens (makeLenses)
-import           Control.Monad.Except (MonadError, catchError, throwError)
-import qualified Data.ByteString as BS
+import           Control.Monad.Except (MonadError)
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 
 import           Loot.Log (NameSelector (..))
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx (..),
-                                ChgAccumModifier (..), DbAccess (..), ERoComp, Effectful (..),
-                                FoldF (..), IdSumPrefixed (..), StateP, Undo (..), ValueOp (..),
-                                changeSetToList, getCAOrDefault, mappendChangeSet, unBaseM)
+                                DbAccess (..), ERoComp, Effectful (..), FoldF (..),
+                                IdSumPrefixed (..), StateP, ValueOp (..), changeSetToList,
+                                getCAOrDefault, unBaseM)
 import           Snowdrop.Util
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
@@ -32,7 +31,7 @@ instance Default (SumChangeSet id value) where
 simpleStateAccessor
     :: (Ord id, IdSumPrefixed id)
     => StateP id value
-    -> DbAccess (SumChangeSet id value) id value res
+    -> DbAccess id value res
     -> res
 simpleStateAccessor st (DbQuery q cont) = cont (st `M.intersection` toDummyMap q)
 simpleStateAccessor st (DbIterator prefix (FoldF (e, foldf, applier))) = applier $
@@ -40,22 +39,6 @@ simpleStateAccessor st (DbIterator prefix (FoldF (e, foldf, applier))) = applier
       foldf
       e
       (M.toList $ M.filterWithKey (\i _ -> idSumPrefix i == prefix) st)
-simpleStateAccessor st (DbModifyAccum (SumChangeSet acc) cam cont) =
-    cont $ liftA2 (,) (SumChangeSet <$> acc `mappendChangeSet` cs') undo
-  where
-    vals = st `M.intersection` csMap
-    undo =
-      let processOne m (k, valueop) =
-            case (valueop, k `M.lookup` vals) of
-              (New _, Nothing)      -> pure $ M.insert k Rem m
-              (Upd _, Just v0)      -> pure $ M.insert k (Upd v0) m
-              (NotExisted, Nothing) -> pure $ M.insert k NotExisted m
-              (Rem, Just v0)        -> pure $ M.insert k (New v0) m
-              _                     -> throwError (CSMappendException k)
-       in flip Undo BS.empty . ChangeSet <$> foldM processOne mempty (M.toList csMap)
-    cs'@(ChangeSet csMap) = case cam of
-            CAMRevert (Undo cs_ _) -> cs_
-            CAMChange cs_          -> cs_
 
 data TestCtx id value = TestCtx
     { tctxChgAccum :: ChgAccumCtx (TestCtx id value)
@@ -70,15 +53,14 @@ instance HasGetter (TestCtx id value) (ChgAccumCtx (TestCtx id value)) where
     gett = tctxChgAccum
 
 data Counter = Counter
-    { _cntQuery  :: Int
-    , _cntIter   :: Int
-    , _cntModAcc :: Int
+    { _cntQuery :: Int
+    , _cntIter  :: Int
     }
 
 makeLenses ''Counter
 
 instance Default Counter where
-    def = Counter 0 0 0
+    def = Counter 0 0
 
 newtype TestExecutorT e id value m a = TestExecutorT
     { runTestExecutorT :: ReaderT (TestCtx id value) (StateT Counter (ExceptT e m)) a }
@@ -109,15 +91,14 @@ applyDiff cs initM = foldM applyDiffOne initM (changeSetToList cs)
 
 instance (MonadReader (StateP id value) m, IdSumPrefixed id,
           Ord id, HasException e (CSMappendException id)) =>
-    Effectful (DbAccess (SumChangeSet id value) id value) (TestExecutorT e id value m) where
+    Effectful (DbAccess id value) (TestExecutorT e id value m) where
         effect dbAccess = do
             SumChangeSet acc <- getCAOrDefault . tctxChgAccum <$> ask
             storage <- TestExecutorT $ lift $ lift ask
             storage' <- acc `applyDiff` storage
             case dbAccess of
-                DbQuery _ _         -> TestExecutorT $ lift $ modify $ cntQuery %~ (+1)
-                DbIterator _ _      -> TestExecutorT $ lift $ modify $ cntIter %~ (+1)
-                DbModifyAccum _ _ _ -> TestExecutorT $ lift $ modify $ cntModAcc %~ (+1)
+                DbQuery _ _    -> TestExecutorT $ lift $ modify $ cntQuery %~ (+1)
+                DbIterator _ _ -> TestExecutorT $ lift $ modify $ cntIter %~ (+1)
             pure $ simpleStateAccessor storage' dbAccess
 
 countERoComp

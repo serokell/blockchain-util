@@ -8,11 +8,17 @@ module Snowdrop.Core.ERoComp.Types
        , StateR
        , StateP
        , FoldF (..)
-       , ERoComp
        , ChgAccum
        , ChgAccumCtx (..)
-       , DbAccess(..)
-       , ChgAccumModifier (..)
+
+       , DbAccess (..)
+       , ERoComp
+
+       , DbAccessM (..)
+       , ERoCompM
+
+       , DbAccessU (..)
+       , ERoCompU
 
        , foldFMappend
        ) where
@@ -21,8 +27,9 @@ import           Universum
 
 import           Snowdrop.Core.BaseM (BaseM)
 
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..), Undo)
+import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..))
 import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
+import           Snowdrop.Util (NewestFirst, OldestFirst)
 
 -- | Set of requested keys from a key-value storage.
 type StateR id = Set id
@@ -35,7 +42,7 @@ type StateP id value = Map id value
 -- including: in-memory, persistent etc.
 -- @id@, @values@ describes types of key and value of key-value storage.
 -- @chgAccum@ is in-memory state of snowdrop.
-data DbAccess chgAccum id value res
+data DbAccess id value res
     = DbQuery (StateR id) (StateP id value -> res)
     -- ^ Request to state.
     -- The first field is request set of keys which are requested from state.
@@ -45,21 +52,25 @@ data DbAccess chgAccum id value res
     -- ^ Iteration over state.
     -- The first field is prefix for iteration over keys with this prefix.
     -- The second one is used to accumulate entries during iteration.
-    | DbModifyAccum
-        chgAccum
-        (ChgAccumModifier id value)
-        (Either (CSMappendException id) (chgAccum, Undo id value) -> res)
+
+data DbAccessM chgAccum id value res
+    = DbModifyAccum
+        (OldestFirst [] (ChangeSet id value))
+        (Either (CSMappendException id) (OldestFirst [] chgAccum) -> res)
     -- ^ Operation to modify Change Accumulator.
     -- This action doesn't imply an explicit access to state,
     -- but AVL tree requires this access. This operation is read only,
     -- so it doesn't affect passed @chgAccum@ and doesn't produce any changes id db.
-    deriving (Functor)
+    | DbAccess (DbAccess id value res)
 
--- | Change accum modifier object.
--- Holds either change set or undo object which is to be applied to change accumulator.
-data ChgAccumModifier id value
-    = CAMChange { camChg  :: ChangeSet id value }
-    | CAMRevert { camUndo :: Undo id value }
+data DbAccessU chgAccum undo id value res
+    = DbModifyAccumUndo
+        (NewestFirst [] undo)
+        (Either (CSMappendException id) chgAccum -> res)
+    | DbComputeUndo
+        chgAccum
+        (Either (CSMappendException id) undo -> res)
+    | DbAccessM (DbAccessM chgAccum id value res)
 
 -- | FoldF holds functions which are intended to accumulate result of iteratio
 -- over entries.
@@ -93,7 +104,10 @@ type family ChgAccum ctx :: *
 -- | Reader computation which allows you to query for part of bigger state
 -- and build computation considering returned result.
 -- DbAccess is used as an effect of BaseM.
-type ERoComp e id value ctx = BaseM e (DbAccess (ChgAccum ctx) id value) ctx
+type ERoComp e id value = BaseM e (DbAccess id value)
+
+type ERoCompM e id value ctx = BaseM e (DbAccessM (ChgAccum ctx) id value) ctx
+type ERoCompU e id value undo ctx = BaseM e (DbAccessU (ChgAccum ctx) undo id value) ctx
 
 -- | Auxiliary datatype for context-dependant computations.
 data ChgAccumCtx ctx = CANotInitialized | CAInitialized (ChgAccum ctx)

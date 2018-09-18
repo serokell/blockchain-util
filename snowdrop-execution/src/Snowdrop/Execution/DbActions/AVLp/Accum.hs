@@ -7,30 +7,28 @@ module Snowdrop.Execution.DbActions.AVLp.Accum
        ( AVLChgAccum
        , AVLChgAccum' (..)
        , modAccum
+       , modAccumU
+       , computeUndo
        , query
        , iter
        ) where
 
 import           Universum
 
-import qualified Data.ByteString as BS
 import           Data.Tree.AVL (MapLayer (..), Serialisable (..))
 import qualified Data.Tree.AVL as AVL
 
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 
-import           Snowdrop.Core (CSMappendException (..), ChgAccumModifier (..), IdSumPrefixed (..),
-                                Prefix (..), StateP, StateR, Undo (..), ValueOp (..),
-                                changeSetToList, idSumPrefix)
-import           Snowdrop.Util (HasGetter (..))
+import           Snowdrop.Core (CSMappendException (..), ChangeSet, IdSumPrefixed (..), Prefix (..),
+                                StateP, StateR, ValueOp (..), changeSetToList, idSumPrefix)
+import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..))
 
-import           Snowdrop.Execution.DbActions.AVLp.Avl (AvlHashable, KVConstraint, RootHash (..),
-                                                        avlRootHash, mkAVL)
+import           Snowdrop.Execution.DbActions.AVLp.Avl (AvlHashable, AvlUndo, KVConstraint,
+                                                        RootHash (..), avlRootHash, mkAVL)
 import           Snowdrop.Execution.DbActions.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl,
                                                           runAVLCacheT)
-import           Snowdrop.Execution.DbActions.Types (DbActionsException (..))
-
 
 -- | Change accumulator type for AVL tree.
 data AVLChgAccum' h k v = AVLChgAccum
@@ -48,8 +46,7 @@ data AVLChgAccum' h k v = AVLChgAccum
 type AVLChgAccum h k v = Maybe (AVLChgAccum' h k v)
 
 resolveAvlCA
-    :: AvlHashable h
-    => HasGetter state (RootHash h)
+    :: (AvlHashable h, HasGetter state (RootHash h))
     => state
     -> AVLChgAccum h k v
     -> AVLChgAccum' h k v
@@ -60,36 +57,46 @@ resolveAvlCA st  _ = AVLChgAccum
     , acaTouched = mempty
     }
 
+modAccumU
+    :: AVLChgAccum h k v
+    -> NewestFirst [] (AvlUndo h)
+    -> AVLChgAccum h k v
+modAccumU accM (NewestFirst []) = accM
+modAccumU (Just (AVLChgAccum _avl initAcc initTouched)) (NewestFirst (u:us)) =
+    Just $ AVLChgAccum (mkAVL undoRootH) initAcc initTouched
+  where
+    undoRootH = last $ u :| us
+modAccumU Nothing (NewestFirst (u:us)) =
+    Just $ AVLChgAccum (mkAVL undoRootH) def def
+  where
+    undoRootH = last $ u :| us
+
+computeUndo
+    :: forall k v ctx h .
+    ( HasGetter ctx (RootHash h)
+    )
+    => AVLChgAccum h k v
+    -> ctx
+    -> AvlUndo h
+computeUndo Nothing ctx                    = gett ctx
+computeUndo (Just (AVLChgAccum avl _ _)) _ = avlRootHash avl
+
 modAccum'
     :: forall k v ctx h m .
     ( AvlHashable h, RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
     , KVConstraint k v, Serialisable (MapLayer h k v h)
     )
     => AVLChgAccum' h k v
-    -> ChgAccumModifier k v
+    -> OldestFirst [] (ChangeSet k v)
     -> ctx
-    -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
-modAccum' (AVLChgAccum initAvl initAcc initTouched) cMod pState = do
-    returnWithUndo =<< case cMod of
-      CAMChange (changeSetToList -> cs) ->
-        ( Right . Just . doUncurry AVLChgAccum
-          <$> runAVLCacheT (foldM modAVL (initAvl, initTouched) cs) initAcc pState )
-            `catch` \e@(CSMappendException _) -> pure $ Left e
-      CAMRevert (Undo _cs sn) ->
-        case (BS.null sn, deserialise sn) of
-          (False, Left str) ->
-            throwM $ DbApplyException $ "Error parsing AVL snapshot from undo: " <> toText str
-          (False, Right rootH) ->
-            pure $ Right $ Just $ AVLChgAccum (mkAVL rootH) initAcc initTouched
-          _ -> pure $ Right $ Just $ AVLChgAccum initAvl initAcc initTouched
+    -> m (Either (CSMappendException k) (OldestFirst [] (AVLChgAccum h k v)))
+modAccum' initAcc (OldestFirst css) pState =
+    (Right <$> modAccumDo) `catch` \e@(CSMappendException _) -> pure $ Left e
   where
-    returnWithUndo
-        :: Either (CSMappendException k) (AVLChgAccum h k v)
-        -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
-    returnWithUndo (Left e)   = pure $ Left e
-    returnWithUndo (Right cA) =
-        pure $ Right (cA, Undo def $ serialise $ avlRootHash initAvl) -- TODO compute undo
-
+    modAccumDo = fmap Just . OldestFirst . reverse . snd <$> foldM processCS (initAcc, []) css
+    processCS (AVLChgAccum avl acc touched, res) (changeSetToList -> cs) = do
+        acc' <- doUncurry AVLChgAccum <$> runAVLCacheT (foldM modAVL (avl, touched) cs) acc pState
+        pure (acc', acc' : res)
 
     doUncurry :: (a -> b -> c -> d) -> ((a, c), b) -> d
     doUncurry f ((a, c), b) = f a b c
@@ -114,9 +121,9 @@ modAccum
     , AVL.Hash h k v, MonadIO m, MonadCatch m
     , KVConstraint k v, Serialisable (MapLayer h k v h))
     => AVLChgAccum h k v
-    -> ChgAccumModifier k v
+    -> OldestFirst [] (ChangeSet k v)
     -> ctx
-    -> m (Either (CSMappendException k) (AVLChgAccum h k v, Undo k v))
+    -> m (Either (CSMappendException k) (OldestFirst [] (AVLChgAccum h k v)))
 -- modAccum accM (changeSetToList -> []) _ = pure $ Right accM
 -- empty changeset won't alter accumulator
 modAccum (Just acc) cs sth = modAccum' @k @v @ctx acc cs sth
