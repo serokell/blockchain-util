@@ -20,6 +20,7 @@ type family Fst a where Fst '(x,y) = x
 -- | Project the second component of a type-level tuple.
 type family Snd a where Snd '(x,y) = y
 type family Snd' f a where Snd' f '(x,y) = f y
+type family Head xs where Head (x ': xs') = x
 
 type family Elem (a :: k) (xs::[k]) where
     Elem a '[] = TypeError ('Text "Type " ':<>: 'ShowType a ':<>: 'Text " doesn't belong to list")

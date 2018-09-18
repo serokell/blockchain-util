@@ -5,13 +5,12 @@ module Snowdrop.Execution.DbActions.Composite
 
 import           Universum
 
-import qualified Data.ByteString as BS
 import           Data.Default (Default (def))
 import           Data.Vinyl.TypeLevel (type (++))
 
-import           Snowdrop.Core (ChgAccumModifier (..), Undo (..))
+import           Snowdrop.Core (ChgAccumModifier (..), Undo (..), downcastUndo)
 
-import           Snowdrop.Execution.DbActions.Types (DbAccessActions (..), DbActionsException (..))
+import           Snowdrop.Execution.DbActions.Types (DbAccessActions (..))
 import           Snowdrop.Util
 
 data CompositeChgAccum chgAccumPrimary chgAccumSecondary = CompositeChgAccum
@@ -25,7 +24,7 @@ instance (Default chgAccumPrimary, Default chgAccumSecondary)
 
 constructCompositeActions
     :: forall caPrimary caSecondary components1 components2 m .
-    ( MonadThrow m
+    ( Monad m
     , NotIntersect components1 components2
 
     , HDownCastable (components1 ++ components2) components1
@@ -37,20 +36,18 @@ constructCompositeActions
 constructCompositeActions dbaP dbaS = DbAccessActions {
     daaGetter = \(CompositeChgAccum prim sec) reqs ->
           liftA2 happend (daaGetter dbaP prim (hdowncast reqs)) (daaGetter dbaS sec (hdowncast reqs))
-  , daaIter = \(CompositeChgAccum prim sec) -> daaIter dbaP prim `happend` daaIter dbaS sec
+  , daaIter = \(CompositeChgAccum prim sec) -> liftA2 happend (daaIter dbaP prim) (daaIter dbaS sec)
   , daaModifyAccum = \compChgAcc cm -> runExceptT $ case cm of
-        CAMChange cs           -> processCS compChgAcc (CAMChange . hdowncast) (CAMChange . hdowncast) cs
-        CAMRevert (Undo cs sn) ->
-            processCS compChgAcc (CAMRevert . flip Undo sn . hdowncast) (CAMRevert . flip Undo sn . hdowncast) cs
+        CAMChange cs           -> processCS compChgAcc (CAMChange $ hdowncast cs) (CAMChange $ hdowncast cs)
+        CAMRevert undo ->
+            processCS compChgAcc
+                      (CAMRevert $ downcastUndo undo)
+                      (CAMRevert $ downcastUndo undo)
   }
   where
-    processCS (CompositeChgAccum prim sec) f1 f2 cs = do
-        (accP, undoP) <- ExceptT $ daaModifyAccum dbaP prim (f1 cs)
-        (accS, undoS) <- ExceptT $ daaModifyAccum dbaS sec (f2 cs)
-        (CompositeChgAccum accP accS,) <$> mergeUndos undoP undoS
+    processCS (CompositeChgAccum prim sec) md1 md2 = do
+        (accP, undoP) <- ExceptT $ daaModifyAccum dbaP prim md1
+        (accS, undoS) <- ExceptT $ daaModifyAccum dbaS sec md2
+        pure (CompositeChgAccum accP accS, mergeUndos undoP undoS)
 
-    mergeUndos (Undo csP snP) (Undo csS snS) =
-        if BS.null snP || BS.null snS
-        then flip Undo (snP `BS.append` snS)
-            <$> (pure $ csP `happend` csS)
-        else throwM $ DbApplyException "Both undo contain non-empty snapshot in composite actions"
+    mergeUndos (Undo csP snP) (Undo csS snS) = Undo (csP `happend` csS) (snP `happend` snS)

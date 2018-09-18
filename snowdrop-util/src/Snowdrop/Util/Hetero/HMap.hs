@@ -31,6 +31,7 @@ instance Ord (HKey t) => OrdHKey t
 
 class (Ord (HKey t), Show (HKey t), Buildable (HKey t)) => ExnHKey t
 instance (Ord (HKey t), Show (HKey t), Buildable (HKey t)) => ExnHKey t
+type AllExn xs = RecAll' xs ExnHKey
 
 -- HMap
 newtype HMapEl (t :: u) = HMapEl {unHMapEl :: Map (HKey t) (HVal t)}
@@ -239,6 +240,12 @@ happend = rappend
 rnull :: Rec f xs -> Bool
 rnull RNil = True
 rnull _    = False
+
+rone :: f x -> Rec f '[x]
+rone = (:& RNil)
+
+unone :: Rec f '[x] -> f x
+unone (x :& RNil) = x
 
 -- gnull :: GMap f xs -> Bool
 -- gnull GNil = True

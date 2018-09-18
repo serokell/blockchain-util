@@ -7,12 +7,16 @@ module Snowdrop.Core.ChangeSet.Type
        , hChangeSetToHMap
        , HUpCastableChSet
        , Undo (..)
+       , AvlRevisions
+       , AvlRevision (..)
+       , UpCastUndo
        , upcastUndo
        , downcastUndo
 
        , MappendHChSet
        , mappendChangeSet
        , mconcatChangeSets
+       , hChangeSetElToList
        , csRemove
        , csNew
        , csUpdate
@@ -23,6 +27,7 @@ import           Universum hiding (head, init, last)
 
 import           Data.Default (Default (..))
 import qualified Data.Set as S
+import qualified Data.ByteString as BS
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 
@@ -54,19 +59,26 @@ hChangeSetToHSet = rmap (HSetEl . M.keysSet . unHChangeSetEl)
 hChangeSetToHMap :: HChangeSet xs -> HMap xs
 hChangeSetToHMap = rmap hChangeSetElToMap
 
+newtype AvlRevision t = AvlRevision {unAvlRevision :: ByteString}
+instance Default (AvlRevision t) where
+    def = AvlRevision BS.empty
+type AvlRevisions = Rec AvlRevision
+
 data Undo xs = Undo
     { undoChangeSet :: HChangeSet xs
-    , undoSnapshot  :: ByteString
+    , undoSnapshots :: AvlRevisions xs
     } deriving (Generic)
 
-deriving instance Show (HChangeSet xs) => Show (Undo xs)
-deriving instance Eq (HChangeSet xs) => Eq (Undo xs)
+deriving instance (Show (HChangeSet xs), Show (AvlRevisions xs)) => Show (Undo xs)
+deriving instance (Eq (HChangeSet xs), Eq (AvlRevisions xs)) => Eq (Undo xs)
 
-upcastUndo :: HUpCastableChSet xs supxs => Undo xs -> Undo supxs
-upcastUndo (Undo cs bs) = Undo (hupcast cs) bs
+type UpCastUndo xs supxs = (HUpCastableChSet xs supxs, HUpCastable AvlRevision xs supxs)
+
+upcastUndo :: UpCastUndo xs supxs => Undo xs -> Undo supxs
+upcastUndo (Undo cs bs) = Undo (hupcast cs) (hupcast bs)
 
 downcastUndo :: HDownCastable xs res => Undo xs -> Undo res
-downcastUndo (Undo cs bs) = Undo (hdowncast cs) bs
+downcastUndo (Undo cs bs) = Undo (hdowncast cs) (hdowncast bs)
 
 csRemove :: HChangeSetEl t -> Set (HKey t)
 csRemove = M.keysSet . M.filter isRem . unHChangeSetEl
@@ -94,20 +106,19 @@ hChangeSetElToMap = HMapEl . M.mapMaybe toJust . unHChangeSetEl
     toJust (Upd x)    = Just x
     toJust (New x)    = Just x
 
--- hchangeSetElToList :: HChangeSetEl t -> [(HKey t, ValueOp (HVal t))]
--- hchangeSetElToList = M.toList . unHChangeSetEl
+hChangeSetElToList :: HChangeSetEl t -> [(HKey t, ValueOp (HVal t))]
+hChangeSetElToList = M.toList . unHChangeSetEl
 
 data CSMappendException = forall id . (Show id, Eq id) => CSMappendException id
 
 deriving instance Show CSMappendException
-
--- instance (Show id, Typeable id) => Exception (CSMappendException id)
+instance Exception CSMappendException
 
 -- instance Buildable id => Buildable (CSMappendException id) where
 --     build (CSMappendException i) =
 --         bprint ("Failed to mappend ChangeSets due to conflict for key "%build) i
 
-type MappendHChSet xs = RecAll' xs ExnHKey
+type MappendHChSet xs = AllExn xs
 
 mappendChangeSet
     :: MappendHChSet xs
@@ -146,27 +157,3 @@ mconcatChangeSets
     :: (RecAll' xs ExnHKey, Default (HChangeSet xs))
     => [HChangeSet xs] -> Either CSMappendException (HChangeSet xs)
 mconcatChangeSets = foldM mappendChangeSet def
-
--- splitByPrefix
---     :: forall id v . (IdSumPrefixed id, Ord id)
---     => ChangeSet id v
---     -> M.Map Prefix (ChangeSet id v)
--- splitByPrefix (ChangeSet c) = M.foldrWithKey f mempty c
---   where
---     f i v = M.alter (alterF i v) (idSumPrefix i)
-
---     alterF i csVal Nothing   = Just $ ChangeSet $ M.singleton i csVal
---     alterF i csVal (Just cs) = Just $ ChangeSet $ M.insert i csVal $ changeSet cs
-
--- filterByPrefix :: IdSumPrefixed id => Prefix -> ChangeSet id v -> ChangeSet id v
--- filterByPrefix p = filterByPrefixPred (== p)
-
--- filterByPrefixPred :: IdSumPrefixed id => (Prefix -> Bool) -> ChangeSet id v -> ChangeSet id v
--- filterByPrefixPred predicate
---     = ChangeSet . M.filterWithKey (curry (predicate . idSumPrefix . fst)) . changeSet
-
--- filterSetByPrefixPred :: IdSumPrefixed id => (Prefix -> Bool) -> Set id -> Set id
--- filterSetByPrefixPred predicate mp = S.filter (predicate . idSumPrefix) mp
-
--- mapKeysMonotonicCS :: Ord id1 => (id -> id1) -> ChangeSet id val -> ChangeSet id1 val
--- mapKeysMonotonicCS f = ChangeSet . M.mapKeysMonotonic f . changeSet

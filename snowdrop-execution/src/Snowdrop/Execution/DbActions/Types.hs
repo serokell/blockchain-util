@@ -8,6 +8,7 @@ module Snowdrop.Execution.DbActions.Types
        , DGetter'
        , DIter
        , DIter'
+       , DModify
        , DbModifyActions (..)
        , DbActionsException (..)
        , RememberForProof (..)
@@ -30,7 +31,7 @@ type DModify chgAccum xs m = chgAccum -> ChgAccumModifier xs -> m (Either CSMapp
 
 newtype IterAction m t = IterAction {runIterAction :: forall b . b -> ((HKey t, HVal t) -> b -> b) -> m b }
 type DIter' xs m = Rec (IterAction m) xs
-type DIter chgAccum xs m = chgAccum -> Rec (IterAction m) xs
+type DIter chgAccum xs m = chgAccum -> m (DIter' xs m)
 
 data DbAccessActions chgAccum components m = DbAccessActions
     { daaGetter      :: DGetter chgAccum components m
@@ -42,7 +43,7 @@ data DbAccessActions chgAccum components m = DbAccessActions
     }
 
 -- | Db modify access actions model following use of
-data DbModifyActions chgAccum m components proof = DbModifyActions
+data DbModifyActions chgAccum components m proof = DbModifyActions
     { dmaAccessActions :: DbAccessActions chgAccum components m
     , dmaApply         :: chgAccum -> m proof
     }

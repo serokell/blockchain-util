@@ -11,14 +11,14 @@ module Snowdrop.Execution.DbActions.Simple
 import           Universum
 
 import           Control.Monad.Except (throwError)
-import qualified Data.ByteString as BS
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import           Data.Vinyl.Core (Rec (..))
 
-import           Snowdrop.Core (CSMappendException (..), ChgAccumModifier (..), HChangeSet,
-                                HChangeSetEl (..), MappendHChSet, Undo (..), ValueOp (..), csNew,
-                                hChangeSetToHMap, hChangeSetToHSet, mappendChangeSet)
+import           Snowdrop.Core (AvlRevisions, CSMappendException (..), ChgAccumModifier (..),
+                                HChangeSet, HChangeSetEl (..), MappendHChSet, Undo (..),
+                                ValueOp (..), csNew, hChangeSetToHMap, hChangeSetToHSet,
+                                mappendChangeSet)
 import           Snowdrop.Execution.DbActions.Types (DGetter, DGetter', DIter, DIter',
                                                      DbAccessActions (..), IterAction (..))
 import           Snowdrop.Util
@@ -66,6 +66,7 @@ sumChangeSetDBA
        , MappendHChSet xs
        , HIntersectable xs xs
        , Semigroup (HMap xs)
+       , Default (AvlRevisions xs)
        )
     => DGetter' xs m
     -> DIter' xs m
@@ -81,7 +82,7 @@ sumChangeSetDBA getImpl iterImpl = DbAccessActions getter modifySumChgSetA itere
       where
         processCS cs' =
           (liftA2 (,) $ accum `modifySumChgSet` cs')
-            <$> runExceptT (flip Undo BS.empty <$> computeHChSetUndo getter accum cs')
+            <$> runExceptT (flip Undo def <$> computeHChSetUndo getter accum cs')
 
 -- | Compute undo and verify change is valid for being applied to state
 computeHChSetUndo
@@ -125,9 +126,9 @@ chgAccumIter
     :: (Applicative m, RecAll' xs OrdHKey)
     => DIter' xs m
     -> DIter (SumChangeSet xs) xs m
-chgAccumIter RNil (SumChangeSet RNil) = RNil
+chgAccumIter RNil (SumChangeSet RNil) = pure RNil
 chgAccumIter (iter' :& xs) (unSumCS -> csel' :& ys) =
-    chgAccumIter' iter' csel' :& chgAccumIter xs (SumChangeSet ys)
+    (chgAccumIter' iter' csel' :&) <$> chgAccumIter xs (SumChangeSet ys)
   where
     chgAccumIter' :: OrdHKey t => IterAction m t -> HChangeSetEl t -> IterAction m t
     chgAccumIter' iter ac'@(HChangeSetEl accum) = IterAction $ \initB foldF -> do

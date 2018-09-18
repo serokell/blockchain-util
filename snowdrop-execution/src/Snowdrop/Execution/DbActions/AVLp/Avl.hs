@@ -24,11 +24,9 @@ import           Data.Default (Default (def))
 import qualified Data.Text.Buildable as Buildable
 import           Snowdrop.Execution.DbActions.Types (DbActionsException (..))
 
-import           Snowdrop.Core (IdSumPrefixed (..))
-
 
 type AvlHashable h = (Ord h, Show h, Typeable h, Serialisable h)
-type KVConstraint k v = (IdSumPrefixed k, Typeable k, Ord k, Show k,
+type KVConstraint k v = (Typeable k, Ord k, Show k,
                          Serialisable k, Serialisable v, Show v, Eq v)
 
 newtype RootHash h = RootHash { unRootHash :: h }
