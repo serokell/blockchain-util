@@ -5,9 +5,13 @@
 {-# LANGUAGE UndecidableSuperClasses #-}
 
 module Snowdrop.Execution.Expand
-       ( expandUnionRawTxs
+       ( ExpandRawTxsMode
+       , expandUnionRawTxs
        , expandOneTx
        , ProofNExp (..)
+
+       , ExpandableTx
+       , UnionSeqExpandersInps
        ) where
 
 import           Universum
@@ -27,8 +31,7 @@ import           Snowdrop.Util
 newtype ProofNExp e ctx rawtx txtype =
     ProofNExp (TxProof txtype, SeqExpander e ctx rawtx txtype)
 
-expandUnionRawTxs
-  :: forall rawtx txtypes (c :: * -> Constraint) e ctx .
+type ExpandRawTxsMode e ctx txtypes =
     ( HasException e CSMappendException
     , HasLens ctx (ChgAccumCtx ctx)
     , MappendHChSet (UnionSeqExpandersInps txtypes)
@@ -36,6 +39,9 @@ expandUnionRawTxs
     , Default (ChgAccum ctx)
     , Default (SumChangeSet (UnionSeqExpandersInps txtypes))
     )
+
+expandUnionRawTxs
+  :: forall rawtx txtypes (c :: * -> Constraint) e ctx . ExpandRawTxsMode e ctx txtypes
     => (rawtx -> SomeData (ProofNExp e ctx rawtx) (ExpandableTx txtypes c))
     -> [rawtx]
     -> ERoComp e ctx (UnionSeqExpandersInps txtypes) [SomeTx c]

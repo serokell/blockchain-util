@@ -5,6 +5,7 @@ module Snowdrop.Core.ChangeSet.Type
        , HChangeSetEl (..)
        , hChangeSetToHSet
        , hChangeSetToHMap
+       , hChangeSetFromMap
        , HUpCastableChSet
        , Undo (..)
        , AvlRevisions
@@ -58,6 +59,9 @@ hChangeSetToHSet = rmap (HSetEl . M.keysSet . unHChangeSetEl)
 
 hChangeSetToHMap :: HChangeSet xs -> HMap xs
 hChangeSetToHMap = rmap hChangeSetElToMap
+
+hChangeSetFromMap :: Map (HKey t) (ValueOp (HVal t)) -> HChangeSet '[t]
+hChangeSetFromMap = (:& RNil) . HChangeSetEl
 
 newtype AvlRevision t = AvlRevision {unAvlRevision :: ByteString}
 instance Default (AvlRevision t) where
