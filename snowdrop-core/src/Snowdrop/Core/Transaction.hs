@@ -62,14 +62,14 @@ downcastStateTx StateTx {..} = StateTx (gett txProof) (hdowncast txBody)
 
 type SomeTx = SomeData StateTx
 
+applySomeTx :: (forall txtype . c txtype => StateTx txtype -> a) -> SomeTx c -> a
+applySomeTx f (SomeData x) = f x
+
 data StateTxWithUndo txtype = StateTxWithUndo
     { stateTx :: StateTx txtype
     , txUndo  :: Undo (TxComponents txtype)
     }
 type SomeTxWithUndo = SomeData StateTxWithUndo
-
-applySomeTx :: (forall txtype . c txtype => StateTx txtype -> a) -> SomeTx c -> a
-applySomeTx f (SomeData x) = f x
 
 -- class UpCastableGMap ValueOp (TxComponents txtype) xs => UpCastableTxBody xs txtype
 -- instance UpCastableGMap ValueOp (TxComponents txtype) xs => UpCastableTxBody xs txtype
