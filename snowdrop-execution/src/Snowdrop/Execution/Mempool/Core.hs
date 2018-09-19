@@ -18,11 +18,11 @@ import           Universum
 import           Control.Lens (lens)
 import           Data.Default (Default (..))
 
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx, DbAccessM, ERoCompM,
-                                ERwComp, SomeTx, StatePException, StateTx (..), Validator,
-                                applySomeTx, convertEffect, liftERoComp, modifyAccumOne,
-                                runValidator)
-import           Snowdrop.Execution.DbActions (DbAccessActionsM)
+import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx, ConvertEffect,
+                                DbAccessM, ERoCompM, ERwComp, SomeTx, StatePException, StateTx (..),
+                                Validator, applySomeTx, convertERwComp, convertEffect, liftERoComp,
+                                modifyAccumOne, runValidator)
+import           Snowdrop.Execution.DbActions (DbActions)
 import           Snowdrop.Execution.IOExecutor (IOCtx, runERwCompIO)
 import           Snowdrop.Util
 
@@ -95,17 +95,20 @@ defaultMempoolConfig expander validator = MempoolConfig {
     }
 
 actionWithMempool
-    :: ( Show e, Typeable e, Default chgAccum
+  :: forall e da chgAccum id value rawtx daa a .
+       ( Show e, Typeable e, Default chgAccum
        , HasReview e StatePException
-       , chgAccum ~ ChgAccum (IOCtx (DbAccessM chgAccum id value))
+       , chgAccum ~ ChgAccum (IOCtx da)
+       , DbActions da daa chgAccum ExecM
+       , ConvertEffect e (IOCtx da) (DbAccessM chgAccum id value) da
        )
     => Mempool id value chgAccum rawtx
-    -> DbAccessActionsM chgAccum id value ExecM
-    -> RwActionWithMempool e id value rawtx (IOCtx (DbAccessM chgAccum id value)) a
+    -> daa ExecM
+    -> RwActionWithMempool e id value rawtx (IOCtx da) a
     -> ExecM a
 actionWithMempool mem@Mempool{..} dbActs callback = do
     Versioned{vsVersion=version,..} <- liftIO $ atomically $ readTVar mempoolState
-    (res, newState) <- runERwCompIO dbActs vsData callback
+    (res, newState) <- runERwCompIO dbActs vsData (convertERwComp convertEffect callback)
     modified <- liftIO $ atomically $ do
         stLast <- readTVar mempoolState
         if version == vsVersion stLast then

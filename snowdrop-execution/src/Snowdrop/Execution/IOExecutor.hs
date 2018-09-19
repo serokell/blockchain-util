@@ -171,15 +171,16 @@ runERoCompIO daa initAcc comp = do
     exec = BaseMIOExec $ \(getCAOrDefault . _ctxChgAccum -> chgAccum) da -> executeEffect da daa chgAccum
 
 runERwCompIO
-    :: ( Show e
-       , Typeable e
-       , Default (ChgAccum (IOCtx da))
-       , HasException e StatePException
-       , MonadIO m
-       , MonadReader ctx m
-       , HasLens' ctx Log.LoggingIO
-       , DbActions da daa (ChgAccum (IOCtx da)) ExecM
-       )
+  :: forall e da daa s ctx m a .
+    ( Show e
+    , Typeable e
+    , Default (ChgAccum (IOCtx da))
+    , HasException e StatePException
+    , MonadIO m
+    , MonadReader ctx m
+    , HasLens' ctx Log.LoggingIO
+    , DbActions da daa (ChgAccum (IOCtx da)) ExecM
+    )
     => daa ExecM
     -> s
     -> ERwComp e da (IOCtx da) s a

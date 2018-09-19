@@ -4,7 +4,6 @@ module Snowdrop.Execution.DbActions.Composite
        , constructCompositeDaaM
        , constructCompositeDaaU
        , CompositeChgAccum (..)
-       , CompositeUndo (..)
        ) where
 
 import           Universum
@@ -18,11 +17,6 @@ import           Snowdrop.Core (CSMappendException, ChangeSet (..), IdSumPrefixe
                                 filterByPrefixPred, filterSetByPrefixPred)
 import           Snowdrop.Execution.DbActions.Types
 import           Snowdrop.Util (NewestFirst (..), OldestFirst (..))
-
-data CompositeUndo undoPrimary undoSecondary ps = CompositeUndo
-    { cuPrimary   :: undoPrimary
-    , cuSecondary :: undoSecondary
-    }
 
 data CompositeChgAccum chgAccumPrimary chgAccumSecondary ps = CompositeChgAccum
     { ccaPrimary   :: chgAccumPrimary
@@ -82,30 +76,30 @@ splitCS prefixes cs = (csP, csS)
     csS = ChangeSet $ changeSet cs M.\\ changeSet csP
 
 constructCompositeDaaU
-  :: forall ps chgAccumPrimary chgAccumSecondary undoPrimary undoSecondary id value m .
+  :: forall ps chgAccumPrimary chgAccumSecondary undoPrimary undoSecondary undo id value m .
     (Reifies ps (Set Prefix), Ord id, Monad m, IdSumPrefixed id)
     => DbAccessActionsU chgAccumPrimary undoPrimary id value m
     -> DbAccessActionsU chgAccumSecondary undoSecondary id value m
+    -> (undoPrimary -> undoSecondary -> undo)
+    -> (undo -> (undoPrimary, undoSecondary))
     -> DbAccessActionsU (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps)
-                        (CompositeUndo undoPrimary undoSecondary ps) id value m
-constructCompositeDaaU dbaP dbaS = DbAccessActionsU daaM' modifyAccumU computeUndo
+                        undo id value m
+constructCompositeDaaU dbaP dbaS constructUndo splitUndo = DbAccessActionsU daaM' modifyAccumU computeUndo
   where
     daaM' = constructCompositeDaaM (daaAccessM dbaP) (daaAccessM dbaS)
 
     modifyAccumU
       :: CompositeChgAccum chgAccumPrimary chgAccumSecondary ps
-      -> NewestFirst [] (CompositeUndo undoPrimary undoSecondary ps)
+      -> NewestFirst [] undo
       -> m (Either (CSMappendException id) (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps))
     modifyAccumU (CompositeChgAccum cP cS) (NewestFirst us) =
         liftA2 CompositeChgAccum <$> daaModifyAccumUndo dbaP cP usP <*> daaModifyAccumUndo dbaS cS usS
       where
         (usP, usS) = bimap NewestFirst NewestFirst $ unzip $ splitUndo <$> us
 
-    splitUndo (CompositeUndo undoP undoS) = (undoP, undoS)
-
     computeUndo
       :: CompositeChgAccum chgAccumPrimary chgAccumSecondary ps
       -> CompositeChgAccum chgAccumPrimary chgAccumSecondary ps
-      -> m (Either (CSMappendException id) (CompositeUndo undoPrimary undoSecondary ps))
+      -> m (Either (CSMappendException id) undo)
     computeUndo (CompositeChgAccum cP cS) (CompositeChgAccum cP' cS') =
-        liftA2 CompositeUndo <$> daaComputeUndo dbaP cP cP' <*> daaComputeUndo dbaS cS cS'
+        liftA2 constructUndo <$> daaComputeUndo dbaP cP cP' <*> daaComputeUndo dbaS cS cS'

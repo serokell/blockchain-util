@@ -33,7 +33,7 @@ type KVConstraint k v = (IdSumPrefixed k, Typeable k, Ord k, Show k,
                          Serialisable k, Serialisable v, Show v, Eq v)
 
 newtype RootHash h = RootHash { unRootHash :: h }
-    deriving (Eq, Serialisable)
+  deriving (Eq, Serialisable, Show)
 
 type AvlUndo = RootHash
 

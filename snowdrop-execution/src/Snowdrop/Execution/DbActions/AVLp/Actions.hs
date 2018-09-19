@@ -34,7 +34,7 @@ import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessAc
                                                      DbModifyActions (..), RememberForProof (..))
 
 avlClientDbActions
-    :: forall k v m h n.
+  :: forall k v m h n undo.
     ( KVConstraint k v
     , MonadIO m
     , MonadCatch m
@@ -45,22 +45,16 @@ avlClientDbActions
     , RetrieveImpl (ReaderT (ClientTempState h k v n) m) h
     , Serialisable (MapLayer h k v h)
     )
-    => RetrieveF h n
+    => (AvlUndo h -> undo)
+    -> (undo -> AvlUndo h)
+    -> RetrieveF h n
     -> RootHash h
-    -> n (ClientMode (AVL.Proof h k v) -> DbModifyActions (AVLChgAccum h k v) (AvlUndo h) k v m ())
-avlClientDbActions retrieveF = fmap mkActions . newTVarIO
+    -> n (ClientMode (AVL.Proof h k v) -> DbModifyActions (AVLChgAccum h k v) undo k v m ())
+avlClientDbActions convAvlU convUndo retrieveF = fmap mkActions . newTVarIO
   where
-    mkActions
-        :: TVar (RootHash h)
-        -> ClientMode (AVL.Proof h k v)
-        -> DbModifyActions (AVLChgAccum h k v) (AvlUndo h) k v m ()
     mkActions var ctMode =
         DbModifyActions (mkAccessActions var ctMode) (reThrowAVLEx @k . apply var)
 
-    mkAccessActions
-        :: TVar (RootHash h)
-        -> ClientMode (AVL.Proof h k v)
-        -> DbAccessActionsU (AVLChgAccum h k v) (AvlUndo h) k v m
     mkAccessActions var ctMode = daaU
       where
         daa =
@@ -72,8 +66,8 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
             (\cA p b f -> reThrowAVLEx @k $ iter cA p b f =<< createState)
         daaM = DbAccessActionsM daa (\cA cs -> reThrowAVLEx @k $ modAccum cA cs =<< createState)
         daaU = DbAccessActionsU daaM
-                  (\cA u -> pure $ Right $ modAccumU cA u)
-                  (\cA _cs -> pure . Right . computeUndo cA =<< reThrowAVLEx @k createState)
+                  (\cA u -> pure $ Right $ modAccumU cA $ convUndo <$> u)
+                  (\cA _cs -> pure . Right . convAvlU . computeUndo cA =<< reThrowAVLEx @k createState)
         createState = clientModeToTempSt retrieveF ctMode =<< atomically (readTVar var)
 
     apply :: AvlHashable h => TVar (RootHash h) -> AVLChgAccum h k v -> m ()
@@ -82,18 +76,20 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
     apply _ Nothing = pure ()
 
 avlServerDbActions
-    :: forall k v m h n .
+    :: forall k v m h n undo .
     ( MonadIO m, MonadCatch m, AvlHashable h, AVL.Hash h k v, MonadIO n
     , KVConstraint k v, Serialisable (MapLayer h k v h)
     )
-    => AVLServerState h k
-    -> n ( RememberForProof -> DbModifyActions (AVLChgAccum h k v) (AvlUndo h) k v m (AVL.Proof h k v)
+    => (AvlUndo h -> undo)
+    -> (undo -> AvlUndo h)
+    -> AVLServerState h k
+    -> n ( RememberForProof -> DbModifyActions (AVLChgAccum h k v) undo k v m (AVL.Proof h k v)
             -- `DbModifyActions` provided by `RememberForProof` object
             -- (`RememberForProof False` for disabling recording for queries performed)
           , RetrieveF h n
             -- Function to retrieve data from server state internal AVL storage
           )
-avlServerDbActions = fmap mkActions . newTVarIO
+avlServerDbActions convAvlU convUndo = fmap mkActions . newTVarIO
   where
     retrieveHash var h = atomically $ M.lookup h . unAVLPureStorage . amsState <$> readTVar var
     mkActions var = (\recForProof ->
@@ -113,8 +109,8 @@ avlServerDbActions = fmap mkActions . newTVarIO
                   atomically (retrieveAMS var recForProof AMSWholeTree ))
         daaM = DbAccessActionsM daa (\cA cs -> liftIO $ reThrowAVLEx @k $ modAccum cA cs =<< atomically (readTVar var))
         daaU = DbAccessActionsU daaM
-                  (\cA u -> liftIO $ reThrowAVLEx @k $ pure $ Right $ modAccumU cA u)
-                  (\cA _cs -> pure . Right . computeUndo cA =<< atomically (readTVar var))
+                  (\cA u -> liftIO $ reThrowAVLEx @k $ pure $ Right $ modAccumU cA $ convUndo <$> u)
+                  (\cA _cs -> pure . Right . convAvlU . computeUndo cA =<< atomically (readTVar var))
 
     retrieveAMS var (RememberForProof True) amsReq = do
         ams <- readTVar var

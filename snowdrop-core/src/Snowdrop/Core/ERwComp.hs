@@ -5,6 +5,7 @@ module Snowdrop.Core.ERwComp
        , runERwComp
        -- , modifyRwCompChgAccum
        , liftERoComp
+       , convertERwComp
        ) where
 
 import           Universum
@@ -50,3 +51,7 @@ liftERoComp
     -> ERwComp e eff2 ctx s a
 liftERoComp comp =
     gets (gett @_ @(ChgAccum ctx)) >>= ERwComp . lift . flip initAccumCtx (convertEffect comp)
+
+
+convertERwComp :: (BaseM e eff1 ctx (a, s) -> BaseM e eff2 ctx (a, s)) -> ERwComp e eff1 ctx s a -> ERwComp e eff2 ctx s a
+convertERwComp f (ERwComp (StateT act)) = ERwComp $ StateT $ \s -> f (act s)
