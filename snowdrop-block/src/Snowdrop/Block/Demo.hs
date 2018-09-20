@@ -4,23 +4,21 @@ module Snowdrop.Block.Demo
 
 import           Universum
 
-import           Data.Default (Default) 
+import           Data.Default (Default)
 
-import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Configuration (BlkConfiguration (..), getCurrentBlockRef,
                                                getPreviousBlockRef)
 import           Snowdrop.Block.Fork (ForkVerificationException (..))
-import           Snowdrop.Block.Types (BlockRef, CurrentBlockRef (..), RawBlund,
-                                       PrevBlockRef (..), RawBlk)
+import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
+import           Snowdrop.Block.Types (BlockRef, CurrentBlockRef (..), PrevBlockRef (..), RawBlk,
+                                       RawBlund)
 import           Snowdrop.Core (ERwComp)
 import           Snowdrop.Util
 
-{-
-blockSync contains the logic of fork resolution on client.
-Client calls blockSync on list of hashes of blocks to check
-whether server contains the same list of hashes or not
--}
 
+-- | 'blockSync' contains the logic of fork resolution on client.
+-- Client calls 'blockSync' on list of hashes of blocks to check
+-- whether server contains the same list of hashes or not
 blockSync
     :: forall blkType e id value blockChgAccum ctx.
     ( Default blockChgAccum
@@ -39,11 +37,9 @@ blockSync config hashes = do
             loop (bcMaxForkDepth $ bscConfig config) tipBlockRef $
             OldestFirst []
     where
-{-
-Loop is an iteration on result bscGetTip called on config.
-Loop returns a list of blocks on server (if exists) by a given hash and
-list of hashes of desired blocks.
--}
+      -- | Loop is an iteration on result 'bscGetTip' called on config.
+      -- Loop returns a list of blocks on server (if exists) by a given hash and
+      -- list of hashes of desired blocks.
       loop
           :: Int
           -> BlockRef blkType
@@ -57,11 +53,9 @@ list of hashes of desired blocks.
                   case sBlundM of
                       Nothing     -> throwLocalError $ BlockDoesntExistInChain from
                       Just sBlund -> findLCA depth sBlund acc
-{-
-findLCA determines Lowest Common Ancestor by a given block with undo
-and list of blocks and returns to client blocks with respect to
-LCA.
--}
+      -- | 'findLCA' determines Lowest Common Ancestor by a given block with undo
+      -- and list of blocks and returns to client blocks with respect to
+      -- LCA.
       findLCA
           :: Int
           -> RawBlund blkType
