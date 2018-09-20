@@ -47,13 +47,13 @@ valid :: (Monoid a, Monad m) => m a
 valid = pure mempty
 
 -- | Helper, which can be used for a validator to specify conditional success case.
--- Error will be returned iff the given boolean is $False.
+-- Error will be returned iff the given boolean is 'False'.
 validateIff :: forall e e1 m a . (Monoid a, MonadError e m, HasReview e e1) => e1 -> Bool -> m a
 validateIff e1 = bool (throwLocalError e1) valid
 
 -- | Helper, which can be used for a validator to specify conditional success case.
 -- Error value is determined for a given element of container and is returned only
--- if check for the element results in $False.
+-- if check for the element results in 'False'.
 validateAll
     :: (Foldable f, MonadError e m, Container (f a))
     => (Element (f a) -> e)
@@ -66,7 +66,7 @@ validateAll ex p ls = maybe (pure ()) (throwError . ex) (find (not . p) ls)
 -- Structural validator
 ---------------------------
 
--- | Exception type for structural validation ($structuralPreValidator).
+-- | Exception type for structural validation ('structuralPreValidator').
 data StructuralValidationException id
     = DpRemoveDoesntExist id
     -- ^ Id is expected to exist in state, but doesn't.
@@ -107,7 +107,7 @@ structuralPreValidator
     => PreValidator e id value ctx txtype
 structuralPreValidator = csRemoveExist <> csNewNotExist
 
--- | Exception type for $redundantIdsPreValidator.
+-- | Exception type for 'redundantIdsPreValidator'.
 data RedundantIdException = RedundantIdException (NonEmpty Prefix)
     deriving (Show, Generic)
 

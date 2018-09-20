@@ -51,7 +51,7 @@ newtype RIO ctx a = RIO (ReaderT ctx IO a)
 
 deriving instance MonadBase IO (RIO ctx) => MonadBaseControl IO (RIO ctx)
 
--- | Executor for $RIO monad
+-- | Executor for 'RIO' monad
 runRIO :: MonadIO m => ctx -> RIO ctx a -> m a
 runRIO ctx (RIO act) = liftIO $ runReaderT act ctx
 
@@ -93,7 +93,7 @@ defaultLogCfg = LW.productionB & LW.lcTermSeverityOut .~ Just mempty
         , (LW.LoggerName "Client", mkTree "Client.log")
         ]
 
--- | Helper to execute some action within $ExecM monad
+-- | Helper to execute some action within 'ExecM' monad
 withLogger :: Maybe FilePath -> ExecM () -> IO ()
 withLogger mConfigPath action = do
     cfg <- case mConfigPath of

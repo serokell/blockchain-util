@@ -50,7 +50,7 @@ data Block header payload = Block
     , blkPayload :: payload
     } deriving (Show, Eq, Ord, Generic)
 
--- TODO consider removing HasBlock type class and using $HasGetter in its stead
+-- TODO consider removing HasBlock type class and using 'HasGetter' in its stead
 
 -- | Getter type class for a block
 class HasBlock header payload b where
@@ -66,7 +66,7 @@ data Blund header payload undo = Blund
     , buUndo  :: undo
     } deriving (Eq, Ord, Show, Generic)
 
--- | $Blund type, parametrized with raw payload.
+-- | 'Blund' type, parametrized with raw payload.
 type RawBlund blkType =
     (Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))
 

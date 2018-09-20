@@ -22,7 +22,7 @@ import           Snowdrop.Core (CSMappendException (..), ChangeSet, DbAccess (..
                                 DbAccessU (..), FoldF (..), Prefix (..), StateP, StateR)
 import           Snowdrop.Util (NewestFirst, OldestFirst)
 
--- | Actions to execute $DbAccess effect.
+-- | Actions to execute 'DbAccess' effect.
 -- Methods provided in the data type are not intended to modify any internal state.
 data DbAccessActions chgAccum id value m = DbAccessActions
     { daaGetter :: chgAccum -> StateR id -> m (StateP id value)
@@ -31,11 +31,11 @@ data DbAccessActions chgAccum id value m = DbAccessActions
     -- ^ Iterate through keys with specified prefix (doesn't modify the state)
     }
 
--- | Actions to execute $DbAccessM effect.
+-- | Actions to execute 'DbAccessM' effect.
 -- Methods provided in the data type are not intended to modify any internal state.
 data DbAccessActionsM chgAccum id value m = DbAccessActionsM
     { daaAccess      :: DbAccessActions chgAccum id value m
-    -- ^ Actions to execute $DbAccess effect.
+    -- ^ Actions to execute 'DbAccess' effect.
     , daaModifyAccum :: chgAccum
                      -> OldestFirst [] (ChangeSet id value)
                      -> m (Either (CSMappendException id) (OldestFirst [] chgAccum))
@@ -46,11 +46,11 @@ data DbAccessActionsM chgAccum id value m = DbAccessActionsM
     -- returns modified accumulator.
     }
 
--- | Actions to execute $DbAccessU effect.
+-- | Actions to execute 'DbAccessU' effect.
 -- Methods provided in the data type are not intended to modify any internal state.
 data DbAccessActionsU chgAccum undo id value m = DbAccessActionsU
     { daaAccessM          :: DbAccessActionsM chgAccum id value m
-    -- ^ Actions to execute $DbAccessM effect.
+    -- ^ Actions to execute 'DbAccessM' effect.
     , daaModifyAccumUndo  :: chgAccum
                           -> NewestFirst [] undo
                           -> m (Either (CSMappendException id) chgAccum)
@@ -96,7 +96,7 @@ instance Functor m => DbActions (DbAccessM chgAccum id value)
 -- | Actions to access and modify state.
 data DbModifyActions chgAccum undo id value m proof = DbModifyActions
     { dmaAccess :: DbAccessActionsU chgAccum undo id value m
-    -- ^ Actions to execute $DbAccessU effect.
+    -- ^ Actions to execute 'DbAccessU' effect.
     , dmaApply  :: chgAccum -> m proof
     -- ^ Apply provided change accumulator to internal state
     -- and return proof of the internal state change.

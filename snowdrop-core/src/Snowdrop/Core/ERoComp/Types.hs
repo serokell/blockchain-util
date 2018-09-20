@@ -38,9 +38,11 @@ type StateR id = Set id
 type StateP id value = Map id value
 
 -- | Datatype describing read only interface for access to a state:
---   * Simple query, iteration
+--
+-- * Simple query, iteration
+--
 -- Type variables @id@, @value@ describe types of key and value of key-value storage.
--- Variable @res denotes result of $DbAccess execution.
+-- Variable @res@ denotes result of 'DbAccess' execution.
 data DbAccess id value res
     = DbQuery (StateR id) (StateP id value -> res)
     -- ^ Request to state.
@@ -53,13 +55,16 @@ data DbAccess id value res
     -- The second one is used to accumulate entries during iteration.
 
 -- | Datatype describing read only interface for access to a state:
---   * Simple query, iteration
---   * Ability to convert sequence of change sets to sequence of change accumulators
--- Monad in which $DbAccessM is executed is expected to provide method
--- to use change accumulator in order to alter accesses done with $DbAccess.
+--
+-- * Simple query, iteration
+-- * Ability to convert sequence of change sets to sequence of change accumulators
+--
+-- Monad in which 'DbAccessM' is executed is expected to provide method
+-- to use change accumulator in order to alter accesses done with 'DbAccess'.
+--
 -- Type variables @id@, @value@ describe types of key and value of key-value storage,
 -- @chgAccum@ is in-memory accumulator of changes.
--- Variable @res denotes result of $DbAccessM execution.
+-- Variable @res@ denotes result of 'DbAccessM' execution.
 data DbAccessM chgAccum id value res
     = DbModifyAccum
         (OldestFirst [] (ChangeSet id value))
@@ -70,27 +75,29 @@ data DbAccessM chgAccum id value res
     -- (and modify it in the way corresponding change set prescribes).
     -- This action doesn't necessarily imply an explicit access to state
     -- (and might be a pure operation, e.g. for storage types that
-    -- use $SumChangeSet as change accumulator).
+    -- use 'SumChangeSet' as change accumulator).
     -- Some storage types though do require an access to internal state (e.g. AVL+ storage)
     -- due to more complicated structure of their respective change accumulator.
     --
     -- Operation's name "modify accumulator" refers to the fact that
-    -- $DbAccessM is typically executed in monad with read access to internal
+    -- 'DbAccessM' is typically executed in monad with read access to internal
     -- change accumulator which modifies the actual state. To perform the
-    -- $DbModifyAccum operation underlying monad is required to read this
+    -- 'DbModifyAccum' operation underlying monad is required to read this
     -- internal change accumulator and apply sequence of change sets to it.
     | DbAccess (DbAccess id value res)
     -- ^ Object for simple access to state (query, iteration).
 
 -- | Datatype describing read only interface for access to a state:
---   * Simple query, iteration
---   * Ability to convert sequence of change sets to sequence of change accumulators
---   * Ability to compute undo for a given change accumulator
---   * Ability to convert sequence of undo objects to a change accumulator
+--
+-- * Simple query, iteration
+-- * Ability to convert sequence of change sets to sequence of change accumulators
+-- * Ability to compute undo for a given change accumulator
+-- * Ability to convert sequence of undo objects to a change accumulator
+--
 -- Type variables @id@, @value@ describe types of key and value of key-value storage,
 -- @chgAccum@ is in-memory accumulator of changes,
 -- @undo@ is an object allowing to revert changes proposed by some @chgAccum@.
--- Variable @res denotes result of $DbAccessU execution.
+-- Variable @res@ denotes result of 'DbAccessU' execution.
 data DbAccessU chgAccum undo id value res
     = DbModifyAccumUndo
         (NewestFirst [] undo)
@@ -102,14 +109,14 @@ data DbAccessU chgAccum undo id value res
     -- sequence of undo objects).
     -- This action doesn't necessarily imply an explicit access to state
     -- (and might be a pure operation, e.g. for storage types that
-    -- use $SumChangeSet as change accumulator).
+    -- use 'SumChangeSet' as change accumulator).
     -- Some storage types though do require an access to internal state (e.g. AVL+ storage)
     -- due to more complicated structure of their respective change accumulator.
     --
     -- Operation's name "modify accumulator with undo" refers to the fact that
-    -- $DbAccessU is typically executed in monad with read access to internal
+    -- 'DbAccessU' is typically executed in monad with read access to internal
     -- change accumulator which modifies the actual state. To perform the
-    -- $DbModifyAccumUndo operation underlying monad is required to read this
+    -- 'DbModifyAccumUndo' operation underlying monad is required to read this
     -- internal change accumulator and apply sequence of change sets to it.
     | DbComputeUndo
         chgAccum
@@ -121,7 +128,7 @@ data DbAccessU chgAccum undo id value res
     --
     -- This action doesn't necessarily imply an explicit access to state
     -- (and might be a pure operation, e.g. for storage types that
-    -- use $SumChangeSet as change accumulator).
+    -- use 'SumChangeSet' as change accumulator).
     -- Some storage types though do require an access to internal state (e.g. AVL+ storage)
     -- due to more complicated structure of their respective change accumulator.
     | DbAccessM (DbAccessM chgAccum id value res)
