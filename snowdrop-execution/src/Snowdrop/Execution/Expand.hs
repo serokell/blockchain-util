@@ -41,8 +41,8 @@ type ExpandRawTxsMode e ctx txtypes =
     )
 
 expandUnionRawTxs
-  :: forall rawtx txtypes (c :: * -> Constraint) e ctx . ExpandRawTxsMode e ctx txtypes
-    => (rawtx -> SomeData (ProofNExp e ctx rawtx) (ExpandableTx txtypes c))
+    :: forall rawtx txtypes (c :: * -> Constraint) e ctx . ExpandRawTxsMode e ctx txtypes
+    => (rawtx -> SomeData (ProofNExp e ctx rawtx) (Both (ExpandableTx txtypes) c))
     -> [rawtx]
     -> ERoComp e ctx (UnionSeqExpandersInps txtypes) [SomeTx c]
 expandUnionRawTxs f txs = runSeqExpandersSequentially (zip txs $ map f txs)
@@ -70,14 +70,14 @@ runSeqExpandersSequentially
     , Default (ChgAccum ctx)
     , Default (SumChangeSet (UnionSeqExpandersInps txtypes))
     )
-    => [(rawtx, SomeData (ProofNExp e ctx rawtx) (ExpandableTx txtypes c))]
+    => [(rawtx, SomeData (ProofNExp e ctx rawtx) (Both (ExpandableTx txtypes) c))]
     -> ERoComp e ctx (UnionSeqExpandersInps txtypes) [SomeTx c]
 runSeqExpandersSequentially txWithExp =
     reverse <$> evalStateT (foldM runExps [] txWithExp) def
   where
     runExps
         :: [SomeTx c]
-        -> (rawtx, SomeData (ProofNExp e ctx rawtx) (ExpandableTx txtypes c))
+        -> (rawtx, SomeData (ProofNExp e ctx rawtx) (Both (ExpandableTx txtypes) c))
         -> StateT (SumChangeSet (UnionSeqExpandersInps txtypes))
               (ERoComp e ctx (UnionSeqExpandersInps txtypes)) [SomeTx c]
     runExps txs (rtx, sd) = do
@@ -88,7 +88,7 @@ runSeqExpandersSequentially txWithExp =
         (stx : txs) <$ mappendStOrThrow @e txbody
 
     constructStateTx
-        :: forall txtype . ExpandableTx txtypes c txtype
+        :: forall txtype . (ExpandableTx txtypes txtype, c txtype)
         => rawtx
         -> ProofNExp e ctx rawtx txtype
         -> ERoComp e ctx (UnionSeqExpandersInps txtypes) (SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))
@@ -157,8 +157,7 @@ type family UnionSeqExpanders (txtypes :: [*]) where
 
 type UnionSeqExpandersInps txtypes = UnionExpandersInps (UnionSeqExpanders txtypes)
 
-class ( c txtype
-      , HUpCastableChSet (TxComponents txtype) (UnionSeqExpandersInps txtypes)
+class ( HUpCastableChSet (TxComponents txtype) (UnionSeqExpandersInps txtypes)
       -- ^ TODO This constraint is inaccurate because of dirty code. will be fixed.
       -- It is caused when we apply expanded diffs to StateT state, however,
       -- it's not needed @TxComponents txtype@ to be subset of @UnionSeqExpandersInps txtypes@.
@@ -167,14 +166,14 @@ class ( c txtype
       , MappendHChSet (TxComponents txtype)
       , RestrictTx (UnionSeqExpandersInps txtypes) txtype
       )
-      => ExpandableTx (txtypes :: [*]) (c :: * -> Constraint) (txtype :: *)
-instance ( c txtype
-      , HUpCastableChSet (TxComponents txtype) (UnionSeqExpandersInps txtypes)
-      , Default (SumChangeSet (TxComponents txtype))
-      , MappendHChSet (TxComponents txtype)
-      , RestrictTx (UnionSeqExpandersInps txtypes) txtype
-      )
-      => ExpandableTx (txtypes :: [*]) (c :: * -> Constraint) (txtype :: *)
+      => ExpandableTx (txtypes :: [*]) (txtype :: *)
+instance (
+          HUpCastableChSet (TxComponents txtype) (UnionSeqExpandersInps txtypes)
+        , Default (SumChangeSet (TxComponents txtype))
+        , MappendHChSet (TxComponents txtype)
+        , RestrictTx (UnionSeqExpandersInps txtypes) txtype
+        )
+        => ExpandableTx (txtypes :: [*]) (txtype :: *)
 
 type RestrictTx xs txtype = RecAll' (SeqExpanderComponents txtype) (RestrictIo xs txtype)
 

@@ -35,17 +35,16 @@ evictMempool
     => RwMempoolAct e ctx c xs rawtx [(rawtx, SomeTxWithUndo c)]
 evictMempool = gets msTxs <* put def
 
-
-class (c txtype, UpCastableERo (TxComponents txtype) xs) => MempoolMode xs c txtype
-instance (c txtype, UpCastableERo (TxComponents txtype) xs) => MempoolMode xs c txtype
+class UpCastableERo (TxComponents txtype) xs => MempoolMode xs txtype
+instance UpCastableERo (TxComponents txtype) xs => MempoolMode xs txtype
 
 processTxAndInsertToMempool
     :: ( HasException e StatePException, Show e, Typeable e
        , HasLens ctx (ChgAccumCtx ctx)
        )
-    => MempoolConfig e ctx (MempoolMode xs c) rawtx
+    => MempoolConfig e ctx (Both (MempoolMode xs) c) rawtx
     -> rawtx
-    -> RwMempoolAct e ctx (MempoolMode xs c) xs rawtx ()
+    -> RwMempoolAct e ctx (Both (MempoolMode xs) c) xs rawtx ()
 processTxAndInsertToMempool MempoolConfig{..} rawtx = usingSomeData (mcProcessTx rawtx) $
   \(StateTxHandler handler) -> do
       txNundo <- upcastEffERwComp handler
@@ -59,18 +58,18 @@ normalizeMempool
        , Default (ChgAccum ctx)
        , HasLens ctx (ChgAccumCtx ctx)
        )
-    => MempoolConfig e ctx (MempoolMode xs c) rawtx
-    -> RwMempoolAct e ctx (MempoolMode xs c) xs rawtx (Rejected rawtx)
+    => MempoolConfig e ctx (Both (MempoolMode xs) c) rawtx
+    -> RwMempoolAct e ctx (Both (MempoolMode xs) c) xs rawtx (Rejected rawtx)
 normalizeMempool MempoolConfig{..} = do
     txs <- map fst <$> evictMempool
     (rejected, _) <- processAll txs
     pure rejected
   where
-    processOne :: rawtx -> RwMempoolAct e ctx (MempoolMode xs c) xs rawtx ()
+    processOne :: rawtx -> RwMempoolAct e ctx (Both (MempoolMode xs) c) xs rawtx ()
     processOne rawtx = usingSomeData (mcProcessTx rawtx) $ \(StateTxHandler handler) ->
         void (upcastEffERwComp handler)
 
-    processAll :: [rawtx] -> RwMempoolAct e ctx (MempoolMode xs c) xs rawtx (Rejected rawtx, [()])
+    processAll :: [rawtx] -> RwMempoolAct e ctx (Both (MempoolMode xs) c) xs rawtx (Rejected rawtx, [()])
     processAll txs = fmap (first Rejected . partitionEithers) $ do
         forM txs $ \rawtx ->
             (Right <$> processOne rawtx)
@@ -84,8 +83,8 @@ createBlockDbModifyAction
     :: ( HasExceptions e [CSMappendException, StatePException], Show e, Typeable e
        , Default chgAccum
        )
-    => MempoolConfig e (IOCtx chgAccum xs) (MempoolMode xs c) rawtx
-    -> Mempool (MempoolMode xs c) chgAccum rawtx
+    => MempoolConfig e (IOCtx chgAccum xs) (Both (MempoolMode xs) c) rawtx
+    -> Mempool (Both (MempoolMode xs) c) chgAccum rawtx
     -> DbModifyActions chgAccum xs ExecM a
     -> DbModifyActions chgAccum xs ExecM (a, Rejected rawtx)
 createBlockDbModifyAction cfg mem dbM = DbModifyActions (dmaAccessActions dbM) $ \chg -> do

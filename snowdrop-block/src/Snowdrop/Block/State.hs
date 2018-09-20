@@ -68,8 +68,8 @@ instance ( RContains txtypes txtype
          , UpCastableERo (TxComponents txtype) xs
          ) => BlkProcConstr txtypes xs txtype
 
-class ExpandableTx txtypes (BlkProcConstr txtypes xs) txtype => BlkProcessingMode txtypes xs txtype
-instance ExpandableTx txtypes (BlkProcConstr txtypes xs) txtype => BlkProcessingMode txtypes xs txtype
+-- class ExpandableTx txtypes (BlkProcConstr txtypes xs) txtype => BlkProcessingMode txtypes xs txtype
+-- instance ExpandableTx txtypes (BlkProcConstr txtypes xs) txtype => BlkProcessingMode txtypes xs txtype
 
 type BlkProcComponents blkType (txtypes :: [*]) (c :: * -> Constraint)
     = UnionTypes [TipMap blkType, BlundMap blkType txtypes c]
@@ -80,7 +80,7 @@ type BlkProcComponents blkType (txtypes :: [*]) (c :: * -> Constraint)
 inmemoryBlkStateConfiguration
   :: forall blkType rawTx txtypes e ctx xs c .
     ( xs ~ BlkProcComponents blkType txtypes c
-    , c ~ BlkProcessingMode txtypes xs
+    , c ~ BlkProcConstr txtypes xs
     , HasExceptions e
         [ StatePException
         , BlockStateException
@@ -93,7 +93,7 @@ inmemoryBlkStateConfiguration
     , HasLens (ChgAccum ctx) (ChgAccum ctx)
     , HasLens ctx (ChgAccumCtx ctx)
     , HasGetter (RawBlk blkType) [rawTx]
-    , HasGetter (Payload blkType) [SomeTx (BlkProcessingMode txtypes xs)]
+    , HasGetter (Payload blkType) [SomeTx (BlkProcConstr txtypes xs)]
     , Default (ChgAccum ctx)
     , ExpandRawTxsMode e ctx txtypes
     , MappendHChSet xs
@@ -108,8 +108,8 @@ inmemoryBlkStateConfiguration
     )
     => BlkConfiguration blkType
     -> Validator e ctx txtypes
-    -> (rawTx -> SomeData (ProofNExp e ctx rawTx) (ExpandableTx txtypes (BlkProcConstr txtypes xs)))
-    -> (RawBlk blkType -> [SomeTx (BlkProcConstr txtypes xs)] -> Block (BlockHeader blkType) (Payload blkType))
+    -> (rawTx -> SomeData (ProofNExp e ctx rawTx) (Both (ExpandableTx txtypes) c))
+    -> (RawBlk blkType -> [SomeTx c] -> Block (BlockHeader blkType) (Payload blkType))
     -> BlkStateConfiguration blkType (ERwComp e ctx (ChgAccum ctx) xs)
 inmemoryBlkStateConfiguration cfg validator mkProof mkBlock = fix $ \this ->
     BlkStateConfiguration {
@@ -117,7 +117,7 @@ inmemoryBlkStateConfiguration cfg validator mkProof mkBlock = fix $ \this ->
     , bscExpand = \rawBlock -> do
           blkPayload <- liftERoComp $ upcastEffERoComp $ expandUnionRawTxs mkProof (gett rawBlock)
           pure (mkBlock rawBlock blkPayload)
-    , bscApplyPayload = \(gett @_ @[SomeTx (BlkProcessingMode txtypes xs)] -> txs) -> do
+    , bscApplyPayload = \(gett @_ @[SomeTx (BlkProcConstr txtypes xs)] -> txs) -> do
           undos <- forM txs $ \smtx -> usingSomeTx smtx $ \tx -> do
                       liftERoComp $ upcastEffERoComp $ runValidator validator tx
                       applySomeTx (modifyRwCompChgAccum . CAMChange . hupcast . txBody) smtx
