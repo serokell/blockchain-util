@@ -33,10 +33,10 @@ import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (
 import           Snowdrop.Util
 
 data TipMap blkType
-data BlundMap blkType (txtypes :: [*]) (c :: * -> Constraint)
+data BlundMap blkType
 type instance HKeyVal (TipMap blkType) = '(TipKey, TipValue (BlockRef blkType))
-type instance HKeyVal (BlundMap blkType (txtypes :: [*]) c) =
-      '(BlockRef blkType, Blund (BlockHeader blkType) [SomeTx c] (BlockUndo blkType))
+type instance HKeyVal (BlundMap blkType)  =
+      '(BlockRef blkType, Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))
 
 data BlockStateException
     = TipNotFound
@@ -68,11 +68,8 @@ instance ( RContains txtypes txtype
          , UpCastableERo (TxComponents txtype) xs
          ) => BlkProcConstr txtypes xs txtype
 
--- class ExpandableTx txtypes (BlkProcConstr txtypes xs) txtype => BlkProcessingMode txtypes xs txtype
--- instance ExpandableTx txtypes (BlkProcConstr txtypes xs) txtype => BlkProcessingMode txtypes xs txtype
-
 type BlkProcComponents blkType (txtypes :: [*]) (c :: * -> Constraint)
-    = UnionTypes [TipMap blkType, BlundMap blkType txtypes c]
+    = UnionTypes [TipMap blkType, BlundMap blkType]
                  (TxComponents (UnitedTxType txtypes))
 
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
@@ -99,9 +96,9 @@ inmemoryBlkStateConfiguration
     , MappendHChSet xs
 
     , QueryERo xs (TipMap blkType)
-    , QueryERo xs (BlundMap blkType txtypes c)
+    , QueryERo xs (BlundMap blkType)
     , HUpCastableChSet '[TipMap blkType] xs
-    , HUpCastableChSet '[BlundMap blkType txtypes c] xs
+    , HUpCastableChSet '[BlundMap blkType] xs
     , UpCastableERo (UnionSeqExpandersInps txtypes) xs
     , Default (HChangeSet xs)
     , Default (AvlRevisions xs)
@@ -128,13 +125,13 @@ inmemoryBlkStateConfiguration cfg validator mkProof mkBlock = fix $ \this ->
     , bscApplyUndo = void . modifyRwCompChgAccum . CAMRevert
     , bscStoreBlund = \blund -> do
           let blockRef = unCurrentBlockRef $ bcBlockRef cfg (blkHeader $ buBlock blund)
-          let chg = hChangeSetFromMap @(BlundMap blkType txtypes c) $ M.singleton blockRef (New blund)
+          let chg = hChangeSetFromMap @(BlundMap blkType) $ M.singleton blockRef (New blund)
           void $ modifyRwCompChgAccum $ CAMChange $ hupcast chg
     , bscRemoveBlund = \blockRef -> do
-          let chg = hChangeSetFromMap @(BlundMap blkType txtypes c) $ M.singleton blockRef Rem
+          let chg = hChangeSetFromMap @(BlundMap blkType) $ M.singleton blockRef Rem
           void $ modifyRwCompChgAccum $ CAMRevert $ Undo (hupcast chg) def
-    , bscGetBlund = liftERoComp . queryOne @(BlundMap blkType txtypes c)
-    , bscBlockExists = liftERoComp . queryOneExists @(BlundMap blkType txtypes c)
+    , bscGetBlund = liftERoComp . queryOne @(BlundMap blkType)
+    , bscBlockExists = liftERoComp . queryOneExists @(BlundMap blkType)
     , bscGetTip = do
           tipMb <- liftERoComp (queryOne @(TipMap blkType) TipKey)
           maybe (throwLocalError @BlockStateException TipNotFound) (pure . unTipValue) tipMb
