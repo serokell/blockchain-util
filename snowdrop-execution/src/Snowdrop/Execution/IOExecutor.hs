@@ -34,11 +34,11 @@ import           Snowdrop.Core (BaseM (..), ChgAccum, ChgAccumCtx (..), CtxConcu
                                 getCAOrDefault, runERwComp)
 import           Snowdrop.Execution.DbActions (DbActions (..))
 import           Snowdrop.Execution.Restrict (RestrictCtx)
-import           Snowdrop.Util (ExecM, HasException, HasGetter (gett), HasLens (sett))
+import           Snowdrop.Util (RIO, HasException, HasGetter (gett), HasLens (sett))
 import qualified Snowdrop.Util as Log
 
 
-newtype BaseMIOExec eff ctx = BaseMIOExec { unBaseMIOExec :: forall x . ctx -> eff x -> ExecM x }
+newtype BaseMIOExec eff ctx = BaseMIOExec { unBaseMIOExec :: forall x . ctx -> eff x -> RIO ctx x }
 
 newtype BaseMException e = BaseMException e
     deriving Show
@@ -49,7 +49,7 @@ instance Buildable e => Buildable (BaseMException e) where
 instance (Show e, Typeable e) => Exception (BaseMException e)
 
 newtype BaseMIO e (eff :: * -> *) ctx a = BaseMIO
-    { unBaseMIO :: ReaderT ctx ExecM a }
+    { unBaseMIO :: ReaderT ctx (RIO ctx) a }
     deriving (Functor)
 
 instance HasLens ctx CtxConcurrently => Applicative (BaseMIO e eff ctx) where
@@ -96,7 +96,7 @@ runBaseMIO
     )
     => BaseM e eff ctx a
     -> ctx
-    -> ExecM a
+    -> RIO ctx a
 runBaseMIO bm ctx = runReaderT (unBaseMIO @e @eff $ unBaseM bm) ctx
 
 data IOCtx daa = IOCtx
