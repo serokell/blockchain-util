@@ -82,15 +82,16 @@ inmemoryBlkStateConfiguration cfg validator mkProof mkBlock =
           blkPayload <- liftERoComp $ expandUnionRawTxs mkProof (gett rawBlock)
           pure (mkBlock rawBlock blkPayload)
     , bscApplyPayload = \(gett @_ @[SomeTx id value (RContains txtypes)] -> txs) -> do
-          (mNewSt, undo) <- liftERoComp $ do
-              OldestFirst accs <- convertEffect $ modifyAccum (OldestFirst $ map (applySomeTx txBody) txs)
-              convertEffect $ mconcat $ flip map (zip accs txs) $ \(acc, tx) ->
+          (newSt, undo) <- liftERoComp $ do
+              curAcc <- asks (getCAOrDefault @ctx . gett)
+              OldestFirst accs <-
+                  convertEffect $ modifyAccum (OldestFirst $ map (applySomeTx txBody) txs)
+              let preAccs = init (curAcc :| accs)
+                  lastAcc = last (curAcc :| accs)
+              convertEffect $ mconcat $ flip map (zip preAccs txs) $ \(acc, tx) ->
                   local ( lensFor .~ CAInitialized @ctx acc ) $ applySomeTx (runValidator validator) tx
-              case accs of
-                (a : rest) -> let lastAcc = last (a :| rest)
-                               in (Just lastAcc,) <$> computeUndo @_ @id @value lastAcc
-                _          -> (Nothing,) <$> (asks (getCAOrDefault @ctx . gett) >>= computeUndo @_ @id @value)
-          undo <$ whenJust mNewSt (modify . flip sett)
+              (lastAcc,) <$> computeUndo @_ @id @value lastAcc
+          undo <$ modify (flip sett newSt)
     , bscApplyUndo = liftERoComp . modifyAccumUndo @_ @id @value . pure >=> modify . flip sett
     , bscStoreBlund = \blund -> do
           let blockRef = unCurrentBlockRef $ bcBlockRef cfg (blkHeader $ buBlock blund)
