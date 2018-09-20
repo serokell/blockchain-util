@@ -4,13 +4,16 @@ module Snowdrop.Block.Configuration
        ( BlockIntegrityVerifier (..)
        , BlkConfiguration (..)
        , blkSeqIsConsistent
+       , getCurrentBlockRef
+       , getPreviousBlockRef
        ) where
 
 import qualified Prelude as P
 import           Universum
 
 import           Snowdrop.Block.Types (Block (..), BlockRef, CurrentBlockRef (..), HasBlock (..),
-                                       PrevBlockRef (..), BlockHeader, OSParams, Payload)
+                                       PrevBlockRef (..), BlockHeader, OSParams, Payload, RawBlund,
+                                       buBlock)
 import           Snowdrop.Util
 
 newtype BlockIntegrityVerifier blkType = BIV { unBIV :: Block (BlockHeader blkType) (Payload blkType) -> Bool }
@@ -125,3 +128,19 @@ blkSeqIsConsistent BlkConfiguration {..} (OldestFirst bdatas) =
             , prevRef == getBlockRef b
             , doValidate $ OldestFirst xs
             ]
+
+getCurrentBlockRef
+    :: forall blkType .
+       BlkConfiguration blkType
+    -> RawBlund blkType
+    -> CurrentBlockRef blkType
+getCurrentBlockRef BlkConfiguration{..} =
+    bcBlockRef . blkHeader . buBlock
+
+getPreviousBlockRef
+    :: forall blkType .
+       BlkConfiguration blkType
+    -> RawBlund blkType
+    -> PrevBlockRef blkType
+getPreviousBlockRef BlkConfiguration{..} =
+    bcPrevBlockRef . blkHeader . buBlock
