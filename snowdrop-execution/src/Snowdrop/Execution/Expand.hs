@@ -20,16 +20,14 @@ import           Data.Default (Default (def))
 import           Data.Vinyl (Rec (..))
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..),
-                                DiffChangeSet (..), ERoComp, ExpInps, ExpOuts, ExpRestriction (..),
-                                HChangeSet, HUpCastableChSet, MappendHChSet, PreExpander (..),
-                                SeqExpander, SeqExpanderComponents, SomeTx, StateTx (..),
-                                TxComponents, TxProof, UpCastableERo, mappendChangeSet,
-                                upcastEffERoComp, withModifiedAccumCtx)
+                                DiffChangeSet (..), ERoComp, ExpInps, ExpOutComps,
+                                ExpRestriction (..), HChangeSet, HUpCastableChSet, MappendHChSet,
+                                PreExpander (..), ProofNExp (..), SeqExpander,
+                                SeqExpanderComponents, SomeTx, StateTx (..), TxComponents,
+                                UpCastableERo, mappendChangeSet, upcastEffERoComp,
+                                withModifiedAccumCtx)
 import           Snowdrop.Execution.DbActions (SumChangeSet (..), mappendStOrThrow)
 import           Snowdrop.Util
-
-newtype ProofNExp e ctx rawtx txtype =
-    ProofNExp (TxProof txtype, SeqExpander e ctx rawtx txtype)
 
 type ExpandRawTxsMode e ctx txtypes =
     ( HasException e CSMappendException
@@ -115,7 +113,7 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
            )
         => Rec (PreExpander e ctx rawtx) rs
         -> ERoComp e ctx components (SumChangeSet (TxComponents txtype))
-    runSeqExpanderForTxAll RNil = pure def
+    runSeqExpanderForTxAll RNil           = pure def
     runSeqExpanderForTxAll exps'@(_ :& _) = runSeqExpanderForTx' exps'
 
     runSeqExpanderForTx'
@@ -133,7 +131,7 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
 applyPreExpander
     :: forall txtype rawtx e ctx ioRestr .
     ( HasException e CSMappendException
-    , HUpCastableChSet (ExpOuts ioRestr) (TxComponents txtype)
+    , HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
     , MappendHChSet (TxComponents txtype)
     )
     => rawtx
@@ -177,10 +175,10 @@ instance (
 
 type RestrictTx xs txtype = RecAll' (SeqExpanderComponents txtype) (RestrictIo xs txtype)
 
-class ( HUpCastableChSet (ExpOuts ioRestr) (TxComponents txtype)
+class ( HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
       , UpCastableERo (ExpInps ioRestr) xs
       ) => RestrictIo (xs :: [*]) (txtype :: *) (ioRestr :: ExpRestriction [*] [*])
-instance ( HUpCastableChSet (ExpOuts ioRestr) (TxComponents txtype)
+instance ( HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
       , UpCastableERo (ExpInps ioRestr) xs
       ) => RestrictIo (xs :: [*]) (txtype :: *) (ioRestr :: ExpRestriction [*] [*])
 
