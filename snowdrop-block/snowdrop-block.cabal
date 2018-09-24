@@ -27,7 +27,6 @@ library
     , mtl
     , snowdrop-core
     , snowdrop-util
-    , snowdrop-execution
     , time
     , hashable-time
     , text-format
@@ -44,9 +43,8 @@ library
       Snowdrop.Block.StateConfiguration
       Snowdrop.Block.Fork
       Snowdrop.Block.Application
-      Snowdrop.Block.State
       Snowdrop.Block.Demo
-      
+
   default-language: Haskell2010
   ghc-options:         -Wall
                        -fno-warn-orphans

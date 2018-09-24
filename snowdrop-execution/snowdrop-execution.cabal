@@ -35,6 +35,7 @@ library
     , loot-log
     , mtl
     , reflection
+    , snowdrop-block
     , snowdrop-core
     , snowdrop-util
     , stm
@@ -48,6 +49,7 @@ library
       Snowdrop.Execution
 
   other-modules:
+      Snowdrop.Execution.CreateBlock
       Snowdrop.Execution.Mempool
       Snowdrop.Execution.Mempool.Core
       Snowdrop.Execution.Mempool.Logic
@@ -62,6 +64,7 @@ library
       Snowdrop.Execution.DbActions.AVLp.State
       Snowdrop.Execution.DbActions.Composite
       Snowdrop.Execution.IOExecutor
+      Snowdrop.Execution.State
 
   default-language: Haskell2010
   ghc-options:         -Wall

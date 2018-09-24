@@ -68,7 +68,7 @@ data Blund header payload undo = Blund
 
 -- | 'Blund' type, parametrized with raw payload.
 type RawBlund blkType =
-    (Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))
+    Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType)
 
 instance HasBlock header payload (Blund header payload undo) where
     getBlock = getBlock . buBlock

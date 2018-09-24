@@ -3,7 +3,7 @@
 {-# LANGUAGE Rank2Types              #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-module Snowdrop.Block.State
+module Snowdrop.Execution.State
        ( TipComponent
        , BlundComponent
 
@@ -20,10 +20,9 @@ import           Data.Default (Default)
 import qualified Data.Map as M
 import qualified Data.Text.Buildable
 
-import           Snowdrop.Block.Configuration (BlkConfiguration (..))
-import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
-                                       CurrentBlockRef (..), Payload, RawBlk, RawPayload)
+import           Snowdrop.Block (BlkConfiguration (..), BlkStateConfiguration (..),
+                                 Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
+                                 CurrentBlockRef (..), Payload, RawBlk, RawPayload)
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), DbAccessU,
                                 ERoComp, ERwComp, HChangeSet, HUpCastableChSet, MappendHChSet,
                                 QueryERo, SomeTx, StatePException (..), StateTx (..), TxComponents,
@@ -31,8 +30,8 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (
                                 computeUndo, convertEffect, getCAOrDefault, hChangeSetFromMap,
                                 liftERoComp, modifyAccum, modifyAccumOne, modifyAccumUndo, queryOne,
                                 queryOneExists, runValidator, upcastEffERoComp, upcastEffERoCompM)
-import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
-                                     UnionSeqExpandersInps, expandUnionRawTxs)
+import           Snowdrop.Execution.Expand (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
+                                            UnionSeqExpandersInps, expandUnionRawTxs)
 import           Snowdrop.Util
 
 data TipComponent blkType
