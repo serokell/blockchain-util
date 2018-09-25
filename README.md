@@ -1,35 +1,35 @@
 # Blockchain utility
 
-Repository with some abstract building blocks to be used for construction of blockchain solutions.
-Repository provides following packages:
+A repository with abstract building blocks to be used for the construction of blockchain solutions.
+The repository provides the following packages:
 
 * Package `snowdrop-core`
-    * Defines read-only db access computation `ERoComp` (see modules `Snowdrop.Core.BaseM`, `Snowdrop.Core.ERoComp`).
-    * Defines value modification object type `ChangeSet`, a transaction to state `Tx`.
+    * Defines a read-only db access computation `ERoComp` (see modules `Snowdrop.Core.BaseM`, `Snowdrop.Core.ERoComp`).
+    * Defines a value modification object type `ChangeSet`, a transaction to state `Tx`.
     * Defines means of stateful conversion of raw byte transaction representation to `Tx` (`Expander` data type).
     * Defines a data type `Validator` for validation of `Tx`.
 * Package `snowdrop-block`
-    * Defines block sequence structural verification function `verifyFork` and its configuration `BlkConfiguration`.
-    * Defines block processing function `tryApplyFork` and its configuration `BlkStateConfiguration`.
+    * Defines a block sequence structural verification function `verifyFork` and its configuration `BlkConfiguration`.
+    * Defines a block processing function `tryApplyFork` and its configuration `BlkStateConfiguration`.
 * Package `snowdrop-execution`
-    * Defines `DbAccessActions` and `DbModifyActions` -- method dictionary data types which are to be used for execution of `DbAccess` actions on base of real storage.
-    * Defines mempool functionality for accumulating transactions -- candidates for inclusion into blocks.
-    * Defines monad for execution of `ERoComp` in `IO` (module `Snowdrop.Execution.IOExecutor`)
+    * Defines `DbAccessActions` and `DbModifyActions` -- method dictionary data types which are to be used for the execution of `DbAccess` actions on a base of real storage.
+    * Defines the mempool functionality for accumulating transactions -- candidates for inclusion into blocks.
+    * Defines a monad for execution of `ERoComp` in `IO` (module `Snowdrop.Execution.IOExecutor`)
 * Package `snowdrop-util`
-    * Various helper data types and functions needed for other packages.
+    * Defines various helper data types and functions needed for other packages.
      
-The db access functor `DbAccess` is designed for use with key-value databases which
-(as believed by authors of repository) is a primary case for blockchain processing node.
-Processing of blocks is viewed as a read-only state access operation that returns
-modifiaction object as result (or an error).
-Utilities don't pay much attention to modification of state and presumes it to be a trivial operation
+The db access functor `DbAccess` is designed for use with key-value databases.
+The processing of blocks is viewed as a read-only state access operation that returns a state
+modification object as result (or an error).
+Utilities don't pay much attention to the modification of state and presume it to be a trivial operation
 (executed sequentially for a series of changes under lock to database).
 
-Block processing functionality is defined independently from definitions
-of transaction processing in `snowdrop-core` and can be used indendently.
-Its usage with definitions of transaction from `snowdrop-core` is defined
-by configuration in module `Snowdrop.Block.State`.
+The block processing functionality is defined independently from definitions
+of transaction processing in `snowdrop-core` and can be used independently.
+Its usage with definitions of transaction processing from `snowdrop-core` is defined
+by the configuration in module `Snowdrop.Block.State`.
 
-Prefix `snowdrop` used all over the codebase states for the codename of a project within Serokell,
+Prefix `snowdrop` used all over the codebase refers to the codename of a project within Serokell.
 under umbrella of which these building blocks are being developed.
 The whole project (along with its repositories and documentation) will be announced and made public in Q4 2018.
+
