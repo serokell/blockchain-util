@@ -17,10 +17,12 @@ import qualified Data.Tree.AVL as AVL
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 
-import           Snowdrop.Execution.DbActions.AVLp.Accum (AVLChgAccum, AVLChgAccum' (..), iter,
-                                                          modAccum, query)
-import           Snowdrop.Execution.DbActions.AVLp.Avl (AvlHashable, KVConstraint, RootHash (..),
-                                                        avlRootHash, materialize, mkAVL, saveAVL)
+import           Snowdrop.Execution.DbActions.AVLp.Accum (AVLChgAccum, AVLChgAccum' (..),
+                                                          computeUndo, iter, modAccum, modAccumU,
+                                                          query)
+import           Snowdrop.Execution.DbActions.AVLp.Avl (AvlHashable, AvlUndo, KVConstraint,
+                                                        RootHash (..), avlRootHash, materialize,
+                                                        mkAVL, saveAVL)
 import           Snowdrop.Execution.DbActions.AVLp.State (AMSRequested (..), AVLCache (..),
                                                           AVLCacheT, AVLPureStorage (..),
                                                           AVLServerState (..), ClientTempState,
@@ -28,11 +30,13 @@ import           Snowdrop.Execution.DbActions.AVLp.State (AMSRequested (..), AVL
                                                           clientModeToTempSt, reThrowAVLEx,
                                                           runAVLCacheT)
 import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessActions (..),
-                                                     DbModifyActions (..), RememberForProof (..))
-
+                                                     DbAccessActionsM (..), DbAccessActionsU (..),
+                                                     DbActionsException (..), DbModifyActions (..),
+                                                     RememberForProof (..))
+import           Snowdrop.Util (HasPrism, NewestFirst, inj, proj)
 
 avlClientDbActions
-    :: forall k v m h n.
+  :: forall k v m h n undo.
     ( KVConstraint k v
     , MonadIO m
     , MonadCatch m
@@ -42,32 +46,29 @@ avlClientDbActions
     , MonadCatch n
     , RetrieveImpl (ReaderT (ClientTempState h k v n) m) h
     , Serialisable (MapLayer h k v h)
+    , HasPrism undo (AvlUndo h)
     )
     => RetrieveF h n
     -> RootHash h
-    -> n (ClientMode (AVL.Proof h k v) -> DbModifyActions (AVLChgAccum h k v) k v m ())
+    -> n (ClientMode (AVL.Proof h k v) -> DbModifyActions (AVLChgAccum h k v) undo k v m ())
 avlClientDbActions retrieveF = fmap mkActions . newTVarIO
   where
-    mkActions
-        :: TVar (RootHash h)
-        -> ClientMode (AVL.Proof h k v)
-        -> DbModifyActions (AVLChgAccum h k v) k v m ()
     mkActions var ctMode =
         DbModifyActions (mkAccessActions var ctMode) (reThrowAVLEx @k . apply var)
 
-    mkAccessActions
-        :: TVar (RootHash h)
-        -> ClientMode (AVL.Proof h k v)
-        -> DbAccessActions (AVLChgAccum h k v) k v m
-    mkAccessActions var ctMode =
-        DbAccessActions
-          -- adding keys to amsRequested
-          (\cA req -> reThrowAVLEx @k $ query cA req =<< createState)
-          (\cA cs -> reThrowAVLEx @k $ modAccum cA cs =<< createState)
-          -- setting amsRequested to AMSWholeTree as iteration with
-          -- current implementation requires whole tree traversal
-          (\cA p b f -> reThrowAVLEx @k $ iter cA p b f =<< createState)
+    mkAccessActions var ctMode = daaU
       where
+        daa =
+          DbAccessActions
+            -- adding keys to amsRequested
+            (\cA req -> reThrowAVLEx @k $ query cA req =<< createState)
+            -- setting amsRequested to AMSWholeTree as iteration with
+            -- current implementation requires whole tree traversal
+            (\cA p b f -> reThrowAVLEx @k $ iter cA p b f =<< createState)
+        daaM = DbAccessActionsM daa (\cA cs -> reThrowAVLEx @k $ modAccum cA cs =<< createState)
+        daaU = DbAccessActionsU daaM
+                  (withProjUndo . modAccumU)
+                  (\cA _cs -> pure . Right . inj . computeUndo cA =<< reThrowAVLEx @k createState)
         createState = clientModeToTempSt retrieveF ctMode =<< atomically (readTVar var)
 
     apply :: AvlHashable h => TVar (RootHash h) -> AVLChgAccum h k v -> m ()
@@ -75,13 +76,17 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
         liftIO $ atomically $ writeTVar var (avlRootHash accAvl)
     apply _ Nothing = pure ()
 
+withProjUndo :: (HasPrism undo undo', MonadThrow m, Applicative f) => (NewestFirst [] undo' -> a) -> NewestFirst [] undo -> m (f a)
+withProjUndo action = maybe (throwM DbUndoProjectionError) (pure . pure . action) . traverse proj
+
 avlServerDbActions
-    :: forall k v m h n .
+    :: forall k v m h n undo .
     ( MonadIO m, MonadCatch m, AvlHashable h, AVL.Hash h k v, MonadIO n
     , KVConstraint k v, Serialisable (MapLayer h k v h)
+    , HasPrism undo (AvlUndo h)
     )
     => AVLServerState h k
-    -> n ( RememberForProof -> DbModifyActions (AVLChgAccum h k v) k v m (AVL.Proof h k v)
+    -> n ( RememberForProof -> DbModifyActions (AVLChgAccum h k v) undo k v m (AVL.Proof h k v)
             -- `DbModifyActions` provided by `RememberForProof` object
             -- (`RememberForProof False` for disabling recording for queries performed)
           , RetrieveF h n
@@ -95,16 +100,20 @@ avlServerDbActions = fmap mkActions . newTVarIO
                           (mkAccessActions var recForProof)
                           (reThrowAVLEx @k . apply var),
                         retrieveHash var)
-    mkAccessActions var recForProof =
-        DbAccessActions
-          -- adding keys to amsRequested
-          (\cA req -> liftIO $ reThrowAVLEx @k $ query cA req =<<
-            atomically (retrieveAMS var recForProof $ AMSKeys req ))
-          (\cA cs -> liftIO $ reThrowAVLEx @k $ modAccum cA cs =<< atomically (readTVar var))
-          -- setting amsRequested to AMSWholeTree as iteration with
-          -- current implementation requires whole tree traversal
-          (\cA p b f -> liftIO $ reThrowAVLEx @k $ iter cA p b f =<<
-            atomically (retrieveAMS var recForProof AMSWholeTree ))
+    mkAccessActions var recForProof = daaU
+      where
+        daa = DbAccessActions
+                -- adding keys to amsRequested
+                (\cA req -> liftIO $ reThrowAVLEx @k $ query cA req =<<
+                              atomically (retrieveAMS var recForProof $ AMSKeys req ))
+                -- setting amsRequested to AMSWholeTree as iteration with
+                -- current implementation requires whole tree traversal
+                (\cA p b f -> liftIO $ reThrowAVLEx @k $ iter cA p b f =<<
+                  atomically (retrieveAMS var recForProof AMSWholeTree ))
+        daaM = DbAccessActionsM daa (\cA cs -> liftIO $ reThrowAVLEx @k $ modAccum cA cs =<< atomically (readTVar var))
+        daaU = DbAccessActionsU daaM
+                  (withProjUndo . modAccumU)
+                  (\cA _cs -> pure . Right . inj . computeUndo cA =<< atomically (readTVar var))
 
     retrieveAMS var (RememberForProof True) amsReq = do
         ams <- readTVar var

@@ -41,7 +41,7 @@ data ForkVerResult blkType
     | RejectFork
     -- ^ Fork verification decision is to reject given fork.
 
--- | Exception type for $verifyFork.
+-- | Exception type for 'verifyFork'.
 data ForkVerificationException blkType
     = BlocksNotConsistent
     -- ^ Chain of blocks is not self-consistent: either integrity berification of one of blocks failed

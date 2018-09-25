@@ -8,6 +8,7 @@ module Snowdrop.Core.ChangeSet.ValueOp
        (
          ValueOp (..)
        , ValueOpEx (..)
+       , (<->)
        ) where
 
 import           Universum hiding (head, init, last)
@@ -76,8 +77,28 @@ instance Semigroup (ValueOpEx v) where
 
     Op (New _) <> Op (New _) = Err
     Op (New _) <> Op Rem     = Op NotExisted
-    Op (New _) <> Op (Upd x) = Op $ New x
+    Op (New _) <> Op (Upd y) = Op $ New y
 
     Op (Upd _) <> Op (New _) = Err
     Op (Upd _) <> Op Rem     = Op Rem
     Op (Upd _) <> Op (Upd y) = Op $ Upd y
+
+-- | Diff operation for value op:
+-- @Op a <> Op b = Op c@ is true iff @c <-> a = DOp b@
+(<->) :: ValueOp v -> ValueOp v -> Maybe (ValueOp v)
+
+NotExisted <-> (New _)    = Just Rem        -- New _ <> Rem = NotExisted
+NotExisted <-> NotExisted = Just NotExisted -- NotExisted <> NotExisted = NotExisted
+NotExisted <-> _          = Nothing
+
+(New v) <-> NotExisted    = Just (New v)    -- NotExisted <> New v = New v
+(New y) <-> (New _)       = Just (Upd y)    -- New x <> Upd y = New y
+(New _) <-> _             = Nothing
+
+Rem <-> Rem               = Just NotExisted -- Rem <> NotExisted = Rem
+Rem <-> (Upd _)           = Just Rem        -- Upd x <> Rem = Rem
+Rem <-> _                 = Nothing
+
+(Upd v) <-> Rem           = Just (New v)    -- Rem <> New v = Upd v
+(Upd y) <-> (Upd _)       = Just (Upd y)    -- Upd x <> Upd y = Upd y
+(Upd _) <-> _             = Nothing

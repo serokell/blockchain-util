@@ -16,7 +16,7 @@ import qualified Data.Set as S
 import qualified Data.Text.Buildable
 import           Formatting (bprint, build, (%))
 
-import           Snowdrop.Core (ChangeSet (..), ERoComp, IdSumPrefixed (..), Prefix (..))
+import           Snowdrop.Core (BaseM, ChangeSet (..), IdSumPrefixed (..), Prefix (..))
 import           Snowdrop.Util (HasException, HasLens (lensFor), listF, throwLocalError)
 
 data RestrictionInOutException
@@ -39,12 +39,12 @@ instance Default RestrictCtx where
     def = RestrictCtx Nothing
 
 restrictDbAccess
-    :: forall e id value ctx a .
+    :: forall e eff ctx a .
     ( HasLens ctx RestrictCtx
     )
     => Set Prefix
-    -> ERoComp e id value ctx a
-    -> ERoComp e id value ctx a
+    -> BaseM e eff ctx a
+    -> BaseM e eff ctx a
 restrictDbAccess ps = local (lensFor @ctx @RestrictCtx %~ modCtx)
   where
     modCtx (RestrictCtx Nothing)    = RestrictCtx $ Just ps

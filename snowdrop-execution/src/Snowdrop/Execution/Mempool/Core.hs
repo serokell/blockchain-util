@@ -18,11 +18,11 @@ import           Universum
 import           Control.Lens (lens)
 import           Data.Default (Default (..))
 
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx,
-                                ChgAccumModifier (..), ERoComp, ERwComp, SomeTx, StatePException,
-                                StateTx (..), Undo, Validator, applySomeTx, liftERoComp,
-                                modifyRwCompChgAccum, runValidator)
-import           Snowdrop.Execution.DbActions (DbAccessActions)
+import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx, ConvertEffect,
+                                DbAccessM, ERoCompM, ERwComp, SomeTx, StatePException, StateTx (..),
+                                Validator, applySomeTx, convertERwComp, convertEffect, liftERoComp,
+                                modifyAccumOne, runValidator)
+import           Snowdrop.Execution.DbActions (DbActions)
 import           Snowdrop.Execution.IOExecutor (IOCtx, runERwCompIO)
 import           Snowdrop.Util
 
@@ -32,13 +32,13 @@ import           Snowdrop.Util
 
 
 type ExpanderRawTx e id c value ctx rawtx =
-    rawtx -> ERoComp e id value ctx (SomeTx id value c)
+    rawtx -> ERoCompM e id value ctx (SomeTx id value c)
 
 type RwActionWithMempool e id value rawtx ctx a =
-    ERwComp e id value ctx (MempoolState id value (ChgAccum ctx) rawtx) a
+    ERwComp e (DbAccessM (ChgAccum ctx) id value) ctx (MempoolState id value (ChgAccum ctx) rawtx) a
 
 type ProcessStateTx e id c value rawtx ctx =
-    SomeTx id value c -> RwActionWithMempool e id value rawtx ctx (Undo id value)
+    SomeTx id value c -> RwActionWithMempool e id value rawtx ctx ()
 
 data MempoolConfig e id c value ctx rawtx = MempoolConfig
     { mcExpandTx  :: ExpanderRawTx e id c value ctx rawtx
@@ -46,7 +46,7 @@ data MempoolConfig e id c value ctx rawtx = MempoolConfig
     }
 
 data MempoolState id value chgAccum rawtx = MempoolState
-    { msTxs      :: [(rawtx, Undo id value)]
+    { msTxs      :: [rawtx]
     , msChgAccum :: chgAccum
     }
 
@@ -61,7 +61,7 @@ instance HasGetter (MempoolState id value chgAccum rawtx) chgAccum where
 instance HasLens (MempoolState id value chgAccum rawtx) chgAccum where
     sett s x = s {msChgAccum = x}
 
-msTxsL :: Lens' (MempoolState id value chgAccum rawtx) [(rawtx, Undo id value)]
+msTxsL :: Lens' (MempoolState id value chgAccum rawtx) [rawtx]
 msTxsL = lens msTxs (\s x -> s {msTxs = x})
 
 instance Default chgAccum => Default (MempoolState id value chgAccum rawtx) where
@@ -87,22 +87,28 @@ defaultMempoolConfig
     -> MempoolConfig e id (RContains txtypes) value ctx rawtx
 defaultMempoolConfig expander validator = MempoolConfig {
       mcProcessTx = applySomeTx $ \tx -> do
-        liftERoComp $ runValidator validator tx
-        modifyRwCompChgAccum (CAMChange $ txBody tx)
+        chgAccum' <- liftERoComp $ do
+            () <- convertEffect $ runValidator validator tx
+            modifyAccumOne (txBody tx)
+        modify (flip sett chgAccum')
     , mcExpandTx = expander
     }
 
 actionWithMempool
-    :: ( Show e, Typeable e, Default chgAccum
+  :: forall e da chgAccum id value rawtx daa a .
+       ( Show e, Typeable e, Default chgAccum
        , HasReview e StatePException
+       , chgAccum ~ ChgAccum (IOCtx da)
+       , DbActions da daa chgAccum ExecM
+       , ConvertEffect e (IOCtx da) (DbAccessM chgAccum id value) da
        )
     => Mempool id value chgAccum rawtx
-    -> DbAccessActions chgAccum id value ExecM
-    -> RwActionWithMempool e id value rawtx (IOCtx chgAccum id value) a
+    -> daa ExecM
+    -> RwActionWithMempool e id value rawtx (IOCtx da) a
     -> ExecM a
 actionWithMempool mem@Mempool{..} dbActs callback = do
     Versioned{vsVersion=version,..} <- liftIO $ atomically $ readTVar mempoolState
-    (res, newState) <- runERwCompIO dbActs vsData callback
+    (res, newState) <- runERwCompIO dbActs vsData (convertERwComp convertEffect callback)
     modified <- liftIO $ atomically $ do
         stLast <- readTVar mempoolState
         if version == vsVersion stLast then
@@ -119,5 +125,5 @@ createMempool = Mempool <$> atomically (newTVar def)
 getMempoolTxs
     :: (Default chgAccum, MonadIO m)
     => Mempool id value chgAccum rawtx
-    -> m [(rawtx, Undo id value)]
+    -> m [rawtx]
 getMempoolTxs Mempool{..} = msTxs . vsData <$> atomically (readTVar mempoolState)

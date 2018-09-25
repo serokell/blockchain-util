@@ -10,9 +10,9 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..), getCurrent
                                                getPreviousBlockRef)
 import           Snowdrop.Block.Fork (ForkVerificationException (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (BlockRef, CurrentBlockRef (..), PrevBlockRef (..), RawBlk,
-                                       RawBlund)
-import           Snowdrop.Core (ERwComp)
+import           Snowdrop.Block.Types (BlockRef, BlockUndo, CurrentBlockRef (..), PrevBlockRef (..),
+                                       RawBlk, RawBlund)
+import           Snowdrop.Core (DbAccessU, ERwComp)
 import           Snowdrop.Util
 
 
@@ -20,15 +20,16 @@ import           Snowdrop.Util
 -- Client calls 'blockSync' on list of hashes of blocks to check
 -- whether server contains the same list of hashes or not
 blockSync
-    :: forall blkType e id value blockChgAccum ctx.
+  :: forall blkType e id value blockChgAccum ctx erwcomp.
     ( Default blockChgAccum
     , HasException e (ForkVerificationException (BlockRef blkType))
     , HasGetter (RawBlund blkType) (RawBlk blkType)
     , Eq (BlockRef blkType)
+    , erwcomp ~ ERwComp e (DbAccessU blockChgAccum (BlockUndo blkType) id value) ctx blockChgAccum
     )
-    => BlkStateConfiguration blkType (ERwComp e id value ctx blockChgAccum)
+    => BlkStateConfiguration blkType erwcomp
     -> OldestFirst [] (BlockRef blkType)
-    -> ERwComp e id value ctx blockChgAccum (OldestFirst [] (RawBlk blkType))
+    -> erwcomp (OldestFirst [] (RawBlk blkType))
 blockSync config hashes = do
     tipBlockRefM <- bscGetTip config
     case tipBlockRefM of
@@ -44,7 +45,7 @@ blockSync config hashes = do
           :: Int
           -> BlockRef blkType
           -> OldestFirst [] (RawBlk blkType)
-          -> ERwComp e id value ctx blockChgAccum (OldestFirst [] (RawBlk blkType))
+          -> erwcomp (OldestFirst [] (RawBlk blkType))
       loop depth from acc =
           case depth <= 0 of
               True -> pure acc
@@ -60,7 +61,7 @@ blockSync config hashes = do
           :: Int
           -> RawBlund blkType
           -> OldestFirst [] (RawBlk blkType)
-          -> ERwComp e id value ctx blockChgAccum (OldestFirst [] (RawBlk blkType))
+          -> erwcomp (OldestFirst [] (RawBlk blkType))
       findLCA depth sBlund acc =
           let hashesList = unOldestFirst hashes in
           if elem cur hashesList

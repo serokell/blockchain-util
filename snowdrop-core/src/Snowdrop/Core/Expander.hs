@@ -46,9 +46,9 @@ data PreExpander e id value ctx rawTx = PreExpander
 instance Contravariant (PreExpander e id value ctx) where
     contramap g (PreExpander s1 s2 f) = PreExpander s1 s2 (f . g)
 
--- | DiffChangeSet holds changes which one $PreExpander returns
+-- | DiffChangeSet holds changes which one 'PreExpander' returns
 newtype DiffChangeSet id value = DiffChangeSet {unDiffCS :: ChangeSet id value}
 
--- | Smart constructor for $DiffChangeSet
+-- | Smart constructor for 'DiffChangeSet'
 mkDiffCS :: Map id (ValueOp v) -> DiffChangeSet id v
 mkDiffCS = DiffChangeSet . ChangeSet

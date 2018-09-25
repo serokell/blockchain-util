@@ -98,7 +98,7 @@ class (HasPrism s a, Enum s) => IdStorage s a
 getId :: forall ids i . IdStorage ids i => Proxy ids -> i -> Int
 getId _ i = fromEnum (inj i :: ids)
 
--- | Data type, similar to `Either` which provides instances of $Semigroup and $Monoid,
+-- | Data type, similar to `Either` which provides instances of 'Semigroup' and 'Monoid',
 -- well suited for error handling.
 data VerRes e a = VErr e | VRes a
     deriving (Show, Eq)
@@ -112,17 +112,17 @@ instance (Monoid a, Semigroup a) => Monoid (VerRes e a) where
     mempty = VRes mempty
     mappend = (<>)
 
--- | Convert value of type $Either to type $VerRes
+-- | Convert value of type 'Either' to type 'VerRes'
 eitherToVerRes :: Either e a -> VerRes e a
 eitherToVerRes (Right x) = VRes x
 eitherToVerRes (Left e)  = VErr e
 
--- | Convert value of type $VerRes to type $Either
+-- | Convert value of type 'VerRes' to type 'Either'
 verResToEither :: VerRes e a -> Either e a
 verResToEither (VRes x) = Right x
 verResToEither (VErr e) = Left e
 
--- | Helper to run $ExceptT in order to obtain $VerRes
+-- | Helper to run 'ExceptT' in order to obtain 'VerRes'
 runExceptTV :: Monad m => ExceptT e m a -> m (VerRes e a)
 runExceptTV = fmap eitherToVerRes . runExceptT
 

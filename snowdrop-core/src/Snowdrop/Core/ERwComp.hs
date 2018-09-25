@@ -3,34 +3,33 @@
 module Snowdrop.Core.ERwComp
        ( ERwComp
        , runERwComp
-       , modifyRwCompChgAccum
        , liftERoComp
+       , convertERwComp
        ) where
 
 import           Universum
 
-import           Control.Lens ((.=))
 import           Control.Monad.Except (MonadError)
 
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), Undo)
-import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), ChgAccumModifier, ERoComp,
-                                        StatePException (..), initAccumCtx, modifyAccum)
+import           Snowdrop.Core.BaseM (BaseM)
+import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), ConvertEffect (..),
+                                        StatePException (..), initAccumCtx)
 import           Snowdrop.Util
 
 -- | StateT over ERoComp.
 -- ERoComp can be lifted to ERwComp with regarding a current state.
-newtype ERwComp e id value ctx s a = ERwComp { unERwComp :: StateT s (ERoComp e id value ctx) a }
+newtype ERwComp e eff ctx s a = ERwComp { unERwComp :: StateT s (BaseM e eff ctx) a }
     deriving (Functor, Applicative, Monad, MonadError e, MonadState s)
 
 -- | Run a ERwComp with a passed initial state.
 runERwComp
-    :: forall e id value ctx s a.
+  :: forall e eff ctx s a.
     ( HasException e StatePException
     , HasGetter ctx (ChgAccumCtx ctx)
     )
-    => ERwComp e id value ctx s a
-    -> s
-    -> ERoComp e id value ctx (a, s)
+  => ERwComp e eff ctx s a
+  -> s
+  -> BaseM e eff ctx (a, s)
 runERwComp stComp initS = do
     mChgAccum <- asks (gett @_ @(ChgAccumCtx ctx))
     case mChgAccum of
@@ -41,25 +40,17 @@ runERwComp stComp initS = do
 -- | Lift passed ERoComp to ERwComp.
 -- Set initial state of ERoComp as ChgAccum from state from ERwComp.
 liftERoComp
-    :: forall e id value ctx s a.
+    :: forall e eff2 ctx s eff1 a.
     ( HasException e StatePException
     , HasLens ctx (ChgAccumCtx ctx)
     , HasGetter s (ChgAccum ctx)
+    , ConvertEffect e ctx eff1 eff2
     )
-    => ERoComp e id value ctx a
-    -> ERwComp e id value ctx s a
-liftERoComp comp = gets (gett @_ @(ChgAccum ctx)) >>= ERwComp . lift . flip initAccumCtx comp
+    => BaseM e eff1 ctx a
+    -> ERwComp e eff2 ctx s a
+liftERoComp comp =
+    gets (gett @_ @(ChgAccum ctx)) >>= ERwComp . lift . flip initAccumCtx (convertEffect comp)
 
--- | Mappend passed ChgAccumModifier to ChgAccum part of a state.
-modifyRwCompChgAccum
-    :: forall e id value ctx s .
-    ( HasException e (CSMappendException id)
-    , HasLens s (ChgAccum ctx)
-    )
-    => ChgAccumModifier id value
-    -> ERwComp e id value ctx s (Undo id value)
-modifyRwCompChgAccum chgSet = do
-    chgAcc <- gets (gett @_ @(ChgAccum ctx))
-    newChgAccOrE <- ERwComp $ lift $ modifyAccum chgAcc chgSet
-    flip (either $ ERwComp . throwLocalError) newChgAccOrE $
-      \(chgAcc', undo) -> (lensFor @s @(ChgAccum ctx) .= chgAcc') $> undo
+
+convertERwComp :: (BaseM e eff1 ctx (a, s) -> BaseM e eff2 ctx (a, s)) -> ERwComp e eff1 ctx s a -> ERwComp e eff2 ctx s a
+convertERwComp f (ERwComp (StateT act)) = ERwComp $ StateT $ \s -> f (act s)

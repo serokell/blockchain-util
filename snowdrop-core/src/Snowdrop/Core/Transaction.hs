@@ -38,12 +38,12 @@ type family SValue id :: *
 type family TxProof (txtype :: k) :: *
 
 -- | Constraint, ensuring proper value type is used with id type
--- Uses $SValue type family in order to maintain relation.
+-- Uses 'SValue' type family in order to maintain relation.
 type HasKeyValue id val id1 val1 = (HasPrism id id1, HasPrism val val1, SValue id1 ~ val1)
 
 -- | Transaction which modifies state.
 -- There is also RawTx, which is posted on the blockchain.
--- Ideally, RawStateTx and any action which modifies a state can be converted into $StateTx.
+-- Ideally, RawStateTx and any action which modifies a state can be converted into 'StateTx'.
 data StateTx id value (txtype :: *) = StateTx
     { txProof :: TxProof txtype
     , txBody  :: ChangeSet id value
@@ -75,7 +75,7 @@ deriving instance (Ord  (TxProof txtype), Ord  id, Ord  value) => Ord  (StateTx 
 deriving instance (Show (TxProof txtype), Show id, Show value) => Show (StateTx id value txtype)
 deriving instance Generic (StateTx id txtype value)
 
--- | Traverse change set and ensure all keys have the same prefixes, construct $PartialStateTx as result.
+-- | Traverse change set and ensure all keys have the same prefixes, construct 'PartialStateTx' as result.
 -- Throws an error in case of multiple prefixes found in given change set.
 mkPartialStateTx
     :: forall id1 txtype value . Ord id1

@@ -7,6 +7,7 @@ module Snowdrop.Execution.DbActions.AVLp.Avl
        ( AvlHashable
        , KVConstraint
        , RootHash (..)
+       , AvlUndo
        , saveAVL
        , materialize
        , mkAVL
@@ -32,7 +33,9 @@ type KVConstraint k v = (IdSumPrefixed k, Typeable k, Ord k, Show k,
                          Serialisable k, Serialisable v, Show v, Eq v)
 
 newtype RootHash h = RootHash { unRootHash :: h }
-    deriving (Eq, Serialisable)
+  deriving (Eq, Serialisable, Show)
+
+type AvlUndo = RootHash
 
 saveAVL :: forall h k v m . (AVL.Stores h k v m, MonadCatch m) => AVL.Map h k v -> m (RootHash h)
 saveAVL avl = AVL.save avl $> avlRootHash avl

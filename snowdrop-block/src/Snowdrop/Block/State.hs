@@ -10,8 +10,6 @@ module Snowdrop.Block.State
 
 import           Universum
 
-import qualified Data.ByteString as BS
-import           Data.Default (def)
 import           Data.Default (Default)
 import qualified Data.Map as M
 import qualified Data.Text.Buildable
@@ -20,11 +18,12 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
                                        CurrentBlockRef (..), Payload, RawBlk, RawPayload)
-import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx,
-                                ChgAccumModifier (..), ERwComp, HasKeyValue, IdSumPrefixed (..),
-                                SomeTx, StatePException (..), StateTx (..), Undo (..), Validator,
-                                ValueOp (..), applySomeTx, liftERoComp, mappendChangeSet,
-                                modifyRwCompChgAccum, queryOne, queryOneExists, runValidator)
+import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum,
+                                ChgAccumCtx (CAInitialized), DbAccessU, ERwComp, HasKeyValue,
+                                IdSumPrefixed (..), SomeTx, StatePException (..), StateTx (..),
+                                Validator, ValueOp (..), applySomeTx, computeUndo, convertEffect,
+                                getCAOrDefault, liftERoComp, modifyAccum, modifyAccumOne,
+                                modifyAccumUndo, queryOne, queryOneExists, runValidator)
 import           Snowdrop.Execution (ProofNExp (..), RestrictCtx, RestrictionInOutException,
                                      expandUnionRawTxs)
 import           Snowdrop.Util
@@ -55,8 +54,7 @@ data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
 inmemoryBlkStateConfiguration
   :: forall blkType e id value rawTx txtypes ctx .
     ( HasKeyValue id value TipKey (TipValue (BlockRef blkType))
-    , HasKeyValue id value (BlockRef blkType) (Blund (BlockHeader blkType) (RawPayload blkType) (Undo id value))
-    , BlockUndo blkType ~ Undo id value
+    , HasKeyValue id value (BlockRef blkType) (Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))
     , HasExceptions e
         [ StatePException
         , BlockStateException id
@@ -76,7 +74,7 @@ inmemoryBlkStateConfiguration
     -> Validator e id value ctx txtypes
     -> (rawTx -> SomeData (ProofNExp e id value ctx rawTx) (RContains txtypes))
     -> (RawBlk blkType -> [SomeTx id value (RContains txtypes)] -> Block (BlockHeader blkType) (Payload blkType))
-    -> BlkStateConfiguration blkType (ERwComp e id value ctx (ChgAccum ctx))
+    -> BlkStateConfiguration blkType (ERwComp e (DbAccessU (ChgAccum ctx) (BlockUndo blkType) id value) ctx (ChgAccum ctx))
 inmemoryBlkStateConfiguration cfg validator mkProof mkBlock =
     BlkStateConfiguration {
       bscConfig = cfg
@@ -84,28 +82,32 @@ inmemoryBlkStateConfiguration cfg validator mkProof mkBlock =
           blkPayload <- liftERoComp $ expandUnionRawTxs mkProof (gett rawBlock)
           pure (mkBlock rawBlock blkPayload)
     , bscApplyPayload = \(gett @_ @[SomeTx id value (RContains txtypes)] -> txs) -> do
-          undos <- forM txs $ \tx -> do
-                      liftERoComp $ applySomeTx (runValidator validator) tx
-                      modifyRwCompChgAccum (CAMChange $ applySomeTx txBody tx)
-          let mergeUndos (Undo cs1 _) (Undo cs2 sn2) = flip Undo sn2 <$> mappendChangeSet cs1 cs2
-          case reverse undos of
-              []     -> pure $ Undo def BS.empty
-              f:rest -> either throwLocalError pure $ foldM mergeUndos f rest
-    , bscApplyUndo = void . modifyRwCompChgAccum . CAMRevert
+          (newSt, undo) <- liftERoComp $ do
+              curAcc <- asks (getCAOrDefault @ctx . gett)
+              OldestFirst accs <-
+                  convertEffect $ modifyAccum (OldestFirst $ map (applySomeTx txBody) txs)
+              let preAccs = init (curAcc :| accs)
+                  lastAcc = last (curAcc :| accs)
+              convertEffect $ mconcat $ flip map (zip preAccs txs) $ \(acc, tx) ->
+                  local ( lensFor .~ CAInitialized @ctx acc ) $ applySomeTx (runValidator validator) tx
+              (lastAcc,) <$> computeUndo @_ @id @value lastAcc
+          undo <$ modify (flip sett newSt)
+    , bscApplyUndo = liftERoComp . modifyAccumUndo @_ @id @value . pure >=> modify . flip sett
     , bscStoreBlund = \blund -> do
           let blockRef = unCurrentBlockRef $ bcBlockRef cfg (blkHeader $ buBlock blund)
-          let chg = ChangeSet $ M.singleton (inj $ blockRef) (New $ inj blund)
-          void $ modifyRwCompChgAccum $ CAMChange chg
-    , bscRemoveBlund = \blockRef ->
-        void $ modifyRwCompChgAccum $ CAMRevert $ Undo (ChangeSet $ M.singleton (inj blockRef) Rem) BS.empty
-    , bscGetBlund = liftERoComp . queryOne
-    , bscBlockExists = liftERoComp . queryOneExists
-    , bscGetTip = liftERoComp (queryOne TipKey)
+          let (chg :: ChangeSet id value) = ChangeSet $ M.singleton (inj $ blockRef) (New $ inj blund)
+          liftERoComp (modifyAccumOne chg) >>= modify . flip sett
+    , bscRemoveBlund = \blockRef -> do
+          let (chg :: ChangeSet id value) = ChangeSet $ M.singleton (inj blockRef) Rem
+          liftERoComp (modifyAccumOne chg) >>= modify . flip sett
+    , bscGetBlund = liftERoComp . queryOne @id @_ @value
+    , bscBlockExists = liftERoComp . queryOneExists @id @_ @value
+    , bscGetTip = liftERoComp (queryOne @id @_ @value TipKey)
                     >>= maybe (throwLocalError @(BlockStateException id) TipNotFound) (pure . unTipValue)
     , bscSetTip = \newTip' -> do
           let newTip = inj $ TipValue newTip'
           let tipChg = \cons -> ChangeSet $ M.singleton (inj TipKey) (cons newTip)
-          oldTipMb <- liftERoComp $ queryOne TipKey
-          -- TODO check that tip corresponds to blund storage
-          void . modifyRwCompChgAccum . CAMChange . tipChg $ maybe New (const Upd) oldTipMb
+          oldTipMb <- liftERoComp $ queryOne @id @_ @value TipKey
+          let (chg :: ChangeSet id value) = tipChg $ maybe New (const Upd) oldTipMb
+          liftERoComp (modifyAccumOne chg) >>= modify . flip sett
     }

@@ -28,7 +28,7 @@ import           Snowdrop.Util (HasGetter, HasPrism (..), RContains)
 newtype PreValidator e id value ctx txtype =
     PreValidator { runPrevalidator :: StateTx id value txtype -> ERoComp e id value ctx () }
 
--- | Alias for $PreValidator constructor
+-- | Alias for 'PreValidator' constructor
 mkPreValidator
     :: (StateTx id value txtype -> ERoComp e id value ctx ())
     -> PreValidator e id value ctx txtype
@@ -48,7 +48,7 @@ instance Ord id => Monoid (PreValidator e id value ctx txtype) where
     mempty = PreValidator $ const (pure ())
     mappend = (<>)
 
--- | Smart constructor for $Validator type
+-- | Smart constructor for 'Validator' type
 mkValidator ::
     Ord id
     => [PreValidator e id value ctx txtype]

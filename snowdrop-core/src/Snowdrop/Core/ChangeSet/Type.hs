@@ -4,7 +4,6 @@
 
 module Snowdrop.Core.ChangeSet.Type
        ( ChangeSet (..)
-       , Undo (..)
        , csRemove
        , csNew
        , csUpdate
@@ -16,6 +15,7 @@ module Snowdrop.Core.ChangeSet.Type
        , filterByPrefix
        , filterByPrefixPred
        , filterSetByPrefixPred
+       , diffChangeSet
        ) where
 
 import           Universum hiding (head, init, last)
@@ -27,7 +27,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text.Buildable
 
-import           Snowdrop.Core.ChangeSet.ValueOp (ValueOp (..), ValueOpEx (..))
+import           Snowdrop.Core.ChangeSet.ValueOp (ValueOp (..), ValueOpEx (..), (<->))
 import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
 import           Snowdrop.Util
 
@@ -48,13 +48,6 @@ instance (Ord id, HasReview id id1, HasReview value value1)
 instance (Ord id, Ord id1, HasPrism id id1, HasPrism value value1)
       => HasPrism (ChangeSet id value) (ChangeSet id1 value1) where
     proj (ChangeSet mp) = ChangeSet <$> proj mp
-
--- | Undo holds changes which must be applied to state to get a previous state.
-data Undo id value = Undo
-    { undoChangeSet :: ChangeSet id value
-    , undoSnapshot  :: ByteString
-    -- ^ Version of AVL tree to rollback. To be removed and abstracted.
-    } deriving (Show, Eq, Generic)
 
 -- | Returns a set of keys which Rem operation should be applied to.
 csRemove :: ChangeSet id v -> Set id
@@ -147,3 +140,23 @@ filterByPrefix p = filterByPrefixPred (== p)
 -- | Returns only those elements where key's prefix satisfies the predicate.
 filterSetByPrefixPred :: IdSumPrefixed id => (Prefix -> Bool) -> Set id -> Set id
 filterSetByPrefixPred predicate mp = S.filter (predicate . idSumPrefix) mp
+
+
+-- | Calculates diff of two changesets, namely
+-- @c `diffChangeSet` a = Right b@ iff @a `mappendChangeSet` b = Right c@
+diffChangeSet
+    :: Ord id
+    => ChangeSet id v
+    -> ChangeSet id v
+    -> Either (CSMappendException id) (ChangeSet id v)
+diffChangeSet (ChangeSet c) (ChangeSet a) = do
+    let err :: id -> Either (CSMappendException id) a
+        err = Left . CSMappendException
+        processKey b (k, aV) = do
+          bV <- case k `M.lookup` c of
+            Just cV -> maybe (err k) pure (cV <-> aV)
+            _       -> err k
+          pure $ M.insert k bV b
+    b' <- foldM processKey mempty (M.toList a)
+    pure $ ChangeSet $ (c M.\\ a) <> b'
+
