@@ -67,7 +67,7 @@ data DbAccessActionsU chgAccum undo id value m = DbAccessActionsU
     -- Function returns an undo object, such that @modified `applyUndo` undo = base@
     }
 
--- | Class provided to execute effect with ations corresponding to it.
+-- | Class provided to execute effect with actions corresponding to it.
 class DbActions effect actions param m where
     -- | Execute @effect r@ using @actions m@ and return value @r@ in monad @m@.
     executeEffect :: effect r -> actions m -> param -> m r
@@ -79,6 +79,12 @@ instance Functor m => DbActions (DbAccess id value)
     executeEffect (DbIterator prefix (FoldF (e, acc, cont))) daa chgAccum =
         cont <$> daaIter daa chgAccum prefix e acc
 
+instance Functor m => DbActions (DbAccessM chgAccum id value)
+                                (DbAccessActionsM chgAccum id value) chgAccum m where
+    executeEffect (DbAccess da) (daaAccess -> daa) chgAccum = executeEffect da daa chgAccum
+    executeEffect (DbModifyAccum chgSet cont) daaM chgAccum =
+        cont <$> daaModifyAccum daaM chgAccum chgSet
+
 instance Functor m => DbActions (DbAccessU chgAccum undo id value)
                                 (DbAccessActionsU chgAccum undo id value) chgAccum m where
     executeEffect (DbAccessM daM) (daaAccessM -> daaM) chgAccum = executeEffect daM daaM chgAccum
@@ -86,12 +92,6 @@ instance Functor m => DbActions (DbAccessU chgAccum undo id value)
         cont <$> daaComputeUndo daaU chgAccum cs
     executeEffect (DbModifyAccumUndo undos cont) daaU chgAccum =
         cont <$> daaModifyAccumUndo daaU chgAccum undos
-
-instance Functor m => DbActions (DbAccessM chgAccum id value)
-                                (DbAccessActionsM chgAccum id value) chgAccum m where
-    executeEffect (DbAccess da) (daaAccess -> daa) chgAccum = executeEffect da daa chgAccum
-    executeEffect (DbModifyAccum chgSet cont) daaM chgAccum =
-        cont <$> daaModifyAccum daaM chgAccum chgSet
 
 -- | Actions to access and modify state.
 data DbModifyActions chgAccum undo id value m proof = DbModifyActions
@@ -110,6 +110,7 @@ data DbActionsException
     | DbWrongIdQuery Text
     | DbWrongPrefixIter Text
     | DbProtocolError Text
+    | DbUndoProjectionError
     deriving Show
 
 instance Exception DbActionsException
@@ -120,6 +121,7 @@ instance Buildable DbActionsException where
         DbWrongIdQuery t -> bprint ("Wrong id query to DB: "%build) t
         DbWrongPrefixIter t -> bprint ("Wrong prefix iterator: "%build) t
         DbProtocolError t -> bprint ("Db protocol error: "%build) t
+        DbUndoProjectionError -> "Wrong undo object provided: projection failed"
 
 -- | Toggle on whether to record proof within DbModifyActions
 data RememberForProof = RememberForProof { unRememberForProof :: Bool }

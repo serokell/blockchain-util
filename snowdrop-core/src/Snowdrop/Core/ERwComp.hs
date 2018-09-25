@@ -3,7 +3,6 @@
 module Snowdrop.Core.ERwComp
        ( ERwComp
        , runERwComp
-       -- , modifyRwCompChgAccum
        , liftERoComp
        , convertERwComp
        ) where

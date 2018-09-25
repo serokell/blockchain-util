@@ -1,7 +1,3 @@
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE Rank2Types          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Snowdrop.Execution.Mempool.Logic
        ( evictMempool
        , processTxAndInsertToMempool

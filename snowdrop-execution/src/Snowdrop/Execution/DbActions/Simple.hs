@@ -87,28 +87,35 @@ sumChangeSetDaaM daa = daaM
         modScs (scs, res) cs = (\scs' -> (scs', scs':res)) <$> scs `modifySumChgSet` cs
 
 sumChangeSetDaaU
-    :: forall id value undo m . (IdSumPrefixed id, Ord id, MonadCatch m)
-    => (ChangeSet id value -> undo)
-    -> (undo -> ChangeSet id value)
-    -> DbAccessActions (SumChangeSet id value) id value m
+    :: forall id value undo m .
+      (IdSumPrefixed id, Ord id, MonadCatch m, HasPrism undo (ChangeSet id value))
+    => DbAccessActions (SumChangeSet id value) id value m
     -> DbAccessActionsU (SumChangeSet id value) undo id value m
-sumChangeSetDaaU convCS convUndo daa = daaU
+sumChangeSetDaaU daa = daaU
   where
-    liftA' f a b = pure $ f a b
-    daaU = DbAccessActionsU (sumChangeSetDaaM daa) (liftA' modifyAccumU) computeUndo
+    daaU = DbAccessActionsU (sumChangeSetDaaM daa) modifyAccumU computeUndo
 
     modifyAccumU
       :: SumChangeSet id value
       -> NewestFirst [] undo
+      -> m (Either (CSMappendException id) (SumChangeSet id value))
+    modifyAccumU scs undos = do
+        undos' <- maybe (throwM DbUndoProjectionError) pure (traverse proj undos)
+        pure (modifyAccumU' scs undos')
+
+
+    modifyAccumU'
+      :: SumChangeSet id value
+      -> NewestFirst [] (ChangeSet id value)
       -> Either (CSMappendException id) (SumChangeSet id value)
-    modifyAccumU scs (NewestFirst css) = foldM modifySumChgSet scs $ convUndo <$> css
+    modifyAccumU' scs (NewestFirst css) = foldM modifySumChgSet scs css
 
     computeUndo
         :: SumChangeSet id value
         -> SumChangeSet id value
         -> m (Either (CSMappendException id) undo)
     computeUndo scs@(SumChangeSet scs1) (SumChangeSet scs2) =
-      either (pure . Left) ((fmap $ fmap convCS) <$> computeUndoDo scs) (scs2 `diffChangeSet` scs1)
+      either (pure . Left) ((fmap $ fmap inj) <$> computeUndoDo scs) (scs2 `diffChangeSet` scs1)
 
     computeUndoDo
         :: SumChangeSet id value

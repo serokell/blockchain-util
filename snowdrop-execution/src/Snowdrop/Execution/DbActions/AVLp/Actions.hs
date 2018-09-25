@@ -31,7 +31,9 @@ import           Snowdrop.Execution.DbActions.AVLp.State (AMSRequested (..), AVL
                                                           runAVLCacheT)
 import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessActions (..),
                                                      DbAccessActionsM (..), DbAccessActionsU (..),
-                                                     DbModifyActions (..), RememberForProof (..))
+                                                     DbActionsException (..), DbModifyActions (..),
+                                                     RememberForProof (..))
+import           Snowdrop.Util (HasPrism, NewestFirst, inj, proj)
 
 avlClientDbActions
   :: forall k v m h n undo.
@@ -44,13 +46,12 @@ avlClientDbActions
     , MonadCatch n
     , RetrieveImpl (ReaderT (ClientTempState h k v n) m) h
     , Serialisable (MapLayer h k v h)
+    , HasPrism undo (AvlUndo h)
     )
-    => (AvlUndo h -> undo)
-    -> (undo -> AvlUndo h)
-    -> RetrieveF h n
+    => RetrieveF h n
     -> RootHash h
     -> n (ClientMode (AVL.Proof h k v) -> DbModifyActions (AVLChgAccum h k v) undo k v m ())
-avlClientDbActions convAvlU convUndo retrieveF = fmap mkActions . newTVarIO
+avlClientDbActions retrieveF = fmap mkActions . newTVarIO
   where
     mkActions var ctMode =
         DbModifyActions (mkAccessActions var ctMode) (reThrowAVLEx @k . apply var)
@@ -66,8 +67,8 @@ avlClientDbActions convAvlU convUndo retrieveF = fmap mkActions . newTVarIO
             (\cA p b f -> reThrowAVLEx @k $ iter cA p b f =<< createState)
         daaM = DbAccessActionsM daa (\cA cs -> reThrowAVLEx @k $ modAccum cA cs =<< createState)
         daaU = DbAccessActionsU daaM
-                  (\cA u -> pure $ Right $ modAccumU cA $ convUndo <$> u)
-                  (\cA _cs -> pure . Right . convAvlU . computeUndo cA =<< reThrowAVLEx @k createState)
+                  (withProjUndo . modAccumU)
+                  (\cA _cs -> pure . Right . inj . computeUndo cA =<< reThrowAVLEx @k createState)
         createState = clientModeToTempSt retrieveF ctMode =<< atomically (readTVar var)
 
     apply :: AvlHashable h => TVar (RootHash h) -> AVLChgAccum h k v -> m ()
@@ -75,21 +76,23 @@ avlClientDbActions convAvlU convUndo retrieveF = fmap mkActions . newTVarIO
         liftIO $ atomically $ writeTVar var (avlRootHash accAvl)
     apply _ Nothing = pure ()
 
+withProjUndo :: (HasPrism undo undo', MonadThrow m, Applicative f) => (NewestFirst [] undo' -> a) -> NewestFirst [] undo -> m (f a)
+withProjUndo action = maybe (throwM DbUndoProjectionError) (pure . pure . action) . traverse proj
+
 avlServerDbActions
     :: forall k v m h n undo .
     ( MonadIO m, MonadCatch m, AvlHashable h, AVL.Hash h k v, MonadIO n
     , KVConstraint k v, Serialisable (MapLayer h k v h)
+    , HasPrism undo (AvlUndo h)
     )
-    => (AvlUndo h -> undo)
-    -> (undo -> AvlUndo h)
-    -> AVLServerState h k
+    => AVLServerState h k
     -> n ( RememberForProof -> DbModifyActions (AVLChgAccum h k v) undo k v m (AVL.Proof h k v)
             -- `DbModifyActions` provided by `RememberForProof` object
             -- (`RememberForProof False` for disabling recording for queries performed)
           , RetrieveF h n
             -- Function to retrieve data from server state internal AVL storage
           )
-avlServerDbActions convAvlU convUndo = fmap mkActions . newTVarIO
+avlServerDbActions = fmap mkActions . newTVarIO
   where
     retrieveHash var h = atomically $ M.lookup h . unAVLPureStorage . amsState <$> readTVar var
     mkActions var = (\recForProof ->
@@ -109,8 +112,8 @@ avlServerDbActions convAvlU convUndo = fmap mkActions . newTVarIO
                   atomically (retrieveAMS var recForProof AMSWholeTree ))
         daaM = DbAccessActionsM daa (\cA cs -> liftIO $ reThrowAVLEx @k $ modAccum cA cs =<< atomically (readTVar var))
         daaU = DbAccessActionsU daaM
-                  (\cA u -> liftIO $ reThrowAVLEx @k $ pure $ Right $ modAccumU cA $ convUndo <$> u)
-                  (\cA _cs -> pure . Right . convAvlU . computeUndo cA =<< atomically (readTVar var))
+                  (withProjUndo . modAccumU)
+                  (\cA _cs -> pure . Right . inj . computeUndo cA =<< atomically (readTVar var))
 
     retrieveAMS var (RememberForProof True) amsReq = do
         ams <- readTVar var

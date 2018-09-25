@@ -1,6 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DeriveFunctor       #-}
-{-# LANGUAGE InstanceSigs        #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -90,13 +89,6 @@ modifyAccumOne cs =
   where
     head' []    = error "modifyAccumOne: unexpected empty effect execution result"
     head' (a:_) = a
-
---     = DbModifyAccumUndo
---         (NewestFirst [] undo)
---         (Either (CSMappendException id) chgAccum -> res)
---     | DbComputeUndo
---         (ChangeSet id value)
---         (Either (CSMappendException id) undo -> res)
 
 -- | Creates a DbComputeUndo operation.
 computeUndo
