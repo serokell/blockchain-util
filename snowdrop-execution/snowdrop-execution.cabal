@@ -33,6 +33,7 @@ library
     , lifted-async
     , loot-base
     , loot-log
+    , monad-control
     , mtl
     , reflection
     , snowdrop-core

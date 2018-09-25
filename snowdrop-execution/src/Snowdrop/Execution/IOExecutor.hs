@@ -7,9 +7,10 @@ module Snowdrop.Execution.IOExecutor
        , BaseMIOExec (..)
        , BaseMIO
        , BaseMException (..)
+       , BaseMIOContstraint
        , IOCtx (..)
---       , runERwCompIO
---       , runERoCompIO
+       , runERwCompIO
+       , runERoCompIO
        -- * Lens
        , ctxChgAccum
        , ctxExec
@@ -23,19 +24,19 @@ import qualified Control.Concurrent.Async.Lifted as Async
 import           Control.Lens (makeLenses)
 import           Control.Monad.Except (MonadError (..))
 import           Control.Monad.Trans.Control (MonadBaseControl)
-import           Data.Default (Default (def))
+import           Data.Default (Default)
 import qualified Data.Text.Buildable as Buildable
 
-import           Loot.Base.HasLens (HasLens', lensOf)
+import           Loot.Base.HasLens (lensOf)
 import qualified Loot.Base.HasLens as Loot
 import qualified Loot.Log.Rio as Rio
 
 import           Snowdrop.Core (BaseM (..), ChgAccum, ChgAccumCtx (..), CtxConcurrently (..),
-                                DbAccessM, DbAccessU, ERwComp, Effectful (..), StatePException,
-                                getCAOrDefault, runERwComp)
+                                DbAccessM, DbAccessU, ERwComp, Effectful (..), StatePException)
+                                -- runERwComp)
 import           Snowdrop.Execution.DbActions (DbActions (..))
 import           Snowdrop.Execution.Restrict (RestrictCtx)
-import           Snowdrop.Util (HasException, HasGetter (gett), HasLens (sett), RIO)
+import           Snowdrop.Util (HasException, HasGetter (gett), HasLens (sett))
 import qualified Snowdrop.Util as Log
 
 
@@ -53,7 +54,8 @@ newtype BaseMIO e (eff :: * -> *) m a = BaseMIO
     { unBaseMIO :: m a }
     deriving (Functor)
 
-instance (BaseMIOContstraint ctx m, HasLens ctx CtxConcurrently) => Applicative (BaseMIO e eff m) where
+instance (BaseMIOContstraint ctx m, HasLens ctx CtxConcurrently)
+    => Applicative (BaseMIO e eff m) where
     pure a = BaseMIO $ pure a
     BaseMIO a <*> BaseMIO b = BaseMIO $ do
         ctxConcurrent <- gett <$> ask
@@ -82,7 +84,8 @@ deriving instance
     , HasLens ctx CtxConcurrently
     ) => MonadReader ctx (BaseMIO e eff m)
 
-instance (BaseMIOContstraint ctx m, Loot.HasLens' ctx Log.LoggingIO, HasLens ctx CtxConcurrently, MonadIO m)
+instance (BaseMIOContstraint ctx m, Loot.HasLens' ctx Log.LoggingIO,
+          HasLens ctx CtxConcurrently, MonadIO m)
         => Log.MonadLogging (BaseMIO e eff m) where
     log = Rio.defaultLog
     logName = Rio.defaultLogName
@@ -119,7 +122,7 @@ runBaseMIO bm = unBaseMIO @e @eff $ unBaseM bm
 data IOCtx daa m = IOCtx
     { _ctxChgAccum   :: ChgAccumCtx (IOCtx daa m)
     , _ctxRestrict   :: RestrictCtx
-    , _ctxExec       :: BaseMIOExec daa (IOCtx daa) m
+    , _ctxExec       :: BaseMIOExec daa m
     , _ctxLogger     :: Log.LoggingIO
     , _ctxConcurrent :: CtxConcurrently
     }
@@ -140,12 +143,12 @@ instance HasGetter (IOCtx daa m) RestrictCtx where
 
 instance HasLens
            (IOCtx daa m)
-           (BaseMIOExec daa (IOCtx daa) m) where
+           (BaseMIOExec daa m) where
     sett ctx val = ctx { _ctxExec = val }
 
 instance HasGetter
            (IOCtx daa m)
-           (BaseMIOExec daa (IOCtx daa) m) where
+           (BaseMIOExec daa m) where
     gett = _ctxExec
 
 instance HasLens (IOCtx daa m) (ChgAccumCtx (IOCtx daa m)) where
@@ -166,51 +169,54 @@ runERoCompIO
     , Typeable e
     , Default (ChgAccum (IOCtx da m))
     , MonadIO m
-    , MonadReader ctx m
-    , HasLens' ctx Log.LoggingIO
     , DbActions da daa (ChgAccum (IOCtx da m)) m
+    , BaseMIOContstraint ctx m
     )
     => daa m
     -> Maybe (ChgAccum (IOCtx da m))
     -> BaseM e da (IOCtx da m) a
     -> m a
-runERoCompIO daa initAcc comp = do
-    logger <- view (lensOf @Log.LoggingIO)
-    liftIO $ Log.runRIO logger $ runBaseMIO comp $
-        IOCtx
-          { _ctxRestrict = def
-          , _ctxChgAccum = maybe CANotInitialized CAInitialized initAcc
-          , _ctxExec = exec
-          , _ctxLogger = logger
-          , _ctxConcurrent = def
-          }
-  where
-    exec = BaseMIOExec $ \(getCAOrDefault . _ctxChgAccum -> chgAccum) da -> executeEffect da daa chgAccum
+runERoCompIO _daa _initAcc _comp = error "Fix this"
+-- runERoCompIO daa initAcc comp = do
+    -- runBaseMIO comp
+    -- logger <- view (lensOf @Log.LoggingIO)
+    --     IOCtx
+    --       { _ctxRestrict = def
+    --       , _ctxChgAccum = maybe CANotInitialized CAInitialized initAcc
+    --       , _ctxExec = exec
+    --       , _ctxLogger = logger
+    --       , _ctxConcurrent = def
+    --       }
+  -- where
+    -- exec = BaseMIOExec $ \da -> do
+    --     chgAccum <- asks (getCAOrDefault . _ctxChgAccum)
+    --     executeEffect da daa chgAccum
 
 runERwCompIO
-  :: forall e da daa s ctx m a .
+  :: forall e da daa s m ctx a .
     ( Show e
     , Typeable e
     , Default (ChgAccum (IOCtx da m))
     , HasException e StatePException
     , MonadIO m
-    , MonadReader ctx m
-    , HasLens' ctx Log.LoggingIO
     , DbActions da daa (ChgAccum (IOCtx da m)) m
+    , BaseMIOContstraint ctx m
     )
     => daa m
     -> s
     -> ERwComp e da (IOCtx da m) s a
     -> m (a, s)
-runERwCompIO daa initS comp = do
-    logger <- view (lensOf @Log.LoggingIO)
-    liftIO $ Log.runRIO logger $ runBaseMIO (runERwComp comp initS) $
-        IOCtx
-          { _ctxRestrict = def
-          , _ctxChgAccum = CANotInitialized
-          , _ctxExec = exec
-          , _ctxLogger = logger
-          , _ctxConcurrent = def
-          }
-  where
-    exec = BaseMIOExec $ \(getCAOrDefault . _ctxChgAccum -> chgAccum) dAccess -> executeEffect dAccess daa chgAccum
+runERwCompIO _daa _initS _comp = error "Fix this"
+-- runERwCompIO _daa initS comp = do
+    -- runBaseMIO (runERwComp comp initS)
+--         IOCtx
+--           { _ctxRestrict = def
+--           , _ctxChgAccum = CANotInitialized
+--           , _ctxExec = exec
+--           , _ctxLogger = logger
+--           , _ctxConcurrent = def
+--           }
+--   where
+--     exec = BaseMIOExec $ \da -> do
+--         chgAccum <- asks (getCAOrDefault . _ctxChgAccum)
+--         pure $ executeEffect da daa chgAccum

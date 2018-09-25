@@ -23,7 +23,7 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx, 
                                 Validator, applySomeTx, convertERwComp, convertEffect, liftERoComp,
                                 modifyAccumOne, runValidator)
 import           Snowdrop.Execution.DbActions (DbActions)
-import           Snowdrop.Execution.IOExecutor (IOCtx, runERwCompIO)
+import           Snowdrop.Execution.IOExecutor (IOCtx, runERwCompIO, BaseMIOContstraint)
 import           Snowdrop.Util
 
 ---------------------------
@@ -95,17 +95,19 @@ defaultMempoolConfig expander validator = MempoolConfig {
     }
 
 actionWithMempool
-  :: forall e da chgAccum id value rawtx daa a .
+  :: forall e da chgAccum id value rawtx daa a ctx m .
        ( Show e, Typeable e, Default chgAccum
        , HasReview e StatePException
-       , chgAccum ~ ChgAccum (IOCtx da)
-       , DbActions da daa chgAccum ExecM
-       , ConvertEffect e (IOCtx da) (DbAccessM chgAccum id value) da
+       , chgAccum ~ ChgAccum (IOCtx da m)
+       , DbActions da daa chgAccum m
+       , ConvertEffect e (IOCtx da m) (DbAccessM chgAccum id value) da
+       , BaseMIOContstraint ctx m
+       , MonadIO m
        )
     => Mempool id value chgAccum rawtx
-    -> daa ExecM
-    -> RwActionWithMempool e id value rawtx (IOCtx da) a
-    -> ExecM a
+    -> daa m
+    -> RwActionWithMempool e id value rawtx (IOCtx da m) a
+    -> m a
 actionWithMempool mem@Mempool{..} dbActs callback = do
     Versioned{vsVersion=version,..} <- liftIO $ atomically $ readTVar mempoolState
     (res, newState) <- runERwCompIO dbActs vsData (convertERwComp convertEffect callback)
