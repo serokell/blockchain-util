@@ -1,6 +1,6 @@
 # Blockchain utility
 
-A repository with abstract building blocks to be used for the construction of blockchain solutions.
+A repository with abstract building blocks, maintained by [Serokell](https://serokell.io), to be used for the construction of blockchain solutions.
 The repository provides the following packages:
 
 * Package `snowdrop-core`
@@ -33,3 +33,16 @@ Prefix `snowdrop` used all over the codebase refers to the codename of a project
 under umbrella of which these building blocks are being developed.
 The whole project (along with its repositories and documentation) will be announced and made public in Q4 2018.
 
+## How to build
+
+Use following command to build this package:
+
+```
+stack build
+```
+
+To build haddock use the following command (currently building Haddock for one of repo's deps makes haddock result into out of memory):
+
+```
+stack haddock --fast --no-haddock-deps
+```
