@@ -17,13 +17,14 @@ import           Universum
 
 import           Control.Lens (lens)
 import           Data.Default (Default (..))
+import qualified Loot.Base.HasLens as L
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx, ConvertEffect,
                                 DbAccessM, ERoCompM, ERwComp, SomeTx, StatePException, StateTx (..),
                                 Validator, applySomeTx, convertERwComp, convertEffect, liftERoComp,
-                                modifyAccumOne, runValidator)
+                                modifyAccumOne, runERwComp, runValidator)
 import           Snowdrop.Execution.DbActions (DbActions)
-import           Snowdrop.Execution.IOExecutor (IOCtx, runERwCompIO, BaseMIOContstraint)
+import           Snowdrop.Execution.IOExecutor (BaseMIOContstraint, BaseMIOCtx, runBaseMIO)
 import           Snowdrop.Util
 
 ---------------------------
@@ -98,28 +99,28 @@ actionWithMempool
   :: forall e da chgAccum id value rawtx daa a ctx m .
        ( Show e, Typeable e, Default chgAccum
        , HasReview e StatePException
-       , chgAccum ~ ChgAccum (IOCtx da m)
+       , chgAccum ~ ChgAccum (BaseMIOCtx da m)
        , DbActions da daa chgAccum m
-       , ConvertEffect e (IOCtx da m) (DbAccessM chgAccum id value) da
+       , ConvertEffect e (BaseMIOCtx da m) (DbAccessM chgAccum id value) da
        , BaseMIOContstraint ctx m
        , MonadIO m
+       , MonadReader (BaseMIOCtx da m) m
+       , L.HasLens LoggingIO (BaseMIOCtx da m) LoggingIO
        )
     => Mempool id value chgAccum rawtx
     -> daa m
-    -> RwActionWithMempool e id value rawtx (IOCtx da m) a
+    -> RwActionWithMempool e id value rawtx (BaseMIOCtx da m) a
     -> m a
 actionWithMempool mem@Mempool{..} dbActs callback = do
     Versioned{vsVersion=version,..} <- liftIO $ atomically $ readTVar mempoolState
-    (res, newState) <- runERwCompIO dbActs vsData (convertERwComp convertEffect callback)
+    (res, newState) <- runBaseMIO $ runERwComp @_ @da (convertERwComp convertEffect callback) vsData
     modified <- liftIO $ atomically $ do
         stLast <- readTVar mempoolState
         if version == vsVersion stLast then
             True <$ writeTVar mempoolState (Versioned newState (version + 1))
         else
             pure False
-    if modified
-    then pure res
-    else actionWithMempool mem dbActs callback
+    bool (pure res) (actionWithMempool mem dbActs callback) modified
 
 createMempool :: (Default chgAccum, MonadIO m) => m (Mempool id value chgAccum rawtx)
 createMempool = Mempool <$> atomically (newTVar def)
