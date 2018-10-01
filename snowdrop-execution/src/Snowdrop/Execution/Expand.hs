@@ -20,7 +20,7 @@ import           Data.Default (Default (def))
 import           Data.Vinyl (Rec (..))
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..),
-                                DiffChangeSet (..), ERoComp, ExpInps, ExpOutComps,
+                                DiffChangeSet (..), ERoComp, ExpInpComps, ExpOutComps,
                                 ExpRestriction (..), HChangeSet, HUpCastableChSet, MappendHChSet,
                                 PreExpander (..), ProofNExp (..), SeqExpander,
                                 SeqExpanderComponents, SomeTx, StateTx (..), TxComponents,
@@ -126,7 +126,7 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
         -> ERoComp e ctx components (SumChangeSet (TxComponents txtype))
     runSeqExpanderForTx' (ex :& rest) = do
         sm <- runSeqExpanderForTxAll rest
-        upcastEffERoComp @(ExpInps r) $ applyPreExpander @txtype tx ex sm
+        upcastEffERoComp @(ExpInpComps r) $ applyPreExpander @txtype tx ex sm
 
 applyPreExpander
     :: forall txtype rawtx e ctx ioRestr .
@@ -137,7 +137,7 @@ applyPreExpander
     => rawtx
     -> PreExpander e ctx rawtx ioRestr
     -> SumChangeSet (TxComponents txtype)
-    -> ERoComp e ctx (ExpInps ioRestr) (SumChangeSet (TxComponents txtype))
+    -> ERoComp e ctx (ExpInpComps ioRestr) (SumChangeSet (TxComponents txtype))
 applyPreExpander tx ex sumCS = do
     DiffChangeSet diffCS <- runExpander ex tx
     case hupcast diffCS `mappendChangeSet` unSumCS sumCS of
@@ -176,10 +176,10 @@ instance (
 type RestrictTx xs txtype = RecAll' (SeqExpanderComponents txtype) (RestrictIo xs txtype)
 
 class ( HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
-      , UpCastableERo (ExpInps ioRestr) xs
+      , UpCastableERo (ExpInpComps ioRestr) xs
       ) => RestrictIo (xs :: [*]) (txtype :: *) (ioRestr :: ExpRestriction [*] [*])
 instance ( HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
-      , UpCastableERo (ExpInps ioRestr) xs
+      , UpCastableERo (ExpInpComps ioRestr) xs
       ) => RestrictIo (xs :: [*]) (txtype :: *) (ioRestr :: ExpRestriction [*] [*])
 
 

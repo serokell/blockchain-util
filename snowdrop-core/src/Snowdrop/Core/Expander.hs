@@ -5,15 +5,16 @@
 {-# LANGUAGE TypeInType          #-}
 
 module Snowdrop.Core.Expander
-       ( SeqExpander
+       ( ProofNExp (..)
+       , SeqExpander
        , PreExpander (..)
+       , contramapProofNExp
        , contramapSeqExpander
        , contramapPreExpander
        , DiffChangeSet (..)
-       , ProofNExp (..)
 
        , ExpRestriction (..)
-       , ExpInps
+       , ExpInpComps
        , ExpOutComps
        , SeqExpanderComponents
        ) where
@@ -26,6 +27,12 @@ import           Data.Vinyl (Rec (..))
 import           Snowdrop.Core.ChangeSet (HChangeSet)
 import           Snowdrop.Core.ERoComp (ERoComp)
 import           Snowdrop.Core.Transaction (TxProof)
+
+newtype ProofNExp e ctx rawtx txtype =
+    ProofNExp (TxProof txtype, SeqExpander e ctx rawtx txtype)
+
+contramapProofNExp :: (a -> b) -> ProofNExp e ctx b txtype -> ProofNExp e ctx a txtype
+contramapProofNExp f (ProofNExp (prf, se)) = ProofNExp (prf, contramapSeqExpander f se)
 
 -- Seq expander
 type SeqExpander e ctx rawtx txtype = Rec (PreExpander e ctx rawtx) (SeqExpanderComponents txtype)
@@ -41,7 +48,7 @@ contramapSeqExpander f (ex :& rest) = contramapPreExpander f ex :& contramapSeqE
 --  So the result StateTx is constructed as
 --  _StateTx proofFromRawTx (addtionFromExpander1 <> additionFromExpander2 <> ...)_
 newtype PreExpander e ctx rawtx ioRestr = PreExpander
-    { runExpander :: rawtx -> ERoComp e ctx (ExpInps ioRestr) (DiffChangeSet (ExpOutComps ioRestr))
+    { runExpander :: rawtx -> ERoComp e ctx (ExpInpComps ioRestr) (DiffChangeSet (ExpOutComps ioRestr))
     }
 
 contramapPreExpander :: (a -> b) -> PreExpander e ctx b ioRestr -> PreExpander e ctx a ioRestr
@@ -50,16 +57,13 @@ contramapPreExpander f (PreExpander act) = PreExpander $ act . f
 -- | DiffChangeSet holds changes which one expander returns
 newtype DiffChangeSet xs = DiffChangeSet {unDiffCS :: HChangeSet xs}
 
-newtype ProofNExp e ctx rawtx txtype =
-    ProofNExp (TxProof txtype, SeqExpander e ctx rawtx txtype)
-
 ------------------------------------------
 -- Restrictions of expanders
 ------------------------------------------
 
 -- This datatype to be intended to use as kind and constructor of types instead of pair
 data ExpRestriction i o = ExRestriction i o -- different type and constructor names to avoid going crazy
-type family ExpInps r where ExpInps ('ExRestriction i o) = i
+type family ExpInpComps r where ExpInpComps ('ExRestriction i o) = i
 type family ExpOutComps r where ExpOutComps ('ExRestriction i o) = o
 
 -- This type family should be defined for each seq expander like
