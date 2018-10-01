@@ -1,8 +1,12 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE AllowAmbiguousTypes     #-}
+{-# LANGUAGE DataKinds               #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
 
 module Snowdrop.Block.State
-       ( BlockStateException (..)
+       ( TipComponent
+       , BlundComponent
+
+       , BlockStateException (..)
        , TipKey (..)
        , TipValue (..)
        , inmemoryBlkStateConfiguration
@@ -10,7 +14,6 @@ module Snowdrop.Block.State
 
 import           Universum
 
-import qualified Data.ByteString as BS
 import           Data.Default (def)
 import           Data.Default (Default)
 import qualified Data.Map as M
@@ -20,21 +23,29 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
                                        CurrentBlockRef (..), Payload, RawBlk, RawPayload)
-import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx,
-                                ChgAccumModifier (..), ERwComp, HasKeyValue, IdSumPrefixed (..),
-                                SomeTx, StateModificationException, StatePException (..),
-                                StateTx (..), Undo (..), Validator, ValueOp (..), applySomeTx,
-                                liftERoComp, mappendChangeSet, modifyRwCompChgAccum, queryOne,
-                                queryOneExists, runValidator)
-import           Snowdrop.Execution (ProofNExp (..), RestrictCtx, RestrictionInOutException,
-                                     expandUnionRawTxs)
+import           Snowdrop.Core (AvlRevisions, CSMappendException (..), ChgAccum, ChgAccumCtx,
+                                ChgAccumModifier (..), ERwComp, HChangeSet, HUpCastableChSet,
+                                MappendHChSet, QueryERo, SomeTx, StateModificationException,
+                                StatePException (..), StateTx (..), TxComponents, Undo (..),
+                                UnitedTxType, UpCastableERo, Validator, ValueOp (..), applySomeTx,
+                                hChangeSetFromMap, liftERoComp, mappendChangeSet,
+                                modifyRwCompChgAccum, queryOne, queryOneExists, runValidator,
+                                upcastEffERoComp, usingSomeTx)
+import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
+                                     UnionSeqExpandersInps, expandUnionRawTxs)
 import           Snowdrop.Util
 
-data BlockStateException id
+data TipComponent blkType
+data BlundComponent blkType
+type instance HKeyVal (TipComponent blkType) = '(TipKey, TipValue (BlockRef blkType))
+type instance HKeyVal (BlundComponent blkType)  =
+      '(BlockRef blkType, Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))
+
+data BlockStateException
     = TipNotFound
     deriving (Show)
 
-instance Buildable (BlockStateException id) where
+instance Buildable BlockStateException where
     build TipNotFound = "Tip not found"
 
 data TipKey = TipKey
@@ -51,63 +62,85 @@ instance Buildable blockRef => Buildable (BlockRef blockRef) where
 data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
     deriving (Eq, Ord, Show, Generic)
 
+class ( RContains txtypes txtype
+      , HUpCastableChSet (TxComponents txtype) xs
+      , UpCastableERo (TxComponents txtype) xs
+      ) => BlkProcConstr txtypes xs txtype
+instance ( RContains txtypes txtype
+         , HUpCastableChSet (TxComponents txtype) xs
+         , UpCastableERo (TxComponents txtype) xs
+         ) => BlkProcConstr txtypes xs txtype
+
+type BlkProcComponents blkType (txtypes :: [*]) (c :: * -> Constraint)
+    = UnionTypes [TipComponent blkType, BlundComponent blkType]
+                 (TxComponents (UnitedTxType txtypes))
+
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-  :: forall blkType e id value rawTx txtypes ctx .
-    ( HasKeyValue id value TipKey (TipValue (BlockRef blkType))
-    , HasKeyValue id value (BlockRef blkType) (Blund (BlockHeader blkType) (RawPayload blkType) (Undo id value))
-    , BlockUndo blkType ~ Undo id value
+  :: forall blkType rawTx txtypes e ctx xs c .
+    ( xs ~ BlkProcComponents blkType txtypes c
+    , c ~ BlkProcConstr txtypes xs
     , HasExceptions e
         [ StatePException
-        , BlockStateException id
-        , StateModificationException id
-        , CSMappendException id
-        , RestrictionInOutException
+        , BlockStateException
+        , StateModificationException
+        , CSMappendException
         ]
-    , Ord id
-    , Ord (BlockRef blkType)
-    , IdSumPrefixed id
+    , BlockUndo blkType ~ Undo xs
+    , RawPayload blkType ~ [SomeTx c] -- whaat??
+    , Ord (BlockHeader blkType)
+    , HasLens (ChgAccum ctx) (ChgAccum ctx)
     , HasLens ctx (ChgAccumCtx ctx)
-    , HasLens ctx RestrictCtx
     , HasGetter (RawBlk blkType) [rawTx]
-    , HasGetter (Payload blkType) [SomeTx id value (RContains txtypes)]
+    , HasGetter (Payload blkType) [SomeTx (BlkProcConstr txtypes xs)]
     , Default (ChgAccum ctx)
+    , ExpandRawTxsMode e ctx txtypes
+    , MappendHChSet xs
+
+    , QueryERo xs (TipComponent blkType)
+    , QueryERo xs (BlundComponent blkType)
+    , HUpCastableChSet '[TipComponent blkType] xs
+    , HUpCastableChSet '[BlundComponent blkType] xs
+    , UpCastableERo (UnionSeqExpandersInps txtypes) xs
+    , Default (HChangeSet xs)
+    , Default (AvlRevisions xs)
     )
     => BlkConfiguration blkType
-    -> Validator e id value ctx txtypes
-    -> (rawTx -> SomeData (ProofNExp e id value ctx rawTx) (RContains txtypes))
-    -> (RawBlk blkType -> [SomeTx id value (RContains txtypes)] -> Block (BlockHeader blkType) (Payload blkType))
-    -> BlkStateConfiguration blkType (ERwComp e id value ctx (ChgAccum ctx))
-inmemoryBlkStateConfiguration cfg validator mkProof mkBlock =
+    -> Validator e ctx txtypes
+    -> (rawTx -> SomeData (ProofNExp e ctx rawTx) (Both (ExpandableTx txtypes) c))
+    -> (RawBlk blkType -> [SomeTx c] -> Block (BlockHeader blkType) (Payload blkType))
+    -> BlkStateConfiguration blkType (ERwComp e ctx (ChgAccum ctx) xs)
+inmemoryBlkStateConfiguration cfg validator mkProof mkBlock = fix $ \this ->
     BlkStateConfiguration {
       bscConfig = cfg
     , bscExpand = \rawBlock -> do
-          blkPayload <- liftERoComp $ expandUnionRawTxs mkProof (gett rawBlock)
+          blkPayload <- liftERoComp $ upcastEffERoComp $ expandUnionRawTxs mkProof (gett rawBlock)
           pure (mkBlock rawBlock blkPayload)
-    , bscApplyPayload = \(gett @_ @[SomeTx id value (RContains txtypes)] -> txs) -> do
-          undos <- forM txs $ \tx -> do
-                      liftERoComp $ applySomeTx (runValidator validator) tx
-                      modifyRwCompChgAccum (CAMChange $ applySomeTx txBody tx)
+    , bscApplyPayload = \(gett @_ @[SomeTx (BlkProcConstr txtypes xs)] -> txs) -> do
+          undos <- forM txs $ \smtx -> usingSomeTx smtx $ \tx -> do
+                      liftERoComp $ upcastEffERoComp $ runValidator validator tx
+                      applySomeTx (modifyRwCompChgAccum . CAMChange . hupcast . txBody) smtx
           let mergeUndos (Undo cs1 _) (Undo cs2 sn2) = flip Undo sn2 <$> mappendChangeSet cs1 cs2
           case reverse undos of
-              []     -> pure $ Undo def BS.empty
+              []     -> pure $ Undo def def
               f:rest -> either throwLocalError pure $ foldM mergeUndos f rest
     , bscApplyUndo = void . modifyRwCompChgAccum . CAMRevert
     , bscStoreBlund = \blund -> do
           let blockRef = unCurrentBlockRef $ bcBlockRef cfg (blkHeader $ buBlock blund)
-          let chg = ChangeSet $ M.singleton (inj $ blockRef) (New $ inj blund)
-          void $ modifyRwCompChgAccum $ CAMChange chg
-    , bscRemoveBlund = \blockRef ->
-        void $ modifyRwCompChgAccum $ CAMRevert $ Undo (ChangeSet $ M.singleton (inj blockRef) Rem) BS.empty
-    , bscGetBlund = liftERoComp . queryOne
-    , bscBlockExists = liftERoComp . queryOneExists
-    , bscGetTip = liftERoComp (queryOne TipKey)
-                    >>= maybe (throwLocalError @(BlockStateException id) TipNotFound) (pure . unTipValue)
+          let chg = hChangeSetFromMap @(BlundComponent blkType) $ M.singleton blockRef (New blund)
+          void $ modifyRwCompChgAccum $ CAMChange $ hupcast chg
+    , bscRemoveBlund = \blockRef -> do
+          let chg = hChangeSetFromMap @(BlundComponent blkType) $ M.singleton blockRef Rem
+          void $ modifyRwCompChgAccum $ CAMRevert $ Undo (hupcast chg) def
+    , bscGetBlund = liftERoComp . queryOne @(BlundComponent blkType)
+    , bscBlockExists = liftERoComp . queryOneExists @(BlundComponent blkType)
+    , bscGetTip = do
+          tipMb <- liftERoComp (queryOne @(TipComponent blkType) TipKey)
+          maybe (throwLocalError @BlockStateException TipNotFound) (pure . unTipValue) tipMb
     , bscSetTip = \newTip' -> do
-          let newTip = inj $ TipValue newTip'
-          let tipChg = \cons -> ChangeSet $ M.singleton (inj TipKey) (cons newTip)
-          oldTipMb <- liftERoComp $ queryOne TipKey
+          void $ bscGetTip this -- to check existence
+          let chg = hChangeSetFromMap @(TipComponent blkType) $ M.singleton TipKey (Upd (TipValue newTip'))
           -- TODO check that tip corresponds to blund storage
-          void . modifyRwCompChgAccum . CAMChange . tipChg $ maybe New (const Upd) oldTipMb
+          void $ modifyRwCompChgAccum $ CAMChange $ hupcast chg
     }
