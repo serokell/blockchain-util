@@ -38,6 +38,9 @@ import           Snowdrop.Core.ChangeSet.ValueOp (ValueOp (..), ValueOpEx (..))
 import           Snowdrop.Util
 
 newtype HChangeSetEl t = HChangeSetEl {unHChangeSetEl :: Map (HKey t) (ValueOp (HVal t)) }
+
+deriving instance (Show (HKey t), Show (ValueOp (HVal t))) => Show (HChangeSetEl t)
+
 type HChangeSet = Rec HChangeSetEl
 
 instance IntersectionF HChangeSetEl HMapEl where
@@ -64,6 +67,8 @@ hChangeSetFromMap :: Map (HKey t) (ValueOp (HVal t)) -> HChangeSet '[t]
 hChangeSetFromMap = (:& RNil) . HChangeSetEl
 
 newtype AvlRevision t = AvlRevision {unAvlRevision :: ByteString}
+    deriving (Eq, Ord, Show)
+
 instance Default (AvlRevision t) where
     def = AvlRevision BS.empty
 type AvlRevisions = Rec AvlRevision
