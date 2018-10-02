@@ -38,6 +38,7 @@ import           Snowdrop.Core.ChangeSet.ValueOp (ValueOp (..), ValueOpEx (..))
 import           Snowdrop.Util
 
 newtype HChangeSetEl t = HChangeSetEl {unHChangeSetEl :: Map (HKey t) (ValueOp (HVal t)) }
+    deriving (Generic)
 
 deriving instance (Show (HKey t), Show (ValueOp (HVal t))) => Show (HChangeSetEl t)
 
@@ -67,7 +68,7 @@ hChangeSetFromMap :: Map (HKey t) (ValueOp (HVal t)) -> HChangeSet '[t]
 hChangeSetFromMap = (:& RNil) . HChangeSetEl
 
 newtype AvlRevision t = AvlRevision {unAvlRevision :: ByteString}
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Generic)
 
 instance Default (AvlRevision t) where
     def = AvlRevision BS.empty
