@@ -5,6 +5,7 @@
 module Snowdrop.Block.State
        ( TipComponent
        , BlundComponent
+       , BlkProcConstr
 
        , BlockStateException (..)
        , TipKey (..)
@@ -88,7 +89,6 @@ inmemoryBlkStateConfiguration
         , CSMappendException
         ]
     , BlockUndo blkType ~ Undo xs
-    , RawPayload blkType ~ [SomeTx c] -- whaat??
     , Ord (BlockHeader blkType)
     , HasLens (ChgAccum ctx) (ChgAccum ctx)
     , HasLens ctx (ChgAccumCtx ctx)
