@@ -12,7 +12,7 @@ import           Universum
 
 import           Data.Default (Default (def))
 
-import           Snowdrop.Core (CSMappendException (..), ChangeSet, ChgAccum, ChgAccumCtx (..),
+import           Snowdrop.Core (CSMappendException (..), ChangeSet, ChgAccum, ChgAccumM (..),
                                 DiffChangeSet (..), ERoCompM, IdSumPrefixed (..), PreExpander (..),
                                 SeqExpander (..), SomeTx, StateTx (..), TxProof, convertEffect,
                                 withModifiedAccumCtxOne)
@@ -30,7 +30,7 @@ expandUnionRawTxs
     ( Ord id
     , IdSumPrefixed id
     , HasExceptions e [CSMappendException id, RestrictionInOutException]
-    , HasLens ctx (ChgAccumCtx ctx)
+    , HasLens ctx (ChgAccumM (ChgAccum ctx))
     , HasLens ctx RestrictCtx
     , Default (ChgAccum ctx)
     )
@@ -44,7 +44,7 @@ runSeqExpandersSequentially
     ( IdSumPrefixed id
     , Ord id
     , HasExceptions e [CSMappendException id, RestrictionInOutException]
-    , HasLens ctx (ChgAccumCtx ctx)
+    , HasLens ctx (ChgAccumM (ChgAccum ctx))
     , HasLens ctx RestrictCtx
     , Default (ChgAccum ctx)
     )
@@ -160,7 +160,7 @@ applyPreExpander tx sumCS ex = do
 --     ( Ord id
 --     , IdSumPrefixed id
 --     , HasExceptions e [CSMappendException id, RestrictionInOutException]
---     , HasLens ctx (ChgAccumCtx ctx)
+--     , HasLens ctx (ChgAccumM (ChgAccum ctx))
 --     , Default (ChgAccum ctx)
 --     , HasLens ctx RestrictCtx
 --     )

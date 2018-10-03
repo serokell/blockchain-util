@@ -4,7 +4,6 @@
 module Snowdrop.Util.Logging
        (
          RIO (..)
-       , ExecM
        , runRIO
 
        , LogEvent
@@ -33,7 +32,7 @@ import           Data.Yaml (decodeFileEither, encode)
 import           Fmt (format)
 import           Loot.Base.HasLens (HasLens, lensOf)
 import           Loot.Log (ModifyLogName (..), MonadLogging (..), NameSelector (..), logDebug,
-                           logError, logInfo, logWarning, modifyLogName)
+                           logError, logInfo, logWarning, modifyLogName, Logging)
 import           Loot.Log.Internal (LogEvent)
 import           Loot.Log.Rio (LoggingIO)
 import qualified Loot.Log.Rio as Rio
@@ -61,10 +60,6 @@ instance (HasLens LoggingIO ctx LoggingIO) => MonadLogging (RIO ctx) where
 
 instance (HasLens LoggingIO ctx LoggingIO) => ModifyLogName (RIO ctx) where
     modifyLogNameSel = Rio.defaultModifyLogNameSel
-
--- | Default execution monad for Snowdrop's execution code.
--- Provides lootbox's logging.
-type ExecM = RIO LoggingIO
 
 ----------------------------------------------------------------------------
 -- Configuration and initiation
@@ -94,7 +89,11 @@ defaultLogCfg = LW.productionB & LW.lcTermSeverityOut .~ Just mempty
         ]
 
 -- | Helper to execute some action within 'ExecM' monad
-withLogger :: Maybe FilePath -> ExecM () -> IO ()
+withLogger
+    :: (HasLens LoggingIO (Logging log) LoggingIO, MonadIO log)
+    => Maybe FilePath
+    -> RIO (Logging log) ()
+    -> IO ()
 withLogger mConfigPath action = do
     cfg <- case mConfigPath of
         Nothing -> withColor Term.Yellow (putTextLn "Using the default logger configuration") >>

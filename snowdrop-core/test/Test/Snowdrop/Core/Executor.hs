@@ -15,7 +15,7 @@ import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 
 import           Loot.Log (NameSelector (..))
-import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumCtx (..),
+import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum, ChgAccumM (..),
                                 DbAccess (..), ERoComp, Effectful (..), FoldF (..),
                                 IdSumPrefixed (..), StateP, ValueOp (..), changeSetToList,
                                 getCAOrDefault, unBaseM)
@@ -41,15 +41,15 @@ simpleStateAccessor st (DbIterator prefix (FoldF (e, foldf, applier))) = applier
       (M.toList $ M.filterWithKey (\i _ -> idSumPrefix i == prefix) st)
 
 data TestCtx id value = TestCtx
-    { tctxChgAccum :: ChgAccumCtx (TestCtx id value)
+    { tctxChgAccum :: ChgAccumM (SumChangeSet id value)
     }
 
 type instance ChgAccum (TestCtx id value) = SumChangeSet id value
 
-instance HasLens (TestCtx id value) (ChgAccumCtx (TestCtx id value)) where
+instance HasLens (TestCtx id value) (ChgAccumM (SumChangeSet id value)) where
     sett ctx val = ctx { tctxChgAccum = val }
 
-instance HasGetter (TestCtx id value) (ChgAccumCtx (TestCtx id value)) where
+instance HasGetter (TestCtx id value) (ChgAccumM (SumChangeSet id value)) where
     gett = tctxChgAccum
 
 data Counter = Counter

@@ -11,7 +11,7 @@ import           Control.Lens ((%=))
 import           Control.Monad.Except (catchError)
 import           Data.Default (Default (..))
 
-import           Snowdrop.Core (ChgAccum, ChgAccumCtx, StatePException, liftERoComp)
+import           Snowdrop.Core (ChgAccum, ChgAccumM, StatePException, liftERoComp)
 import           Snowdrop.Execution.Mempool.Core (MempoolConfig (..), MempoolState (..),
                                                   RwActionWithMempool, msTxsL)
 import           Snowdrop.Util
@@ -27,7 +27,7 @@ evictMempool = gets msTxs <* put def
 
 processTxAndInsertToMempool
     :: ( HasException e StatePException, Show e, Typeable e
-       , HasLens ctx (ChgAccumCtx ctx)
+       , HasLens ctx (ChgAccumM (ChgAccum ctx))
        )
     => MempoolConfig e id txtype value ctx rawtx
     -> rawtx
@@ -42,7 +42,7 @@ newtype Rejected rawtx = Rejected { getRejected :: [rawtx] }
 normalizeMempool
     :: ( HasException e StatePException, Show e, Typeable e
        , Default (ChgAccum ctx)
-       , HasLens ctx (ChgAccumCtx ctx)
+       , HasLens ctx (ChgAccumM (ChgAccum ctx))
        )
     => MempoolConfig e id txtype value ctx rawtx
     -> RwActionWithMempool e id value rawtx ctx (Rejected rawtx)

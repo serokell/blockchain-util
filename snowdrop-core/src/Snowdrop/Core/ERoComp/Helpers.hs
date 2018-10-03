@@ -37,7 +37,7 @@ import qualified Data.Text.Buildable
 
 import           Snowdrop.Core.BaseM (BaseM (..), Effectful (..))
 import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..))
-import           Snowdrop.Core.ERoComp.Types (ChgAccum, ChgAccumCtx (..), DbAccess (..),
+import           Snowdrop.Core.ERoComp.Types (ChgAccum, ChgAccumM (..), DbAccess (..),
                                               DbAccessM (..), DbAccessU (..), ERoComp, ERoCompM,
                                               ERoCompU, FoldF (..), Prefix (..), StateP, StateR)
 import           Snowdrop.Core.Transaction (HasKeyValue)
@@ -48,14 +48,14 @@ import qualified Snowdrop.Util as Log
 data StatePException
     = QueryProjectionFailed
     | IteratorProjectionFailed
-    | ChgAccumCtxUnexpectedlyInitialized
+    | ChgAccumMUnexpectedlyInitialized
     deriving (Show, Eq)
 
 instance Buildable StatePException where
     build = \case
         QueryProjectionFailed -> "Projection of query result failed"
         IteratorProjectionFailed -> "Projection within iterator failed"
-        ChgAccumCtxUnexpectedlyInitialized -> "Change accum context is unexpectedly initialized"
+        ChgAccumMUnexpectedlyInitialized -> "Change accum context is unexpectedly initialized"
 
 deriveIdView withInj ''StatePException
 
@@ -177,18 +177,18 @@ iteratorFor prefix e foldf = do
 -- | Runs computation with specified initial Change Accumulator.
 initAccumCtx
     :: forall e eff ctx a .
-    (HasException e StatePException, HasLens ctx (ChgAccumCtx ctx))
+    (HasException e StatePException, HasLens ctx (ChgAccumM (ChgAccum ctx)))
     => ChgAccum ctx
     -> BaseM e eff ctx a
     -> BaseM e eff ctx a
 initAccumCtx acc' comp = do
-    gett @_ @(ChgAccumCtx ctx) <$> ask >>= \case
-        CAInitialized _ -> throwLocalError ChgAccumCtxUnexpectedlyInitialized
+    gett @_ @(ChgAccumM (ChgAccum ctx)) <$> ask >>= \case
+        CAInitialized _ -> throwLocalError ChgAccumMUnexpectedlyInitialized
         CANotInitialized ->
-            local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
+            local ( lensFor @ctx @(ChgAccumM (ChgAccum ctx)) .~ CAInitialized @(ChgAccum ctx) acc' ) comp
 
 -- | Gets value of Change Accumulator or default value if it's not initialized.
-getCAOrDefault :: Default (ChgAccum ctx) => ChgAccumCtx ctx -> ChgAccum ctx
+getCAOrDefault :: Default chgAccum => ChgAccumM chgAccum -> chgAccum
 getCAOrDefault CANotInitialized   = def
 getCAOrDefault (CAInitialized cA) = cA
 
@@ -237,7 +237,7 @@ instance ConvertEffect e ctx (DbAccess id value) (DbAccess id value) where
 withModifiedAccumCtxOne
     :: forall e id value ctx a .
     ( HasException e (CSMappendException id)
-    , HasLens ctx (ChgAccumCtx ctx)
+    , HasLens ctx (ChgAccumM (ChgAccum ctx))
     , Default (ChgAccum ctx)
     )
     => ChangeSet id value
@@ -245,4 +245,4 @@ withModifiedAccumCtxOne
     -> ERoCompM e id value ctx a
 withModifiedAccumCtxOne chgSet comp = do
     acc' <- modifyAccumOne chgSet
-    local ( lensFor @ctx @(ChgAccumCtx ctx) .~ CAInitialized @ctx acc' ) comp
+    local ( lensFor @ctx @(ChgAccumM (ChgAccum ctx)) .~ CAInitialized @(ChgAccum ctx) acc' ) comp
