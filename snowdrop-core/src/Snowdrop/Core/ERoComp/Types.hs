@@ -9,7 +9,7 @@ module Snowdrop.Core.ERoComp.Types
        , StateP
        , FoldF (..)
        , ChgAccum
-       , ChgAccumCtx (..)
+       , ChgAccumM (..)
 
        , DbAccess (..)
        , ERoComp
@@ -173,4 +173,4 @@ type ERoCompM e id value ctx = BaseM e (DbAccessM (ChgAccum ctx) id value) ctx
 type ERoCompU e id value undo ctx = BaseM e (DbAccessU (ChgAccum ctx) undo id value) ctx
 
 -- | Auxiliary datatype for context-dependant computations.
-data ChgAccumCtx ctx = CANotInitialized | CAInitialized (ChgAccum ctx)
+data ChgAccumM chgAccum = CANotInitialized | CAInitialized chgAccum

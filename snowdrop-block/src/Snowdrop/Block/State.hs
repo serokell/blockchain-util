@@ -19,7 +19,7 @@ import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
                                        CurrentBlockRef (..), Payload, RawBlk, RawPayload)
 import           Snowdrop.Core (CSMappendException (..), ChangeSet (..), ChgAccum,
-                                ChgAccumCtx (CAInitialized), DbAccessU, ERwComp, HasKeyValue,
+                                ChgAccumM (CAInitialized), DbAccessU, ERwComp, HasKeyValue,
                                 IdSumPrefixed (..), SomeTx, StatePException (..), StateTx (..),
                                 Validator, ValueOp (..), applySomeTx, computeUndo, convertEffect,
                                 getCAOrDefault, liftERoComp, modifyAccum, modifyAccumOne,
@@ -64,7 +64,7 @@ inmemoryBlkStateConfiguration
     , Ord id
     , Ord (BlockRef blkType)
     , IdSumPrefixed id
-    , HasLens ctx (ChgAccumCtx ctx)
+    , HasLens ctx (ChgAccumM (ChgAccum ctx))
     , HasLens ctx RestrictCtx
     , HasGetter (RawBlk blkType) [rawTx]
     , HasGetter (Payload blkType) [SomeTx id value (RContains txtypes)]
@@ -83,13 +83,13 @@ inmemoryBlkStateConfiguration cfg validator mkProof mkBlock =
           pure (mkBlock rawBlock blkPayload)
     , bscApplyPayload = \(gett @_ @[SomeTx id value (RContains txtypes)] -> txs) -> do
           (newSt, undo) <- liftERoComp $ do
-              curAcc <- asks (getCAOrDefault @ctx . gett)
+              curAcc <- asks (getCAOrDefault @(ChgAccum ctx) . gett)
               OldestFirst accs <-
                   convertEffect $ modifyAccum (OldestFirst $ map (applySomeTx txBody) txs)
               let preAccs = init (curAcc :| accs)
                   lastAcc = last (curAcc :| accs)
               convertEffect $ mconcat $ flip map (zip preAccs txs) $ \(acc, tx) ->
-                  local ( lensFor .~ CAInitialized @ctx acc ) $ applySomeTx (runValidator validator) tx
+                  local ( lensFor .~ CAInitialized @(ChgAccum ctx) acc ) $ applySomeTx (runValidator validator) tx
               (lastAcc,) <$> computeUndo @_ @id @value lastAcc
           undo <$ modify (flip sett newSt)
     , bscApplyUndo = liftERoComp . modifyAccumUndo @_ @id @value . pure >=> modify . flip sett

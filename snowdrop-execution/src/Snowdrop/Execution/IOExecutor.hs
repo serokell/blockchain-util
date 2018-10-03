@@ -29,7 +29,7 @@ import qualified Data.Text.Buildable as Buildable
 import qualified Loot.Base.HasLens as Loot
 import qualified Loot.Log.Rio as Rio
 
-import           Snowdrop.Core (BaseM (..), ChgAccum, ChgAccumCtx (..), CtxConcurrently (..),
+import           Snowdrop.Core (BaseM (..), ChgAccum, ChgAccumM (..), CtxConcurrently (..),
                                 DbAccessM, DbAccessU, Effectful (..), getCAOrDefault)
 import           Snowdrop.Execution.DbActions (DbActions (..))
 import           Snowdrop.Execution.Restrict (RestrictCtx)
@@ -116,10 +116,10 @@ runBaseMIO
     -> m a
 runBaseMIO bm = unBaseMIO @e @eff $ unBaseM bm
 
-data BaseMIOCtx daa m = BaseMIOCtx
-    { _ctxChgAccum   :: ChgAccumCtx (BaseMIOCtx daa m)
+data BaseMIOCtx da m = BaseMIOCtx
+    { _ctxChgAccum   :: ChgAccumM (ChgAccum (BaseMIOCtx da m))
     , _ctxRestrict   :: RestrictCtx
-    , _ctxExec       :: BaseMIOExec daa m
+    , _ctxExec       :: BaseMIOExec da m
     , _ctxConcurrent :: CtxConcurrently
     }
 
@@ -128,48 +128,49 @@ makeLenses ''BaseMIOCtx
 type instance ChgAccum (BaseMIOCtx (DbAccessU chgAccum undo id value) m) = chgAccum
 type instance ChgAccum (BaseMIOCtx (DbAccessM chgAccum id value) m) = chgAccum
 
-instance HasLens (BaseMIOCtx daa m) RestrictCtx where
+instance HasLens (BaseMIOCtx da m) RestrictCtx where
     sett ctx val = ctx { _ctxRestrict = val }
 
-instance HasGetter (BaseMIOCtx daa m) RestrictCtx where
+instance HasGetter (BaseMIOCtx da m) RestrictCtx where
     gett = _ctxRestrict
 
 instance HasLens
-           (BaseMIOCtx daa m)
-           (BaseMIOExec daa m) where
+           (BaseMIOCtx da m)
+           (BaseMIOExec da m) where
     sett ctx val = ctx { _ctxExec = val }
 
 instance HasGetter
-           (BaseMIOCtx daa m)
-           (BaseMIOExec daa m) where
+           (BaseMIOCtx da m)
+           (BaseMIOExec da m) where
     gett = _ctxExec
 
-instance HasLens (BaseMIOCtx daa m) (ChgAccumCtx (BaseMIOCtx daa m)) where
+instance chgAccum ~ ChgAccum (BaseMIOCtx da m) => HasLens (BaseMIOCtx da m) (ChgAccumM chgAccum) where
     sett ctx val = ctx { _ctxChgAccum = val }
 
-instance HasGetter (BaseMIOCtx daa m) (ChgAccumCtx (BaseMIOCtx daa m)) where
+instance chgAccum ~ ChgAccum (BaseMIOCtx da m) => HasGetter (BaseMIOCtx da m) (ChgAccumM chgAccum) where
     gett = _ctxChgAccum
 
-instance HasLens (BaseMIOCtx daa m) CtxConcurrently where
+instance HasLens (BaseMIOCtx da m) CtxConcurrently where
     sett ctx val = ctx { _ctxConcurrent = val }
 
-instance HasGetter (BaseMIOCtx daa m) CtxConcurrently where
+instance HasGetter (BaseMIOCtx da m) CtxConcurrently where
     gett = _ctxConcurrent
 
 mkBaseMIOCtx
   ::
     ( Monad m
     , MonadReader (BaseMIOCtx da m) m
-    , Default (ChgAccum (BaseMIOCtx da m))
-    , DbActions da daa (ChgAccum (BaseMIOCtx da m)) m
+    , Default chgAccum
+    , chgAccum ~ ChgAccum (BaseMIOCtx da m)
+    , DbActions da daa chgAccum m
     )
   => daa m
-  -> Maybe (ChgAccum (BaseMIOCtx da m))
+  -> ChgAccumM chgAccum
   -> BaseMIOCtx da m
 mkBaseMIOCtx daa initAcc =
     BaseMIOCtx
       { _ctxRestrict = def
-      , _ctxChgAccum = maybe CANotInitialized CAInitialized initAcc
+      , _ctxChgAccum = initAcc
       , _ctxExec = exec
       , _ctxConcurrent = def
       }

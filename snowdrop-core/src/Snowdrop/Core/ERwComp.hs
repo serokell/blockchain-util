@@ -12,7 +12,7 @@ import           Universum
 import           Control.Monad.Except (MonadError)
 
 import           Snowdrop.Core.BaseM (BaseM)
-import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), ConvertEffect (..),
+import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumM (..), ConvertEffect (..),
                                         StatePException (..), initAccumCtx)
 import           Snowdrop.Util
 
@@ -25,16 +25,16 @@ newtype ERwComp e eff ctx s a = ERwComp { unERwComp :: StateT s (BaseM e eff ctx
 runERwComp
   :: forall e eff ctx s a.
     ( HasException e StatePException
-    , HasGetter ctx (ChgAccumCtx ctx)
+    , HasGetter ctx (ChgAccumM (ChgAccum ctx))
     )
   => ERwComp e eff ctx s a
   -> s
   -> BaseM e eff ctx (a, s)
 runERwComp stComp initS = do
-    mChgAccum <- asks (gett @_ @(ChgAccumCtx ctx))
+    mChgAccum <- asks (gett @_ @(ChgAccumM (ChgAccum ctx)))
     case mChgAccum of
         CANotInitialized -> pure ()
-        CAInitialized _  -> throwLocalError ChgAccumCtxUnexpectedlyInitialized
+        CAInitialized _  -> throwLocalError ChgAccumMUnexpectedlyInitialized
     runStateT (unERwComp stComp) initS
 
 -- | Lift passed ERoComp to ERwComp.
@@ -42,7 +42,7 @@ runERwComp stComp initS = do
 liftERoComp
     :: forall e eff2 ctx s eff1 a.
     ( HasException e StatePException
-    , HasLens ctx (ChgAccumCtx ctx)
+    , HasLens ctx (ChgAccumM (ChgAccum ctx))
     , HasGetter s (ChgAccum ctx)
     , ConvertEffect e ctx eff1 eff2
     )
