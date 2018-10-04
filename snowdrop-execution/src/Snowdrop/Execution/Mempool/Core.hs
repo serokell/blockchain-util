@@ -1,4 +1,5 @@
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DataKinds               #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
 
 module Snowdrop.Execution.Mempool.Core
        ( Mempool
@@ -7,10 +8,12 @@ module Snowdrop.Execution.Mempool.Core
        , MempoolConfig (..)
        , msTxsL
        , RwMempoolAct
-       -- , defaultMempoolConfig
        , actionWithMempool
        , createMempool
        , getMempoolTxs
+
+       , MempoolTx
+       , defaultMempoolConfig
        ) where
 
 import           Universum
@@ -18,9 +21,13 @@ import           Universum
 import           Control.Lens (lens)
 import           Data.Default (Default (..))
 
-import           Snowdrop.Core (ChgAccum, ERwComp, SomeTxWithUndo, StatePException,
-                                StateTxWithUndo (..), TxComponents)
+import           Snowdrop.Core (CSMappendException, ChgAccum, ChgAccumCtx, ChgAccumModifier (..),
+                                ERwComp, ProofNExp, SomeTxWithUndo, StateModificationException,
+                                StatePException, StateTx (..), StateTxWithUndo (..), TxComponents,
+                                UpCastableERo, Validator, liftERoComp, modifyRwCompChgAccum,
+                                runValidator)
 import           Snowdrop.Execution.DbActions (DbAccessActions)
+import           Snowdrop.Execution.Expand (ExpandOneTxMode, expandOneTx)
 import           Snowdrop.Execution.IOExecutor (IOCtx, runERwCompIO)
 import           Snowdrop.Util
 
@@ -67,41 +74,6 @@ instance Default chgAccum => Default (MempoolState c chgAccum rawtx) where
 instance Default chgAccum => Default (Versioned (MempoolState c chgAccum rawtx)) where
     def = Versioned def 0
 
--- TODO this bullshit will be handled in future.
--- defaultMempoolConfig
---     :: forall e xs ctx c txtypes rawtx .
---     ( HasExceptions e [
---           StateModificationException
---         , StatePException
---         , CSMappendException
---         ]
---     , HasLens ctx (ChgAccumCtx ctx)
---     )
---     => (rawtx -> SomeData (ProofNExp e ctx rawtx) (RContains txtypes))
---     -> Validator e ctx txtypes
---     -> MempoolConfig e ctx (RContains txtypes) rawtx
--- defaultMempoolConfig expander validator = MempoolConfig handler
---   where
---     handler :: rawtx -> SomeStateTxHandler e ctx (RContains txtypes) rawtx
---     handler rawtx = SomeData $ StateTxHandler $ usingSomeData (expander rawtx) $ processTx rawtx
---       --   \(ProofNExp (prf, sexp)) -> handler' (ProofNExp (prf, sexp))
---       -- where
---       --   handler'
---       --       :: forall txtype .
---       --          ProofNExp e ctx rawtx txtype
---       --       -> RwMempoolAct e ctx (RContains txtypes) (TxComponents txtype) rawtx (StateTxWithUndo txtype)
---       --   handler' = processTx @txtype rawtx
-
---     processTx
---         :: forall txtype . RContains txtypes txtype
---         => rawtx
---         -> ProofNExp e ctx rawtx txtype
---         -> RwMempoolAct e ctx (RContains txtypes) (TxComponents txtype) rawtx (StateTxWithUndo txtype)
---     processTx prfNexp rawtx = do
---         tx@StateTx{..} <- liftERoComp (expandOneTx prfNexp rawtx)
---         liftERoComp $ runValidator validator tx
---         StateTxWithUndo tx <$> modifyRwCompChgAccum (CAMChange txBody)
-
 actionWithMempool
     :: ( Show e, Typeable e, Default chgAccum
        , HasException e StatePException
@@ -131,3 +103,44 @@ getMempoolTxs
     => Mempool c chgAccum rawtx
     -> m [(rawtx, SomeTxWithUndo c)]
 getMempoolTxs Mempool{..} = msTxs . vsData <$> atomically (readTVar mempoolState)
+
+---------------------------
+-- Default mempool and constraints
+---------------------------
+
+class ( ExpandOneTxMode txtype
+      , RContains txtypes txtype
+      , UpCastableERo (TxComponents txtype) xs
+      ) => MempoolTx txtypes xs txtype
+instance (
+        ExpandOneTxMode txtype
+      , RContains txtypes txtype
+      , UpCastableERo (TxComponents txtype) xs
+      ) => MempoolTx txtypes xs txtype
+
+defaultMempoolConfig
+    :: forall e xs ctx (c :: * -> Constraint) txtypes rawtx .
+    ( HasExceptions e [
+          StateModificationException
+        , StatePException
+        , CSMappendException
+        ]
+    , HasLens ctx (ChgAccumCtx ctx)
+    )
+    => (rawtx -> SomeData (ProofNExp e ctx rawtx) (Both (MempoolTx txtypes xs) c))
+    -> Validator e ctx txtypes
+    -> MempoolConfig e ctx (Both (MempoolTx txtypes xs) c) rawtx
+defaultMempoolConfig expander validator = MempoolConfig handler
+  where
+    handler :: rawtx -> SomeStateTxHandler e ctx (Both (MempoolTx txtypes xs) c) rawtx
+    handler rawtx = usingSomeData (expander rawtx) $ SomeData . StateTxHandler . processTx rawtx
+
+    processTx
+        :: forall txtype . MempoolTx txtypes xs txtype
+        => rawtx
+        -> ProofNExp e ctx rawtx txtype
+        -> RwMempoolAct e ctx (Both (MempoolTx txtypes xs) c) (TxComponents txtype) rawtx (StateTxWithUndo txtype)
+    processTx rawtx prfNexp = do
+        tx@StateTx{..} <- liftERoComp (expandOneTx prfNexp rawtx)
+        liftERoComp $ runValidator validator tx
+        StateTxWithUndo tx <$> modifyRwCompChgAccum (CAMChange txBody)
