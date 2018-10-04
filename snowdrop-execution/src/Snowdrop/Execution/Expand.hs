@@ -7,6 +7,7 @@
 module Snowdrop.Execution.Expand
        ( ExpandRawTxsMode
        , expandUnionRawTxs
+       , ExpandOneTxMode
        , expandOneTx
        , ProofNExp (..)
 
@@ -45,12 +46,17 @@ expandUnionRawTxs
     -> ERoCompM e (UnionSeqExpandersInps txtypes) ctx [SomeTx c]
 expandUnionRawTxs f txs = runSeqExpandersSequentially (zip txs $ map f txs)
 
+type ExpandOneTxMode txtype =
+    ( Default (SumChangeSet (TxComponents txtype))
+    , MappendHChSet (TxComponents txtype)
+    , RestrictTx (TxComponents txtype) txtype
+    )
+
+-- TODO there is assumption that tx can be expanded within own TxComponents txtype
 expandOneTx
     :: forall txtype rawtx e ctx .
     ( HasException e CSMappendException
-    , Default (SumChangeSet (TxComponents txtype))
-    , MappendHChSet (TxComponents txtype)
-    , RestrictTx (TxComponents txtype) txtype
+    , ExpandOneTxMode txtype
     )
     => ProofNExp e ctx rawtx txtype
     -> rawtx
