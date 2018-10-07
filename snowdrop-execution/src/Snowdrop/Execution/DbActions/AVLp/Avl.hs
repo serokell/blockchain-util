@@ -4,9 +4,17 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Snowdrop.Execution.DbActions.AVLp.Avl
-       ( AvlHashable
+       ( AllAvlEntries
+       , IsAvlEntry
+       , RootHashes
+       , RootHashComp (..)
+       , AvlProof (..)
+       , AvlProofs
+
+       , AvlHashable
        , KVConstraint
        , RootHash (..)
+       , AvlUndo
        , saveAVL
        , materialize
        , mkAVL
@@ -19,10 +27,12 @@ import           Universum
 import           Control.Monad.Free (Free (Free))
 import           Data.Tree.AVL (MapLayer (..), Serialisable (..))
 import qualified Data.Tree.AVL as AVL
+import           Data.Vinyl.Core (Rec (..))
 
 import           Data.Default (Default (def))
 import qualified Data.Text.Buildable as Buildable
 import           Snowdrop.Execution.DbActions.Types (DbActionsException (..))
+import           Snowdrop.Util (HKey, HVal, RecAll')
 
 
 type AvlHashable h = (Ord h, Show h, Typeable h, Serialisable h)
@@ -30,7 +40,25 @@ type KVConstraint k v = (Typeable k, Ord k, Show k,
                          Serialisable k, Serialisable v, Show v, Eq v)
 
 newtype RootHash h = RootHash { unRootHash :: h }
-    deriving (Eq, Serialisable)
+  deriving (Eq, Serialisable, Show)
+
+
+newtype RootHashComp h t = RootHashComp {unRootHashComp :: RootHash h}
+type RootHashes h = Rec (RootHashComp h)
+newtype AvlProof h t = AvlProof {unAvlProof :: AVL.Proof h (HKey t) (HVal t)}
+type AvlProofs h = Rec (AvlProof h)
+
+class ( KVConstraint (HKey t) (HVal t)
+      , Serialisable (MapLayer h (HKey t) (HVal t) h)
+      , AVL.Hash h (HKey t) (HVal t)
+      ) => IsAvlEntry h t
+instance ( KVConstraint (HKey t) (HVal t)
+      , Serialisable (MapLayer h (HKey t) (HVal t) h)
+      , AVL.Hash h (HKey t) (HVal t)
+      ) => IsAvlEntry h t
+type AllAvlEntries h xs = RecAll' xs (IsAvlEntry h)
+
+type AvlUndo h = RootHashes h
 
 saveAVL :: forall h k v m . (AVL.Stores h k v m, MonadCatch m) => AVL.Map h k v -> m (RootHash h)
 saveAVL avl = AVL.save avl $> avlRootHash avl

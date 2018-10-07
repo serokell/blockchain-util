@@ -22,28 +22,40 @@ import           Formatting (bprint)
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), BlockRef, Blund (..),
-                                       CurrentBlockRef (..), BlockHeader,
-                                       RawBlund, OSParams, PrevBlockRef (..))
+import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, Blund (..),
+                                       CurrentBlockRef (..), OSParams, PrevBlockRef (..), RawBlund)
 import           Snowdrop.Util
 
+-- | Result of fork verification.
 data ForkVerResult blkType
-  = ApplyFork
+    = ApplyFork
       { fvrToApply    :: OldestFirst NonEmpty (BlockHeader blkType)
+      -- ^ Headers of blocks to apply.
       , fvrToRollback :: NewestFirst [] (RawBlund blkType)
+      -- ^ Blocks to rollback.
       , fvrLCA        :: Maybe (BlockRef blkType)
+      -- ^ Last block to be remained after rollback and predecessor of first block to apply.
+      -- Value @Nothing@ is returned in case of whole blockchain is rolled back.
       }
+    -- ^ Fork verification decision is to apply given fork.
     | RejectFork
+    -- ^ Fork verification decision is to reject given fork.
 
+-- | Exception type for 'verifyFork'.
 data ForkVerificationException blkType
     = BlocksNotConsistent
-    -- | Exception will be thrown when parent of alt chain doesn't belong to our chain
+    -- ^ Chain of blocks is not self-consistent: either integrity berification of one of blocks failed
+    -- or one of blocks in the list is not a predcessor of following one.
     | UnkownForkOrigin
-    -- | Exception will be thrown when the first block of alt chain belongs to our chain
+    -- ^ Parent of alt chain doesn't belong to our chain.
     | InvalidForkOrigin
+    -- ^ First block of alt chain belongs to our chain.
     | TooDeepFork
+    -- ^ Given fork is too deep.
     | OriginOfBlockchainReached
+    -- ^ Origin of blockchain reached before an LCA is found.
     | BlockDoesntExistInChain blkType
+    -- ^ Wrong block reference occurred during chain traversal (of block that is not present in storage).
     deriving Show
 
 instance Buildable (ForkVerificationException blockRef) where
@@ -109,12 +121,13 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
             Nothing -> throwLocalError $ BlockDoesntExistInChain from
         | otherwise = throwLocalError @(ForkVerificationException (BlockRef blkType)) OriginOfBlockchainReached
 
+-- | Load up to @maxDepth@ blocks from the currently adopted block sequence.
 iterateChain
     :: forall blkType m .
     ( Monad m
     )
     => BlkStateConfiguration blkType m
-    -> Int
+    -> Int -- ^ Max depth of block sequence to load.
     -> m (NewestFirst [] (RawBlund blkType))
 iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDepth
   where
@@ -130,35 +143,3 @@ iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDep
                 loadBlock
                   (depth - 1)
                   (unPrevBlockRef . (bcPrevBlockRef bscConfig) . blkHeader . buBlock $ b)
-
--- TODO this function may be needed in future
-
--- | Finds LCA of two containers `cont1`, `cont2`
---   Returns `(lca, cont1', cont2')` such that:
---    * `blkOrigin cont1' == blkOrigin cont2' == lca`
---    * `cont1'` and `cont2'` are heads of `cont1`, `cont2` respectively.
--- findLCA
---     :: (HasBlock blockRef payload bdata1, HasBlock blockRef payload bdata2, Ord blockRef)
---     => Int
---     -> BlockContainerD blockRef bdata1 payload
---     -> BlockContainerD blockRef bdata2 payload
---     -> Maybe (blockRef,
---               BlockContainerM blockRef bdata1 payload,
---               BlockContainerM blockRef bdata2 payload)
--- findLCA maxDepth cont1 cont2 = do
---     (lca, dropTail lca -> cont2) <- lcaM
---     (_, dropTail lca -> cont1) <- find ((==) lca . fst) refs1
---     assertOrigin lca cont1 $
---       assertOrigin lca cont2 $
---       return (lca, cont1, cont2)
---   where
---     assertOrigin origin = assert . maybe True ((== Just origin) . blkOrigin)
-
---     dropTail tailKey (m, tip)
---         | tip == tailKey = Nothing
---         | otherwise = Just (M.delete tailKey m, tip)
-
---     lcaM = find (flip S.member refs1Set . fst) refs2
---     NewestFirst (take maxDepth -> refs1) = blkHeads (Just cont1)
---     refs1Set = S.fromList (fst <$> refs1)
---     NewestFirst (take maxDepth -> refs2) = blkHeads (Just cont2)

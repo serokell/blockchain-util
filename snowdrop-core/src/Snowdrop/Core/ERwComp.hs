@@ -1,33 +1,37 @@
+-- | Basic types and functions for Exceptionable Read-Write Computation.
+
 module Snowdrop.Core.ERwComp
        ( ERwComp
        , runERwComp
-       , modifyRwCompChgAccum
        , liftERoComp
-       , upcastEffERwComp
+       , convertERwComp
+       , upcastEffERwCompM
        ) where
 
 import           Universum
 
-import           Control.Lens ((.=))
 import           Control.Monad.Except (MonadError)
 
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), Undo)
-import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), ChgAccumModifier, ERoComp,
-                                        StatePException (..), UpCastableERo, initAccumCtx,
-                                        modifyAccum, upcastEffERoComp)
+import           Snowdrop.Core.BaseM (BaseM)
+import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), ConvertEffect (..), DbAccessM,
+                                        StatePException (..), UpCastableERoM, initAccumCtx,
+                                        upcastEffERoCompM)
 import           Snowdrop.Util
 
-newtype ERwComp e ctx s xs a = ERwComp { unERwComp :: StateT s (ERoComp e ctx xs) a }
+-- | StateT over ERoComp.
+-- ERoComp can be lifted to ERwComp with regarding a current state.
+newtype ERwComp e eff ctx s a = ERwComp { unERwComp :: StateT s (BaseM e eff ctx) a }
     deriving (Functor, Applicative, Monad, MonadError e, MonadState s)
 
+-- | Run a ERwComp with a passed initial state.
 runERwComp
-  :: forall e ctx s xs a.
-  ( HasException e StatePException
-  , HasGetter ctx (ChgAccumCtx ctx)
-  )
-  => ERwComp e ctx s xs a
+  :: forall e eff ctx s a.
+    ( HasException e StatePException
+    , HasGetter ctx (ChgAccumCtx ctx)
+    )
+  => ERwComp e eff ctx s a
   -> s
-  -> ERoComp e ctx xs (a, s)
+  -> BaseM e eff ctx (a, s)
 runERwComp stComp initS = do
     mChgAccum <- asks (gett @_ @(ChgAccumCtx ctx))
     case mChgAccum of
@@ -35,34 +39,26 @@ runERwComp stComp initS = do
         CAInitialized _  -> throwLocalError ChgAccumCtxUnexpectedlyInitialized
     runStateT (unERwComp stComp) initS
 
+-- | Lift passed ERoComp to ERwComp.
+-- Set initial state of ERoComp as ChgAccum from state from ERwComp.
 liftERoComp
-    :: forall e ctx xs s a .
+    :: forall e eff2 ctx s eff1 a.
     ( HasException e StatePException
     , HasLens ctx (ChgAccumCtx ctx)
     , HasGetter s (ChgAccum ctx)
+    , ConvertEffect e ctx eff1 eff2
     )
-    => ERoComp e ctx xs a
-    -> ERwComp e ctx s xs a
-liftERoComp comp = gets (gett @_ @(ChgAccum ctx)) >>= ERwComp . lift . flip initAccumCtx comp
+    => BaseM e eff1 ctx a
+    -> ERwComp e eff2 ctx s a
+liftERoComp comp =
+    gets (gett @_ @(ChgAccum ctx)) >>= ERwComp . lift . flip initAccumCtx (convertEffect comp)
 
-modifyRwCompChgAccum
-    :: forall e xs s ctx .
-    ( HasException e CSMappendException
-    , HasLens s (ChgAccum ctx)
-    )
-    => ChgAccumModifier xs
-    -> ERwComp e ctx s xs (Undo xs)
-modifyRwCompChgAccum chgSet = do
-    chgAcc <- gets (gett @_ @(ChgAccum ctx))
-    newChgAccOrE <- ERwComp $ lift $ modifyAccum chgAcc chgSet
-    flip (either $ ERwComp . throwLocalError) newChgAccOrE $
-        \(chgAcc', undo) -> (lensFor @s @(ChgAccum ctx) .= chgAcc') $> undo
-------------------------
--- Cast and hoist
-------------------------
+convertERwComp :: (BaseM e eff1 ctx (a, s) -> BaseM e eff2 ctx (a, s)) -> ERwComp e eff1 ctx s a -> ERwComp e eff2 ctx s a
+convertERwComp f (ERwComp (StateT act)) = ERwComp $ StateT $ \s -> f (act s)
 
-upcastEffERwComp
-    :: forall xs supxs e ctx s a . UpCastableERo xs supxs
-    => ERwComp e ctx s xs a
-    -> ERwComp e ctx s supxs a
-upcastEffERwComp (ERwComp comp) = ERwComp $ StateT $ upcastEffERoComp . runStateT comp
+upcastEffERwCompM
+    :: forall xs supxs e ctx s a . UpCastableERoM xs supxs
+    => ERwComp e (DbAccessM (ChgAccum ctx) xs) ctx s a
+    -> ERwComp e (DbAccessM (ChgAccum ctx) supxs) ctx s a
+upcastEffERwCompM (ERwComp comp) = ERwComp $ StateT $ upcastEffERoCompM . runStateT comp
+

@@ -29,12 +29,18 @@ import           Snowdrop.Util
 -- Helpers for validation
 ---------------------------
 
+-- | Helper, which can be used for a validator to specify success case.
 valid :: (Monoid a, Monad m) => m a
 valid = pure mempty
 
+-- | Helper, which can be used for a validator to specify conditional success case.
+-- Error will be returned iff the given boolean is 'False'.
 validateIff :: forall e e1 m a . (Monoid a, MonadError e m, HasReview e e1) => e1 -> Bool -> m a
 validateIff e1 = bool (throwLocalError e1) valid
 
+-- | Helper, which can be used for a validator to specify conditional success case.
+-- Error value is determined for a given element of container and is returned only
+-- if check for the element results in 'False'.
 validateAll
     :: (Foldable f, MonadError e m, Container (f a))
     => (Element (f a) -> e)
@@ -47,9 +53,12 @@ validateAll ex p ls = maybe (pure ()) (throwError . ex) (find (not . p) ls)
 -- Structural validator
 ---------------------------
 
+-- | Exception type for structural validation ('structuralPreValidator').
 data StructuralValidationException
     = forall id . (Show id, Buildable id) => DpRemoveDoesntExist id
+    -- ^ Id is expected to exist in state, but doesn't.
     | forall id . (Show id, Buildable id) => DpAddExist id
+    -- ^ Id is expected to be absent in state, but exists.
 deriving instance Show StructuralValidationException
 
 instance Buildable StructuralValidationException where
@@ -76,11 +85,11 @@ csRemoveExist
     => PreValidator e ctx txtype
 csRemoveExist = PreValidator $ checkBody . txBody
   where
-    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp e ctx (TxComponents txtype)  ()
+    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp e (TxComponents txtype) ctx ()
     checkBody RNil         = pure ()
     checkBody gs'@(_ :& _) = checkBody' gs'
 
-    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp e ctx (TxComponents txtype)  ()
+    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp e (TxComponents txtype) ctx ()
     checkBody' (cs :& gs) = do
         let inRefs = csRemove cs
         ins <- query @t inRefs
@@ -94,17 +103,19 @@ csNewNotExist
     ) => PreValidator e ctx txtype
 csNewNotExist = PreValidator $ checkBody . txBody
   where
-    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp e ctx (TxComponents txtype) ()
+    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp e (TxComponents txtype) ctx ()
     checkBody RNil         = pure ()
     checkBody gs'@(_ :& _) = checkBody' gs'
 
-    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp e ctx (TxComponents txtype) ()
+    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp e (TxComponents txtype) ctx ()
     checkBody' (cs :& gs) = do
         let ks = M.keysSet (csNew cs)
         mp <- query @t ks
         validateAll (inj . DpAddExist) (not . flip M.member mp) ks
         checkBody gs
 
+-- | Structural validation checks whether the ids which are to be removed
+-- (or to be modified) exist in state and vice versa.
 structuralPreValidator
     :: forall e ctx txtype .
     ( HasException e StructuralValidationException

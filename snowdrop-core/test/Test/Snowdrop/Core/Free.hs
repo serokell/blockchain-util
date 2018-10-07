@@ -57,8 +57,8 @@ prop_ercLen = property $ do
         cntJ     = getOperNum erpcRes
     case (cnts, cntJ) of
         (Left _, Left _) -> assert True
-        (Right (Counter q1 i1 m1, Counter q2 i2 m2), Right (Counter q i m)) ->
-            assert (i1 + i2 + m1 + m2 + q1 + q2 == i + q + m)
+        (Right (Counter q1 i1, Counter q2 i2), Right (Counter q i)) ->
+            assert (i1 + i2 + q1 + q2 == i + q)
         _ -> assert False
     -- TODO adjust these tests for JoinExecT as it will be ready
     -- assert (i1 + i2 + max q1 q2 >= i + q)

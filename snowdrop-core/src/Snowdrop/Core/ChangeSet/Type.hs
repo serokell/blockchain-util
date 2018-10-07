@@ -1,5 +1,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 
+-- | Description of ChangeSet and basic functions to work with it.
+
 module Snowdrop.Core.ChangeSet.Type
        ( HChangeSet
        , HChangeSetEl (..)
@@ -7,34 +9,30 @@ module Snowdrop.Core.ChangeSet.Type
        , hChangeSetToHMap
        , hChangeSetFromMap
        , HUpCastableChSet
-       , Undo (..)
-       , AvlRevisions
-       , AvlRevision (..)
-       , UpCastUndo
-       , upcastUndo
-       , downcastUndo
 
        , MappendHChSet
        , mappendChangeSet
        , mconcatChangeSets
        , hChangeSetElToList
+
        , csRemove
        , csNew
        , csUpdate
        , CSMappendException (..)
+
+       , diffChangeSet
        ) where
 
 import           Universum hiding (head, init, last)
 
 import           Data.Default (Default (..))
 import qualified Data.Set as S
-import qualified Data.ByteString as BS
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 
 import qualified Data.Map.Strict as M
 
-import           Snowdrop.Core.ChangeSet.ValueOp (ValueOp (..), ValueOpEx (..))
+import           Snowdrop.Core.ChangeSet.ValueOp (ValueOp (..), ValueOpEx (..), (<->))
 import           Snowdrop.Util
 
 newtype HChangeSetEl t = HChangeSetEl {unHChangeSetEl :: Map (HKey t) (ValueOp (HVal t)) }
@@ -67,47 +65,31 @@ hChangeSetToHMap = rmap hChangeSetElToMap
 hChangeSetFromMap :: Map (HKey t) (ValueOp (HVal t)) -> HChangeSet '[t]
 hChangeSetFromMap = (:& RNil) . HChangeSetEl
 
-newtype AvlRevision t = AvlRevision {unAvlRevision :: ByteString}
-    deriving (Eq, Ord, Show, Generic)
-
-instance Default (AvlRevision t) where
-    def = AvlRevision BS.empty
-type AvlRevisions = Rec AvlRevision
-
-data Undo xs = Undo
-    { undoChangeSet :: HChangeSet xs
-    , undoSnapshots :: AvlRevisions xs
-    } deriving (Generic)
-
-deriving instance (Show (HChangeSet xs), Show (AvlRevisions xs)) => Show (Undo xs)
-deriving instance (Eq (HChangeSet xs), Eq (AvlRevisions xs)) => Eq (Undo xs)
-
-type UpCastUndo xs supxs = (HUpCastableChSet xs supxs, HUpCastable AvlRevision xs supxs)
-
-upcastUndo :: UpCastUndo xs supxs => Undo xs -> Undo supxs
-upcastUndo (Undo cs bs) = Undo (hupcast cs) (hupcast bs)
-
-downcastUndo :: HDownCastable xs res => Undo xs -> Undo res
-downcastUndo (Undo cs bs) = Undo (hdowncast cs) (hdowncast bs)
-
+-- | Returns a set of keys which Rem operation should be applied to.
 csRemove :: HChangeSetEl t -> Set (HKey t)
 csRemove = M.keysSet . M.filter isRem . unHChangeSetEl
   where
     isRem Rem = True
     isRem _   = False
 
+-- | Returns a map containg keys which New operation should be applied to
+-- and corresponding new values according to ChangeSet.
 csNew :: HChangeSetEl t -> Map (HKey t) (HVal t)
 csNew = M.mapMaybe isNew . unHChangeSetEl
   where
     isNew (New x) = Just x
     isNew _       = Nothing
 
+-- | Returns a map containg keys which Upd operation should be applied to
+-- and corresponding new values according to ChangeSet.
 csUpdate :: HChangeSetEl t -> Map (HKey t) (HVal t)
 csUpdate = M.mapMaybe isUpd . unHChangeSetEl
   where
     isUpd (Upd x) = Just x
     isUpd _       = Nothing
 
+-- | Returns map consisted of keys corresponding to New and Upd operations and
+-- values from operations themselves.
 hChangeSetElToMap :: HChangeSetEl t -> HMapEl t
 hChangeSetElToMap = HMapEl . M.mapMaybe toJust . unHChangeSetEl
   where
@@ -116,9 +98,11 @@ hChangeSetElToMap = HMapEl . M.mapMaybe toJust . unHChangeSetEl
     toJust (Upd x)    = Just x
     toJust (New x)    = Just x
 
+-- | Like @hChangeSetElToMap@ but returns a list.
 hChangeSetElToList :: HChangeSetEl t -> [(HKey t, ValueOp (HVal t))]
 hChangeSetElToList = M.toList . unHChangeSetEl
 
+-- | Exception throwing from @mappendChangeSet@.
 data CSMappendException = forall id . (Show id, Eq id) => CSMappendException id
 
 deriving instance Show CSMappendException
@@ -128,8 +112,14 @@ instance Exception CSMappendException
 --     build (CSMappendException i) =
 --         bprint ("Failed to mappend ChangeSets due to conflict for key "%build) i
 
-type MappendHChSet xs = AllExn xs
+type MappendHChSet xs = RecAll' xs ExnHKey
 
+-- | Combine @ValueOp@s corresponding the same keys.
+-- @CSMappendException@ will be returned if after an aplication of
+-- the first ChangeSet to a state it won't be possible to apply the second ChangeSet
+-- without violation ValueOp's invariant.
+-- Don't apply any changes to state itself.
+-- This implementation works for O(min(N, M) * log(max(N, M)))
 mappendChangeSet
     :: MappendHChSet xs
     => HChangeSet xs
@@ -163,7 +153,36 @@ mappendChangeSetEl (HChangeSetEl m1) (HChangeSetEl m2) = if leftAppRight
                   Err   -> Left $ CSMappendException i
                   Op ro -> Right $ M.insert i ro m
 
+-- | Like @mconcatChangeSet@ but for list of ChangeSet.
 mconcatChangeSets
-    :: (RecAll' xs ExnHKey, Default (HChangeSet xs))
+  :: (MappendHChSet xs, Default (HChangeSet xs))
     => [HChangeSet xs] -> Either CSMappendException (HChangeSet xs)
 mconcatChangeSets = foldM mappendChangeSet def
+
+-- | Calculates diff of two changesets, namely
+-- @c `diffChangeSet` a = Right b@ iff @a `mappendChangeSet` b = Right c@
+diffChangeSet
+    :: MappendHChSet xs
+    => HChangeSet xs
+    -> HChangeSet xs
+    -> Either CSMappendException (HChangeSet xs)
+diffChangeSet RNil RNil = Right RNil
+diffChangeSet (x :& xs) (y :& ys) = do
+    res <- x `diffChangeSetEl` y
+    (res :&) <$> diffChangeSet xs ys
+
+diffChangeSetEl
+    :: forall t. ExnHKey t
+    => HChangeSetEl t
+    -> HChangeSetEl t
+    -> Either CSMappendException (HChangeSetEl t)
+diffChangeSetEl (HChangeSetEl c) (HChangeSetEl a) = do
+    let err :: HKey t -> Either CSMappendException a
+        err = Left . CSMappendException
+        processKey b (k, aV) = do
+          bV <- case k `M.lookup` c of
+            Just cV -> maybe (err k) pure (cV <-> aV)
+            _       -> err k
+          pure $ M.insert k bV b
+    b' <- foldM processKey mempty (M.toList a)
+    pure $ HChangeSetEl $ (c M.\\ a) <> b'

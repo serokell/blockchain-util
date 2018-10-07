@@ -1,7 +1,7 @@
+{-# LANGUAGE AllowAmbiguousTypes     #-}
+{-# LANGUAGE DataKinds               #-}
+{-# LANGUAGE PolyKinds               #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE DataKinds #-}
 
 module Snowdrop.Core.Validator.Types
        ( PreValidator (..)
@@ -19,11 +19,11 @@ module Snowdrop.Core.Validator.Types
 import           Universum hiding (Nat)
 
 import           Data.Vinyl
-import           Data.Vinyl.TypeLevel (Nat (..), type RLength)
+import           Data.Vinyl.TypeLevel (Nat (..), RLength)
 
 import           Snowdrop.Core.ERoComp (ERoComp, UpCastableERo, upcastEffERoComp)
-import           Snowdrop.Core.Transaction (DownCastableTx, StateTx, TxComponents, downcastStateTx)
 import           Snowdrop.Core.Stuff (UnitedTxType)
+import           Snowdrop.Core.Transaction (DownCastableTx, StateTx, TxComponents, downcastStateTx)
 
 import           Snowdrop.Util (RContains, RecAll', RecToList (..))
 
@@ -32,11 +32,17 @@ import           Snowdrop.Util (RContains, RecAll', RecToList (..))
 ------------------------------------------------------
 
 -- TODO pva701: maybe we should create ValidatorComponents and use it instead of TxComponents
--- | PreValidator validates part of tx
+-- | Function which validates transaction, assuming a transaction
+-- of appropriate type is supplied.
+-- It's expected to project some id types and validate them alone
+-- without considering other id types.
 newtype PreValidator e ctx txtype
-    = PreValidator {runPrevalidator :: StateTx txtype -> ERoComp e ctx (TxComponents txtype) () }
+    = PreValidator {runPrevalidator :: StateTx txtype -> ERoComp e (TxComponents txtype) ctx () }
 
-mkPreValidator :: (StateTx txtype -> ERoComp e ctx (TxComponents txtype) ()) -> PreValidator e ctx txtype
+-- | Alias for 'PreValidator' constructor
+mkPreValidator
+    :: (StateTx txtype -> ERoComp e (TxComponents txtype) ctx ())
+    -> PreValidator e ctx txtype
 mkPreValidator = PreValidator
 
 ------------------------------------------------------
@@ -69,7 +75,7 @@ unitePreValidators = mconcat . recToList @(PreValidator e ctx) . rmapCast
     rmapCast
         :: ( RecAll' xs (CastableC (UnitedTxType txtypes)))
         => Rec (PreValidator e ctx) xs -> Rec (PreValidator e ctx) (ReplicateU (RLength xs) txtypes)
-    rmapCast RNil = RNil
+    rmapCast RNil           = RNil
     rmapCast (pr :& others) = upcastPreValidator pr :& rmapCast others
 
 upcastPreValidator
@@ -93,8 +99,11 @@ upcastPreValidator prev = PreValidator $ upcastEffERoComp . runPrevalidator prev
 -- Validator
 ------------------------------------------------------
 
--- | Validator is a union of several (pre)validators for
--- different transaction types.
+-- | Object to validate transaction fully.
+-- Contains a mapping from transaction type to a corresponding pre-validator
+-- (which may be a concatenation of few other pre-validators).
+-- Each entry in the mapping (a pre-validator) is expected to fully validate
+-- the transaction, consider all id types in particular.
 type Validator e ctx (txtypes :: [*]) = Rec (PreValidator e ctx) txtypes
 
 instance Semigroup (PreValidator e ctx txtype) where
@@ -104,6 +113,7 @@ instance Monoid (PreValidator e ctx txtype) where
     mempty = PreValidator $ const (pure ())
     mappend = (<>)
 
+-- | Smart constructor for 'Validator' type
 mkValidator :: [PreValidator e ctx txtype] -> Validator e ctx '[txtype]
 mkValidator ps = mconcat ps :& RNil
 
@@ -113,10 +123,11 @@ fromPreValidator ps = ps :& RNil
 getPreValidator :: Validator e ctx '[txtype] -> PreValidator e ctx txtype
 getPreValidator (ps :& RNil) = ps
 
+-- | Execute validator on a given transaction.
 runValidator
     :: forall e ctx txtype txtypes . (RContains txtypes txtype)
     => Validator e ctx txtypes
     -> StateTx txtype
-    -> ERoComp e ctx (TxComponents txtype) ()
+    -> ERoComp e (TxComponents txtype) ctx ()
 runValidator prevalidators statetx =
     runPrevalidator (rget @txtype prevalidators) statetx

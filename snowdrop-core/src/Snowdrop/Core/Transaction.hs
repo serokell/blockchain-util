@@ -7,21 +7,19 @@ module Snowdrop.Core.Transaction
        , TxComponents
 
        , StateTx (..)
-       , StateTxWithUndo (..)
        , DownCastableTx
        , downcastStateTx
        -- , castStateTx
 
        , SomeTx
-       , SomeTxWithUndo
        , applySomeTx
        , usingSomeTx
        ) where
 
 import           Universum
 
-import           Snowdrop.Core.ChangeSet (HChangeSet, Undo)
-import           Snowdrop.Util (HDownCastable, hdowncast, HasGetter (..), SomeData (..))
+import           Snowdrop.Core.ChangeSet (HChangeSet)
+import           Snowdrop.Util (HDownCastable, HasGetter (..), SomeData (..), hdowncast)
 
 ------------------------------------------
 -- Basic storage: model
@@ -30,7 +28,7 @@ import           Snowdrop.Util (HDownCastable, hdowncast, HasGetter (..), SomeDa
 -- | Determines Proof by txtype.
 type family TxProof      (txtype :: k) :: *
 
-  -- | Determines components of HChangeSet by txtype.
+-- | Determines components of HChangeSet by txtype.
 type family TxComponents (txtype :: k) :: [*]
 
 -- | Transaction which modifies state.
@@ -68,12 +66,6 @@ applySomeTx f (SomeData x) = f x
 
 usingSomeTx :: forall a c . SomeTx c -> (forall txtype . c txtype => StateTx txtype -> a) -> a
 usingSomeTx tx f = applySomeTx f tx
-
-data StateTxWithUndo txtype = StateTxWithUndo
-    { stateTx :: StateTx txtype
-    , txUndo  :: Undo (TxComponents txtype)
-    }
-type SomeTxWithUndo = SomeData StateTxWithUndo
 
 -- class HUpCastableChSet (TxComponents txtype) xs => UpCastableTxBody xs txtype
 -- instance HUpCastableChSet (TxComponents txtype) xs => UpCastableTxBody xs txtype

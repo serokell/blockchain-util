@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveTraversable #-}
 module Snowdrop.Util.Containers
        (
          OldestFirst (..)
@@ -18,10 +19,14 @@ import qualified Data.Set as S
 newtype OldestFirst b a = OldestFirst { unOldestFirst :: b a }
 deriving instance Foldable b => Foldable (OldestFirst b)
 deriving instance Functor b => Functor (OldestFirst b)
+deriving instance Applicative b => Applicative (OldestFirst b)
+deriving instance Traversable b => Traversable (OldestFirst b)
 
 newtype NewestFirst b a = NewestFirst { unNewestFirst :: b a }
 deriving instance Foldable b => Foldable (NewestFirst b)
 deriving instance Functor b => Functor (NewestFirst b)
+deriving instance Applicative b => Applicative (NewestFirst b)
+deriving instance Traversable b => Traversable (NewestFirst b)
 
 oldestFirstFContainer :: (b a -> c a) -> OldestFirst b a -> OldestFirst c a
 oldestFirstFContainer f (OldestFirst xs) = OldestFirst $ f xs

@@ -34,7 +34,7 @@ newtype ProofNExp e ctx rawtx txtype =
 contramapProofNExp :: (a -> b) -> ProofNExp e ctx b txtype -> ProofNExp e ctx a txtype
 contramapProofNExp f (ProofNExp (prf, se)) = ProofNExp (prf, contramapSeqExpander f se)
 
--- Seq expander
+-- | Sequence of expand stages to be consequently executed upon a given transaction.
 type SeqExpander e ctx rawtx txtype = Rec (PreExpander e ctx rawtx) (SeqExpanderComponents txtype)
 
 contramapSeqExpander :: (a -> b) -> Rec (PreExpander e ctx b) xs -> Rec (PreExpander e ctx a) xs
@@ -48,7 +48,7 @@ contramapSeqExpander f (ex :& rest) = contramapPreExpander f ex :& contramapSeqE
 --  So the result StateTx is constructed as
 --  _StateTx proofFromRawTx (addtionFromExpander1 <> additionFromExpander2 <> ...)_
 newtype PreExpander e ctx rawtx ioRestr = PreExpander
-    { runExpander :: rawtx -> ERoComp e ctx (ExpInpComps ioRestr) (DiffChangeSet (ExpOutComps ioRestr))
+    { runExpander :: rawtx -> ERoComp e (ExpInpComps ioRestr) ctx (DiffChangeSet (ExpOutComps ioRestr))
     }
 
 contramapPreExpander :: (a -> b) -> PreExpander e ctx b ioRestr -> PreExpander e ctx a ioRestr

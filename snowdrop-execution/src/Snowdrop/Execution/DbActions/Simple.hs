@@ -2,8 +2,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Snowdrop.Execution.DbActions.Simple
-       ( SumChangeSet (..)
-       , sumChangeSetDBA
+       (
+         sumChangeSetDaa
+       , sumChangeSetDaaM
+       , sumChangeSetDaaU
+       , SumChangeSet (..)
        , mappendStOrThrow
        , modifySumChgSet
        ) where
@@ -15,12 +18,13 @@ import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import           Data.Vinyl.Core (Rec (..))
 
-import           Snowdrop.Core (AvlRevisions, CSMappendException (..), ChgAccumModifier (..),
-                                HChangeSet, HChangeSetEl (..), MappendHChSet, Undo (..),
-                                ValueOp (..), csNew, hChangeSetToHMap, hChangeSetToHSet,
-                                mappendChangeSet)
+import           Snowdrop.Core (CSMappendException (..), HChangeSet, HChangeSetEl (..),
+                                MappendHChSet, ValueOp (..), csNew, diffChangeSet, hChangeSetToHMap,
+                                hChangeSetToHSet, mappendChangeSet)
 import           Snowdrop.Execution.DbActions.Types (DGetter, DGetter', DIter, DIter',
-                                                     DbAccessActions (..), IterAction (..))
+                                                     DbAccessActions (..), DbAccessActionsM (..),
+                                                     DbAccessActionsU (..), DbActionsException (..),
+                                                     IterAction (..))
 import           Snowdrop.Util
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
@@ -60,30 +64,6 @@ querySumChSet (SumChangeSet accum) reqIds = (reqIds', resp)
 -- SumChangeSet DbActions
 ----------------------------------------------------------------------------
 
-sumChangeSetDBA
-    :: forall xs m .
-       ( MonadCatch m
-       , MappendHChSet xs
-       , HIntersectable xs xs
-       , Semigroup (HMap xs)
-       , Default (AvlRevisions xs)
-       )
-    => DGetter' xs m
-    -> DIter' xs m
-    -> DbAccessActions (SumChangeSet xs) xs m
-sumChangeSetDBA getImpl iterImpl = DbAccessActions getter modifySumChgSetA iterer
-  where
-    getter = chgAccumGetter getImpl
-    iterer = chgAccumIter iterImpl
-
-    modifySumChgSetA accum = \case
-        CAMChange cs -> processCS cs
-        CAMRevert (Undo cs _sn) -> processCS cs
-      where
-        processCS cs' =
-          (liftA2 (,) $ accum `modifySumChgSet` cs')
-            <$> runExceptT (flip Undo def <$> computeHChSetUndo getter accum cs')
-
 -- | Compute undo and verify change is valid for being applied to state
 computeHChSetUndo
   :: ( Monad m
@@ -92,10 +72,10 @@ computeHChSetUndo
   => DGetter (SumChangeSet xs) xs m
   -> SumChangeSet xs
   -> HChangeSet xs
-  -> ExceptT CSMappendException m (HChangeSet xs)
+  -> m (Either CSMappendException (HChangeSet xs))
 computeHChSetUndo getter sch chs = do
-    vals <- lift $ getter sch (hChangeSetToHSet chs)
-    ExceptT $ pure $ computeHChSetUndo' vals chs
+    vals <- getter sch (hChangeSetToHSet chs)
+    pure $ computeHChSetUndo' vals chs
   where
     computeHChSetUndo'
       :: MappendHChSet xs
@@ -121,6 +101,87 @@ computeHChSetUndo getter sch chs = do
               (Rem, Just v0)        -> pure $ M.insert k (New v0) m
               _                     -> throwError (CSMappendException k)
         HChangeSetEl <$> foldM processOne mempty (M.toList cs)
+
+sumChangeSetDaa
+    :: forall xs m .
+       ( Applicative m
+       , MappendHChSet xs
+       , HIntersectable xs xs
+       , Semigroup (HMap xs)
+       )
+    => DGetter' xs m
+    -> DIter' xs m
+    -> DbAccessActions (SumChangeSet xs) xs m
+sumChangeSetDaa getterImpl iterImpl =
+    DbAccessActions (chgAccumGetter getterImpl) (chgAccumIter iterImpl)
+
+sumChangeSetDaaM
+    :: forall xs m .
+       ( Applicative m
+       , MappendHChSet xs
+       , HIntersectable xs xs
+       , Semigroup (HMap xs)
+       )
+    => DbAccessActions  (SumChangeSet xs) xs m
+    -> DbAccessActionsM (SumChangeSet xs) xs m
+sumChangeSetDaaM daa = DbAccessActionsM daa (pure ... modifyAccum)
+  where
+
+    modifyAccum
+      :: SumChangeSet xs
+      -> OldestFirst [] (HChangeSet xs)
+      -> Either CSMappendException (OldestFirst [] (SumChangeSet xs))
+    modifyAccum initScs (OldestFirst css) = OldestFirst <$> scss
+      where
+        scss = reverse . snd <$> foldM modScs (initScs, []) css
+        modScs (scs, res) cs = (\scs' -> (scs', scs':res)) <$> scs `modifySumChgSet` cs
+
+sumChangeSetDaaU
+    :: forall xs undo m .
+       ( MonadThrow m
+       , MappendHChSet xs
+       , HIntersectable xs xs
+       , Semigroup (HMap xs)
+       , HasPrism undo (HChangeSet xs)
+       )
+    => DbAccessActions  (SumChangeSet xs) xs m
+    -> DbAccessActionsU (SumChangeSet xs) undo xs m
+sumChangeSetDaaU daa = daaU
+  where
+    daaU = DbAccessActionsU (sumChangeSetDaaM daa) modifyAccumU computeUndo
+
+    modifyAccumU
+      :: SumChangeSet xs
+      -> NewestFirst [] undo
+      -> m (Either CSMappendException (SumChangeSet xs))
+    modifyAccumU scs undos = do
+        undos' <- maybe (throwM DbUndoProjectionError) pure (traverse projUndo undos)
+        pure (modifyAccumU' scs undos')
+
+    projUndo :: undo -> Maybe (HChangeSet xs)
+    projUndo = proj
+
+    modifyAccumU'
+      :: SumChangeSet xs
+      -> NewestFirst [] (HChangeSet xs)
+      -> Either CSMappendException (SumChangeSet xs)
+    modifyAccumU' scs (NewestFirst css) = foldM modifySumChgSet scs css
+
+    computeUndo
+        :: SumChangeSet xs
+        -> SumChangeSet xs
+        -> m (Either CSMappendException undo)
+    computeUndo scs@(SumChangeSet scs1) (SumChangeSet scs2) =
+        either (pure . Left) ((fmap $ fmap injUndo) <$> computeUndoDo scs) (scs2 `diffChangeSet` scs1)
+
+    injUndo :: HChangeSet xs -> undo
+    injUndo = inj
+
+    computeUndoDo
+        :: SumChangeSet xs
+        -> HChangeSet xs
+        -> m (Either CSMappendException (HChangeSet xs))
+    computeUndoDo = computeHChSetUndo (daaGetter daa)
 
 chgAccumIter
     :: (Applicative m, RecAll' xs OrdHKey)

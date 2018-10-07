@@ -44,24 +44,14 @@ import qualified Data.HashMap.Strict as HM
 import qualified System.Console.ANSI as Term
 import qualified System.Wlog as LW
 
--- Copied from Disciplina:
-
-{- | Conventional "ReaderT over IO" monad stack.
-
-Lootbox bases on 'caps' library which allows the only 'ReaderT' instance for
-used typeclasses, e.g.
-@instance (r ~ Capabilities caps) => MonadLogging (ReaderT r IO)@.
-To avoid instances overlapping, we use this wrapper.
-
-This also allows us to remorselessly define one global
-@instance HasLens Smth ctx Smth => MonadSmth (RIO ctx)@ per every @Smth@.
--}
+-- | Conventional RIO monad, being used as a base monad for logging in Snowdrop
 newtype RIO ctx a = RIO (ReaderT ctx IO a)
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader ctx,
               MonadThrow, MonadCatch, MonadMask, MonadBase IO)
 
 deriving instance MonadBase IO (RIO ctx) => MonadBaseControl IO (RIO ctx)
 
+-- | Executor for 'RIO' monad
 runRIO :: MonadIO m => ctx -> RIO ctx a -> m a
 runRIO ctx (RIO act) = liftIO $ runReaderT act ctx
 
@@ -72,12 +62,15 @@ instance (HasLens LoggingIO ctx LoggingIO) => MonadLogging (RIO ctx) where
 instance (HasLens LoggingIO ctx LoggingIO) => ModifyLogName (RIO ctx) where
     modifyLogNameSel = Rio.defaultModifyLogNameSel
 
+-- | Default execution monad for Snowdrop's execution code.
+-- Provides lootbox's logging.
 type ExecM = RIO LoggingIO
 
 ----------------------------------------------------------------------------
 -- Configuration and initiation
 ----------------------------------------------------------------------------
 
+-- Default logging config for lootbox's logging.
 defaultLogCfg :: LW.LoggerConfig
 defaultLogCfg = LW.productionB & LW.lcTermSeverityOut .~ Just mempty
                                & LW.lcTermSeverityErr .~ Just LW.allSeverities
@@ -100,8 +93,7 @@ defaultLogCfg = LW.productionB & LW.lcTermSeverityOut .~ Just mempty
         , (LW.LoggerName "Client", mkTree "Client.log")
         ]
 
-
--- TODO: finalise config from `ConfigPart`s
+-- | Helper to execute some action within 'ExecM' monad
 withLogger :: Maybe FilePath -> ExecM () -> IO ()
 withLogger mConfigPath action = do
     cfg <- case mConfigPath of

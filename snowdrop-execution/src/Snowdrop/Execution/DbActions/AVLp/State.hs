@@ -5,14 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Snowdrop.Execution.DbActions.AVLp.State
-       ( AllAvlEntries
-       , IsAvlEntry
-       , RootHashes
-       , RootHashComp (..)
-       , AvlProof (..)
-       , AvlProofs
-
-       , AVLServerState (..)
+       ( AVLServerState (..)
        , AMSRequested (..)
        , ClientTempState (..)
        , clientModeToTempSt
@@ -32,34 +25,21 @@ import           Universum
 import           Data.Default (Default (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import           Data.Tree.AVL (KVStoreMonad (..), MapLayer (..), Serialisable (..))
+import           Data.Tree.AVL (KVStoreMonad (..), Serialisable (..))
 import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
 import           Loot.Log (MonadLogging, logDebug)
 
-import           Snowdrop.Execution.DbActions.AVLp.Avl (AvlHashable, KVConstraint, RootHash (..),
-                                                        deserialiseM, materialize, mkAVL, saveAVL)
+import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
+                                                        AvlProofs, RootHash (..), RootHashComp (..),
+                                                        RootHashes, deserialiseM, materialize,
+                                                        mkAVL, saveAVL)
 import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbActionsException (..))
 import           Snowdrop.Util
 
 ----------------------------------------------------------------------------
 -- Server state
 ----------------------------------------------------------------------------
-
-newtype RootHashComp h t = RootHashComp {unRootHashComp :: RootHash h}
-type RootHashes h = Rec (RootHashComp h)
-newtype AvlProof h t = AvlProof {unAvlProof :: AVL.Proof h (HKey t) (HVal t)}
-type AvlProofs h = Rec (AvlProof h)
-
-class ( KVConstraint (HKey t) (HVal t)
-      , Serialisable (MapLayer h (HKey t) (HVal t) h)
-      , AVL.Hash h (HKey t) (HVal t)
-      ) => IsAvlEntry h t
-instance ( KVConstraint (HKey t) (HVal t)
-      , Serialisable (MapLayer h (HKey t) (HVal t) h)
-      , AVL.Hash h (HKey t) (HVal t)
-      ) => IsAvlEntry h t
-type AllAvlEntries h xs = RecAll' xs (IsAvlEntry h)
 
 -- | Data type used as state of DbModifyActions.
 data AVLServerState h xs = AMS

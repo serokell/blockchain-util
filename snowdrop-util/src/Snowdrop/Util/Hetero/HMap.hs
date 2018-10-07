@@ -10,9 +10,9 @@ import           Data.Default (Default (..))
 import           Data.Kind
 import qualified Data.Map as M
 import qualified Data.Set as S
-import           Data.Vinyl (Rec (..), rcast, rappend)
+import           Data.Vinyl (Rec (..), rappend, rcast)
 import           Data.Vinyl.Lens (RElem, RSubset)
-import           Data.Vinyl.TypeLevel (Fst, RImage, RIndex, Snd, type (++))
+import           Data.Vinyl.TypeLevel (type (++), Fst, RImage, RIndex, Snd)
 import           Snowdrop.Util.Containers (toDummyMap)
 import           Snowdrop.Util.Hetero.Constraints (NotIntersect, RecAll', RemoveElem, UnionTypes)
 
@@ -31,7 +31,6 @@ instance Ord (HKey t) => OrdHKey t
 
 class (Ord (HKey t), Show (HKey t), Buildable (HKey t)) => ExnHKey t
 instance (Ord (HKey t), Show (HKey t), Buildable (HKey t)) => ExnHKey t
-type AllExn xs = RecAll' xs ExnHKey
 
 -- HMap
 newtype HMapEl (t :: u) = HMapEl {unHMapEl :: Map (HKey t) (HVal t)}

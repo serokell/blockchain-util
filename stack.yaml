@@ -49,7 +49,7 @@ extra-deps:
 # - parsec-3.1.13.0
 
 ghc-options:
-    snowdrop-block:      -Werror
-    snowdrop-core:       -Werror
-    snowdrop-execution:  -Werror
     snowdrop-util:       -Werror
+    snowdrop-core:       -Werror
+    snowdrop-block:      -Werror
+    snowdrop-execution:  -Werror
