@@ -8,6 +8,8 @@ import           Universum hiding (show)
 
 import           Data.Default (Default (..))
 import           Data.Kind
+import qualified Data.Text.Buildable
+import           Formatting (bprint, build, (%))
 import qualified Data.Map as M
 import qualified Data.Set as S
 import           Data.Vinyl (Rec (..), rappend, rcast)
@@ -72,15 +74,25 @@ hsetFromSet = (:& RNil) . HSetEl
 hsetToSet :: OrdHKey t => HSet '[t] -> Set (HKey t)
 hsetToSet (HSetEl x :& RNil) = x
 
+hmapToHSet :: HMap xs -> HSet xs
+hmapToHSet RNil             = RNil
+hmapToHSet (HMapEl x :& xs) = HSetEl (M.keysSet x) :& hmapToHSet xs
+
+------------------------
+-- Instances
+------------------------
+
 instance Default (Rec f '[]) where
     def = RNil
 
 instance (Default (f x), Default (Rec f xs')) => Default (Rec f (x ': xs')) where
     def = def :& def
 
-hmapToHSet :: HMap xs -> HSet xs
-hmapToHSet RNil             = RNil
-hmapToHSet (HMapEl x :& xs) = HSetEl (M.keysSet x) :& hmapToHSet xs
+instance Buildable (Rec f '[]) where
+    build _ = bprint "RNil"
+
+instance (Buildable (f x), Buildable (Rec f xs')) => Buildable (Rec f (x ': xs')) where
+    build (x :& xs) = bprint (build%" :& "%build) x xs
 
 ------------------------
 -- HRemoveElement
@@ -103,43 +115,6 @@ instance {-# OVERLAPPABLE #-}
     , HRemoveElem t xs')
     => HRemoveElem t (x ': xs') where
     hremoveElem (x :& xs') = (x :&) <$> hremoveElem @t @xs' xs'
-
--- ------------------------
--- -- GElem
--- ------------------------
-
--- class GElem (t :: *) (xs :: [*]) where
---     elemAt :: GMap f xs -> (MapKV f t)
-
--- instance GElem t (t ': xs') where
---     elemAt (x :> _) = x
-
--- instance {-# OVERLAPPABLE #-}
---     GElem t xs' => GElem t (x ': xs') where
---     elemAt (_ :> gm) = elemAt @t @xs' gm
-
--- ------------------------
--- -- GMappendable
--- ------------------------
-
--- -- xs ++ ys \ xs
--- class GMappendable f xs ys where
---     gmappend :: GMap f xs -> GMap f ys -> GMap f (UnionTypes xs ys)
-
--- instance GMappendable f '[] ys where
---     gmappend _ ys = ys
-
--- instance ( Semigroup (GValF f t)
---          , Ord (GKey t)
---          , RemoveElem t ys
---          , GMappendable f xs (Rest t ys))
---          => GMappendable f (t : xs) ys where
---     gmappend (x :> xs) ys = case removeElem @t @ys ys of
---         (Nothing, rest) -> x :> gmappend xs rest
---         (Just y, rest)  -> (M.unionWith (<>) x y) :> gmappend xs rest
-
--- type GMappendableSet' xs = GMappendable (Const ()) xs
--- type GMappendableMap' xs = GMappendable Identity xs
 
 ------------------------
 -- Castable
