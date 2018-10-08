@@ -165,4 +165,4 @@ inmemoryBlkStateConfiguration cfg validator mkProof mkBlock = fix $ \this ->
       applyBlkChg :: forall t . HUpCastableChSet '[t] xs => HChangeSet '[t] -> m ()
       applyBlkChg chg =
           liftERoComp (modifyAccumOne @_ @xs $ hupcast @_ @'[t] @xs chg)
-            >>= modify . flip sett
+              >>= modify . flip sett

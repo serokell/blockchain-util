@@ -12,9 +12,7 @@ module Snowdrop.Core.Stuff
 import           Universum
 
 import           Control.Lens (to)
-import qualified Data.Text.Buildable
 import           Data.Vinyl (Rec (..), type (∈), rget)
-import           Formatting (bprint, build, stext, (%))
 
 import           Snowdrop.Core.Transaction (TxComponents, TxProof)
 import           Snowdrop.Util (HasGetter (..), UnionTypes)
