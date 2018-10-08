@@ -49,6 +49,8 @@ import           Snowdrop.Util
 newtype RootHashComp h t = RootHashComp {unRootHashComp :: RootHash h}
 type RootHashes h = Rec (RootHashComp h)
 newtype AvlProof h t = AvlProof {unAvlProof :: AVL.Proof h (HKey t) (HVal t)}
+deriving instance (Show h, Show (HKey t), Show (HVal t)) => Buildable (AvlProof h t)
+
 type AvlProofs h = Rec (AvlProof h)
 
 class ( KVConstraint (HKey t) (HVal t)
