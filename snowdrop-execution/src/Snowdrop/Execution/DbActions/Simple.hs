@@ -16,7 +16,8 @@ import           Universum
 import           Control.Monad.Except (throwError)
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
-import           Data.Vinyl.Core (Rec (..))
+import           Data.Vinyl (Rec (..))
+import           Data.Vinyl.TypeLevel (RecAll)
 
 import           Snowdrop.Core (CSMappendException (..), HChangeSet, HChangeSetEl (..),
                                 MappendHChSet, ValueOp (..), csNew, diffChangeSet, hChangeSetToHMap,
@@ -108,6 +109,8 @@ sumChangeSetDaa
        , MappendHChSet xs
        , HIntersectable xs xs
        , Semigroup (HMap xs)
+       , RecAll HMapEl xs IsEmpty
+       , RecAll HSetEl xs IsEmpty
        )
     => DGetter' xs m
     -> DIter' xs m
@@ -204,13 +207,19 @@ chgAccumIter (iter' :& xs) (unSumCS -> csel' :& ys) =
 chgAccumIter _ _ = error "Absurd. Lol, without this I get non exhaustive pattern matching "
 
 chgAccumGetter
-    :: (Applicative m, HIntersectable xs xs, Semigroup (HMap xs))
+    ::
+      ( Applicative m
+      , HIntersectable xs xs
+      , Semigroup (HMap xs)
+      , RecAll HSetEl xs IsEmpty
+      , RecAll HMapEl xs IsEmpty
+      )
     => DGetter' xs m
     -> DGetter (SumChangeSet xs) xs m
 chgAccumGetter getter accum reqIds =
-    bool (unionStateP resp <$> getter reqIds') (pure resp) (rnull reqIds')
+    bool (unionStateP resp <$> getter reqIds') (pure resp) (rAllEmpty reqIds')
   where
     (reqIds', resp) = querySumChSet accum reqIds
     unionStateP x y =
-        if rnull (x `hintersect` y) then x <> y
+        if rAllEmpty (x `hintersect` y) then x <> y
         else error "chgAccumGetter: unexpected overlap of keys"

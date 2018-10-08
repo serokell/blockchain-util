@@ -8,14 +8,14 @@ import           Universum hiding (show)
 
 import           Data.Default (Default (..))
 import           Data.Kind
-import qualified Data.Text.Buildable
-import           Formatting (bprint, build, (%))
 import qualified Data.Map as M
 import qualified Data.Set as S
+import qualified Data.Text.Buildable
 import           Data.Vinyl (Rec (..), rappend, rcast)
 import           Data.Vinyl.Lens (RElem, RSubset)
 import           Data.Vinyl.TypeLevel (type (++), Fst, RImage, RIndex, Snd)
-import           Snowdrop.Util.Containers (toDummyMap)
+import           Formatting (bprint, build, (%))
+import           Snowdrop.Util.Containers (IsEmpty (..), toDummyMap)
 import           Snowdrop.Util.Hetero.Constraints (NotIntersect, RecAll', RemoveElem, UnionTypes)
 
 ------------------------
@@ -37,6 +37,9 @@ instance (Ord (HKey t), Show (HKey t), Buildable (HKey t)) => ExnHKey t
 -- HMap
 newtype HMapEl (t :: u) = HMapEl {unHMapEl :: Map (HKey t) (HVal t)}
 type HMap = Rec HMapEl
+
+instance IsEmpty (HMapEl t) where
+    isEmpty = M.null . unHMapEl
 
 instance Default (HMapEl t) where
     def = HMapEl M.empty
@@ -61,6 +64,9 @@ hmapToMap (HMapEl x :& RNil) = x
 -- HSet
 newtype HSetEl (t :: u) = HSetEl {unHSetEl :: Set (HKey t)}
 type HSet = Rec HSetEl
+
+instance IsEmpty (HSetEl t) where
+    isEmpty = S.null . unHSetEl
 
 instance Default (HSetEl t) where
     def = HSetEl S.empty

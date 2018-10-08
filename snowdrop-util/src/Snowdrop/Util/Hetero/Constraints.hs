@@ -1,17 +1,19 @@
+{-# LANGUAGE Rank2Types              #-}
+{-# LANGUAGE TypeInType              #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
-{-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE TypeInType #-}
 
 module Snowdrop.Util.Hetero.Constraints where
 
-import           Universum hiding (show)
+import           Universum hiding (Const (..), show)
 
 import           Data.Kind
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Lens (RElem)
-import           Data.Vinyl.TypeLevel (RIndex)
+import           Data.Vinyl.TypeLevel (RIndex, RecAll)
 
 import           GHC.TypeLits (ErrorMessage (..), TypeError)
+
+import           Snowdrop.Util.Containers (IsEmpty (..))
 
 -- Aux type level fuctions and constraints
 
@@ -87,3 +89,7 @@ remConstraint (SomeData x) = SomeData x
 
 class RElem r rs (RIndex r rs) => RContains rs r
 instance RElem r rs (RIndex r rs) => RContains rs r
+
+rAllEmpty :: RecAll f rs IsEmpty => Rec f rs -> Bool
+rAllEmpty RNil      = True
+rAllEmpty (x :& xs) = isEmpty x && rAllEmpty xs
