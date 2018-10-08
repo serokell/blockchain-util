@@ -44,6 +44,7 @@ newtype RootHash h = RootHash { unRootHash :: h }
 
 
 newtype RootHashComp h t = RootHashComp {unRootHashComp :: RootHash h}
+  deriving (Eq, Serialisable, Show)
 type RootHashes h = Rec (RootHashComp h)
 
 newtype AvlProof h t = AvlProof {unAvlProof :: AVL.Proof h (HKey t) (HVal t)}

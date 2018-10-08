@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds               #-}
+{-# LANGUAGE ScopedTypeVariables     #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
 module Snowdrop.Execution.Mempool.Core
@@ -75,7 +76,8 @@ instance Default chgAccum => Default (Versioned (MempoolState chgAccum rawtx)) w
     def = Versioned def 0
 
 actionWithMempool
-    :: ( Show e, Typeable e, Default chgAccum
+    :: forall da daa xs chgAccum e rawtx a.
+       ( Show e, Typeable e, Default chgAccum
        , HasException e StatePException
        , chgAccum ~ ChgAccum (IOCtx da)
        , DbActions da daa chgAccum ExecM
