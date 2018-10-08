@@ -5,9 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Snowdrop.Core.Stuff
-       ( StateModificationException(..)
-
-       , UnitedTxType
+       ( UnitedTxType
        , Prf (..)
        ) where
 
@@ -20,25 +18,6 @@ import           Formatting (bprint, build, stext, (%))
 
 import           Snowdrop.Core.Transaction (TxComponents, TxProof)
 import           Snowdrop.Util (HasGetter (..), UnionTypes)
-
-------------------------
--- Compute undo
-------------------------
-
-data StateModificationException
-    = forall id . (Buildable id, Show id) => UnexpectedKeyExists id
-    | forall id . (Buildable id, Show id) => UnexpectedKeyAbsent id
-
-deriving instance Show StateModificationException
-
-instance Buildable StateModificationException where
-    build = \case
-        UnexpectedKeyExists i -> problemWithKey "exist" i
-        UnexpectedKeyAbsent i -> problemWithKey "be absent" i
-      where
-        problemWithKey desc key =
-            bprint ("Key "%build%" was not expected to "%stext%
-                " during performed modification") key desc
 
 ------------------------
 -- UnitedTxType

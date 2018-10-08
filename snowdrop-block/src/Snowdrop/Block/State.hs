@@ -11,6 +11,8 @@ module Snowdrop.Block.State
        , TipKey (..)
        , TipValue (..)
        , inmemoryBlkStateConfiguration
+
+       , BlkProcConstr
        ) where
 
 import           Universum
@@ -25,12 +27,11 @@ import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockU
                                        CurrentBlockRef (..), Payload, RawBlk, RawPayload)
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), DbAccessU,
                                 ERoComp, ERwComp, HChangeSet, HUpCastableChSet, MappendHChSet,
-                                QueryERo, SomeTx, StateModificationException, StatePException (..),
-                                StateTx (..), TxComponents, UnitedTxType, UpCastableERoM, Validator,
-                                ValueOp (..), applySomeTx, computeUndo, convertEffect,
-                                getCAOrDefault, hChangeSetFromMap, liftERoComp, modifyAccum,
-                                modifyAccumOne, modifyAccumUndo, queryOne, queryOneExists,
-                                runValidator, upcastEffERoComp, upcastEffERoCompM)
+                                QueryERo, SomeTx, StatePException (..), StateTx (..), TxComponents,
+                                UnitedTxType, UpCastableERoM, Validator, ValueOp (..), applySomeTx,
+                                computeUndo, convertEffect, getCAOrDefault, hChangeSetFromMap,
+                                liftERoComp, modifyAccum, modifyAccumOne, modifyAccumUndo, queryOne,
+                                queryOneExists, runValidator, upcastEffERoComp, upcastEffERoCompM)
 import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
                                      UnionSeqExpandersInps, expandUnionRawTxs)
 import           Snowdrop.Util
@@ -103,10 +104,9 @@ inmemoryBlkStateConfiguration
     , HasExceptions e
         [ StatePException
         , BlockStateException
-        , StateModificationException
         , CSMappendException
         ]
-    , RawPayload blkType ~ [SomeTx c] -- whaat??
+    , Payload blkType ~ [SomeTx c]
     , Ord (BlockHeader blkType)
     , HasLens (ChgAccum ctx) (ChgAccum ctx)
     , HasLens ctx (ChgAccumCtx ctx)
