@@ -19,6 +19,7 @@ module Snowdrop.Core.ERoComp.Helpers
        , getCAOrDefault
 
        , UpCastableERo
+       , downcasChgAccModifier
        , upcastDbAccess
        , upcastEffERoComp
        ) where
@@ -33,8 +34,8 @@ import           Data.Vinyl.Lens (rget)
 import           Data.Default (Default (def))
 
 import           Snowdrop.Core.BaseM (effect, hoistEffectful)
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HUpCastableChSet,
-                                          Undo, downcastUndo, upcastUndo)
+import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, Undo, UpCastUndo,
+                                          downcastUndo, upcastUndo)
 import           Snowdrop.Core.ERoComp.Types (ChgAccum, ChgAccumModifier (..), DbAccess (..),
                                               ERoComp, FoldF (..))
 import           Snowdrop.Util
@@ -133,8 +134,16 @@ type UpCastableERo xs supxs =
     ( HIntersectable supxs xs
     , HUpCastableMap xs supxs
     , HUpCastableSet xs supxs
-    , HUpCastableChSet xs supxs
+    , UpCastUndo xs supxs
     )
+
+downcasChgAccModifier :: HDownCastable xs res => ChgAccumModifier xs -> ChgAccumModifier res
+downcasChgAccModifier (CAMChange cs)   = CAMChange $ hdowncast cs
+downcasChgAccModifier (CAMRevert undo) = CAMRevert $ downcastUndo undo
+
+upcastChgAccModifier :: UpCastUndo xs res => ChgAccumModifier xs -> ChgAccumModifier res
+upcastChgAccModifier (CAMChange cs)   = CAMChange $ hupcast cs
+upcastChgAccModifier (CAMRevert undo) = CAMRevert $ upcastUndo undo
 
 upcastDbAccess
     :: forall xs supxs chgAcc a . UpCastableERo xs supxs
@@ -143,9 +152,8 @@ upcastDbAccess
 upcastDbAccess (DbQuery s cont) =
     DbQuery (hupcast @_ @xs @supxs s) (\resp -> cont (hintersect @supxs @xs resp s))
 upcastDbAccess (DbIterator pr foldf) = DbIterator (pr . hdowncast) foldf
-upcastDbAccess (DbModifyAccum acc md cont) = case md of
-    CAMChange cs -> DbModifyAccum acc (CAMChange $ hupcast @_ @xs @supxs cs) (cont . fmap (fmap downcastUndo))
-    CAMRevert undo -> DbModifyAccum acc (CAMRevert $ upcastUndo @xs @supxs undo) (cont . fmap (fmap downcastUndo))
+upcastDbAccess (DbModifyAccum acc md cont) =
+    DbModifyAccum acc (upcastChgAccModifier md) (cont . fmap (fmap downcastUndo))
 
 upcastEffERoComp
     :: forall xs supxs e ctx a . UpCastableERo xs supxs

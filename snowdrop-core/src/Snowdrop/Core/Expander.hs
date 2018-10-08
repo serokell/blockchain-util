@@ -5,31 +5,41 @@
 {-# LANGUAGE TypeInType          #-}
 
 module Snowdrop.Core.Expander
-       ( SeqExpander (..)
-       , SeqExpander'
+       ( ProofNExp (..)
+       , SeqExpander
        , PreExpander (..)
-       , ExpRestriction (..)
-
+       , contramapProofNExp
+       , contramapSeqExpander
+       , contramapPreExpander
        , DiffChangeSet (..)
+
+       , ExpRestriction (..)
+       , ExpInpComps
+       , ExpOutComps
+       , SeqExpanderComponents
        ) where
 
 import           Universum
 
-import           Data.Functor.Contravariant (Contravariant (..))
-import qualified Data.List.NonEmpty as NE
+import           Data.Kind
+import           Data.Vinyl (Rec (..))
 
 import           Snowdrop.Core.ChangeSet (HChangeSet)
 import           Snowdrop.Core.ERoComp (ERoComp)
+import           Snowdrop.Core.Transaction (TxProof)
 
--- type Expander e id value ctx rawTx (txtypes :: [*]) = Rec (PreExpanderSeq e id value ctx rawTx) txtypes
+newtype ProofNExp e ctx rawtx txtype =
+    ProofNExp (TxProof txtype, SeqExpander e ctx rawtx txtype)
 
-newtype SeqExpander e ctx xs rawTx
-  = SeqExpander { getSeqExpanders :: SeqExpander' e ctx xs rawTx }
+contramapProofNExp :: (a -> b) -> ProofNExp e ctx b txtype -> ProofNExp e ctx a txtype
+contramapProofNExp f (ProofNExp (prf, se)) = ProofNExp (prf, contramapSeqExpander f se)
 
-instance Contravariant (SeqExpander e ctx xs) where
-    contramap g = SeqExpander . NE.map (contramap g) . getSeqExpanders
+-- Seq expander
+type SeqExpander e ctx rawtx txtype = Rec (PreExpander e ctx rawtx) (SeqExpanderComponents txtype)
 
-type SeqExpander' e ctx xs rawTx = NonEmpty (PreExpander e ctx xs rawTx)
+contramapSeqExpander :: (a -> b) -> Rec (PreExpander e ctx b) xs -> Rec (PreExpander e ctx a) xs
+contramapSeqExpander _ RNil         = RNil
+contramapSeqExpander f (ex :& rest) = contramapPreExpander f ex :& contramapSeqExpander f rest
 
 -- | PreExpander allows you to convert one raw tx to StateTx.
 --  _inpSet_ is set of Prefixes which expander gets access to during computation.
@@ -37,21 +47,29 @@ type SeqExpander' e ctx xs rawTx = NonEmpty (PreExpander e ctx xs rawTx)
 --  expanderAct takes raw tx, returns addition to txBody.
 --  So the result StateTx is constructed as
 --  _StateTx proofFromRawTx (addtionFromExpander1 <> additionFromExpander2 <> ...)_
-newtype PreExpander e ctx ioRestr rawTx = PreExpander
-    { runExpander :: rawTx -> ERoComp e ctx (ExpInps ioRestr) (DiffChangeSet (ExpOuts ioRestr))
+newtype PreExpander e ctx rawtx ioRestr = PreExpander
+    { runExpander :: rawtx -> ERoComp e ctx (ExpInpComps ioRestr) (DiffChangeSet (ExpOutComps ioRestr))
     }
 
-instance Contravariant (PreExpander e ctx ioRestr) where
-    contramap g (PreExpander f) = PreExpander (f . g)
+contramapPreExpander :: (a -> b) -> PreExpander e ctx b ioRestr -> PreExpander e ctx a ioRestr
+contramapPreExpander f (PreExpander act) = PreExpander $ act . f
+
+-- | DiffChangeSet holds changes which one expander returns
+newtype DiffChangeSet xs = DiffChangeSet {unDiffCS :: HChangeSet xs}
 
 ------------------------------------------
--- Restriction on PreExpander
+-- Restrictions of expanders
 ------------------------------------------
 
 -- This datatype to be intended to use as kind and constructor of types instead of pair
 data ExpRestriction i o = ExRestriction i o -- different type and constructor names to avoid going crazy
-type family ExpInps r where ExpInps ('ExRestriction i o) = i
-type family ExpOuts r where ExpOuts ('ExRestriction i o) = o
+type family ExpInpComps r where ExpInpComps ('ExRestriction i o) = i
+type family ExpOutComps r where ExpOutComps ('ExRestriction i o) = o
 
--- | DiffChangeSet holds changes which one expander returns
-newtype DiffChangeSet xs = DiffChangeSet {unDiffCS :: HChangeSet xs}
+-- This type family should be defined for each seq expander like
+-- type instance SeqExpanderComponents DlgTx =
+--                  '[ ExRestriction '[TxIn] '[UtxoComponent],
+--                     ExRestriction '[DlgIssuer, DlgDelegate] '[DlgIssuerComponent, DlgDelegateComponent]
+--                   ]
+-- this SeqExpander contains two PreExpanders
+type family SeqExpanderComponents (txtype :: *) :: [ExpRestriction [*] [*]]

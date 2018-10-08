@@ -1,68 +1,53 @@
 module Snowdrop.Execution.DbActions.Composite
-       (
-         constructCompositeActions
+       ( constructCompositeActions
        , CompositeChgAccum (..)
        ) where
 
 import           Universum
 
-import qualified Data.ByteString as BS
 import           Data.Default (Default (def))
-import qualified Data.Map.Strict as M
-import           Data.Reflection (Reifies, reflect)
-import qualified Data.Set as S
+import           Data.Vinyl.TypeLevel (type (++))
 
-import           Snowdrop.Core (ChangeSet (..), ChgAccumModifier (..), IdSumPrefixed (..),
-                                Prefix (..), Undo (..), filterByPrefixPred, filterSetByPrefixPred,
-                                mappendChangeSet)
+import           Snowdrop.Core (ChgAccumModifier (..), Undo (..), downcastUndo)
 
-import           Snowdrop.Execution.DbActions.Types
+import           Snowdrop.Execution.DbActions.Types (DbAccessActions (..))
+import           Snowdrop.Util
 
-data CompositeChgAccum chgAccumPrimary chgAccumSecondary ps = CompositeChgAccum
+data CompositeChgAccum chgAccumPrimary chgAccumSecondary = CompositeChgAccum
     { ccaPrimary   :: chgAccumPrimary
     , ccaSecondary :: chgAccumSecondary
     }
 
 instance (Default chgAccumPrimary, Default chgAccumSecondary)
-        => Default (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps) where
+         => Default (CompositeChgAccum chgAccumPrimary chgAccumSecondary) where
     def = CompositeChgAccum def def
 
 constructCompositeActions
-    :: forall ps chgAccumPrimary chgAccumSecondary id value m .
-    (Reifies ps (Set Prefix), Ord id, MonadCatch m, IdSumPrefixed id)
-    => DbAccessActions chgAccumPrimary id value m
-    -> DbAccessActions chgAccumSecondary id value m
-    -> DbAccessActions (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps) id value m
-constructCompositeActions dbaP dbaS =
-    DbAccessActions cGetter cModifyAccum $ \(CompositeChgAccum caP caS) p ->
-        bool (daaIter dbaS caS p) (daaIter dbaP caP p) $ p `S.member` prefixes
+    :: forall caPrimary caSecondary components1 components2 m .
+    ( Monad m
+    , NotIntersect components1 components2
+
+    , HDownCastable (components1 ++ components2) components1
+    , HDownCastable (components1 ++ components2) components2
+    )
+    => DbAccessActions caPrimary components1 m
+    -> DbAccessActions caSecondary components2 m
+    -> DbAccessActions (CompositeChgAccum caPrimary caSecondary) (components1 ++ components2) m
+constructCompositeActions dbaP dbaS = DbAccessActions {
+    daaGetter = \(CompositeChgAccum prim sec) reqs ->
+          liftA2 happend (daaGetter dbaP prim (hdowncast reqs)) (daaGetter dbaS sec (hdowncast reqs))
+  , daaIter = \(CompositeChgAccum prim sec) -> liftA2 happend (daaIter dbaP prim) (daaIter dbaS sec)
+  , daaModifyAccum = \compChgAcc cm -> runExceptT $ case cm of
+        CAMChange cs           -> processCS compChgAcc (CAMChange $ hdowncast cs) (CAMChange $ hdowncast cs)
+        CAMRevert undo ->
+            processCS compChgAcc
+                      (CAMRevert $ downcastUndo undo)
+                      (CAMRevert $ downcastUndo undo)
+  }
   where
-    cModifyAccum (CompositeChgAccum cP cS) chgAccMod = runExceptT $ do
-        (accP, undoP) <- ExceptT $ daaModifyAccum dbaP cP camP
-        (accS, undoS) <- ExceptT $ daaModifyAccum dbaS cS camS
-        (,) (CompositeChgAccum accP accS) <$> mergeUndos undoP undoS
-      where
-        processCS f = bimap f f . splitCS
-        (camP, camS) =
-          case chgAccMod of
-            CAMChange cs         -> processCS CAMChange cs
-            CAMRevert (Undo cs sn) -> processCS (CAMRevert . flip Undo sn) cs
-    mergeUndos (Undo csP snP) (Undo csS snS) =
-      if BS.null snP || BS.null snS
-      then flip Undo (snP `BS.append` snS)
-           <$> (ExceptT $ pure $ csP `mappendChangeSet` csS)
-      else throwM $ DbApplyException "Both undo contain non-empty snapshot in composite actions"
-    splitCS cs = (csP, csS)
-      where
-        csP = filterByPrefixPred (`S.member` prefixes) cs
-        csS = ChangeSet $ changeSet cs M.\\ changeSet csP
-    prefixes = reflect (Proxy @ps)
-    cGetter (CompositeChgAccum caP caS) reqIds =
-        -- We throw error as responses for sets of keys with divergent
-        -- prefixes are not expected to ever overlap
-        M.unionWith (error "constructCompositeActions: responses overlap")
-          <$> daaGetter dbaP caP reqIdsP
-          <*> daaGetter dbaS caS reqIdsS
-      where
-        reqIdsP = filterSetByPrefixPred (`S.member` prefixes) reqIds
-        reqIdsS = reqIds S.\\ reqIdsP
+    processCS (CompositeChgAccum prim sec) md1 md2 = do
+        (accP, undoP) <- ExceptT $ daaModifyAccum dbaP prim md1
+        (accS, undoS) <- ExceptT $ daaModifyAccum dbaS sec md2
+        pure (CompositeChgAccum accP accS, mergeUndos undoP undoS)
+
+    mergeUndos (Undo csP snP) (Undo csS snS) = Undo (csP `happend` csS) (snP `happend` snS)

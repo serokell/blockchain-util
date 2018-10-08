@@ -15,6 +15,7 @@ module Snowdrop.Core.Transaction
        , SomeTx
        , SomeTxWithUndo
        , applySomeTx
+       , usingSomeTx
        ) where
 
 import           Universum
@@ -62,17 +63,20 @@ downcastStateTx StateTx {..} = StateTx (gett txProof) (hdowncast txBody)
 
 type SomeTx = SomeData StateTx
 
+applySomeTx :: forall a c . (forall txtype . c txtype => StateTx txtype -> a) -> SomeTx c -> a
+applySomeTx f (SomeData x) = f x
+
+usingSomeTx :: forall a c . SomeTx c -> (forall txtype . c txtype => StateTx txtype -> a) -> a
+usingSomeTx tx f = applySomeTx f tx
+
 data StateTxWithUndo txtype = StateTxWithUndo
     { stateTx :: StateTx txtype
     , txUndo  :: Undo (TxComponents txtype)
     }
 type SomeTxWithUndo = SomeData StateTxWithUndo
 
-applySomeTx :: (forall txtype . c txtype => StateTx txtype -> a) -> SomeTx c -> a
-applySomeTx f (SomeData x) = f x
-
--- class UpCastableGMap ValueOp (TxComponents txtype) xs => UpCastableTxBody xs txtype
--- instance UpCastableGMap ValueOp (TxComponents txtype) xs => UpCastableTxBody xs txtype
+-- class HUpCastableChSet (TxComponents txtype) xs => UpCastableTxBody xs txtype
+-- instance HUpCastableChSet (TxComponents txtype) xs => UpCastableTxBody xs txtype
 
 -- mappendSomeTxBody
 --     :: forall xs c .

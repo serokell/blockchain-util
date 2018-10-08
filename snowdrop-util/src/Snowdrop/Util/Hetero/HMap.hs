@@ -8,17 +8,21 @@ import           Universum hiding (show)
 
 import           Data.Default (Default (..))
 import           Data.Kind
+import qualified Data.Text.Buildable
+import           Formatting (bprint, build, (%))
 import qualified Data.Map as M
 import qualified Data.Set as S
-import           Data.Vinyl (Rec (..), rcast)
+import           Data.Vinyl (Rec (..), rcast, rappend)
 import           Data.Vinyl.Lens (RElem, RSubset)
-import           Data.Vinyl.TypeLevel (Fst, RImage, RIndex, Snd)
+import           Data.Vinyl.TypeLevel (Fst, RImage, RIndex, Snd, type (++))
 import           Snowdrop.Util.Containers (toDummyMap)
-import           Snowdrop.Util.Hetero.Constraints (RecAll', RemoveElem)
+import           Snowdrop.Util.Hetero.Constraints (NotIntersect, RecAll', RemoveElem, UnionTypes)
 
 ------------------------
 -- HMap and HSet
 ------------------------
+
+-- Basics
 
 type family HKeyVal (t :: u) :: (*, *)
 type HKey t = Fst (HKeyVal t)
@@ -29,12 +33,21 @@ instance Ord (HKey t) => OrdHKey t
 
 class (Ord (HKey t), Show (HKey t), Buildable (HKey t)) => ExnHKey t
 instance (Ord (HKey t), Show (HKey t), Buildable (HKey t)) => ExnHKey t
+type AllExn xs = RecAll' xs ExnHKey
 
+-- HMap
 newtype HMapEl (t :: u) = HMapEl {unHMapEl :: Map (HKey t) (HVal t)}
 type HMap = Rec HMapEl
 
 instance Default (HMapEl t) where
     def = HMapEl M.empty
+
+instance OrdHKey t => Semigroup (HMapEl t) where
+    HMapEl a <> HMapEl b = HMapEl $ a <> b
+
+instance OrdHKey t => Monoid (HMapEl t) where
+    a `mappend` b = a <> b
+    mempty = HMapEl mempty
 
 hmapEl :: OrdHKey t => [(HKey t, HVal t)] -> HMapEl t
 hmapEl = HMapEl . M.fromList
@@ -45,6 +58,8 @@ hmapFromMap = (:& RNil) . HMapEl
 hmapToMap :: OrdHKey t => HMap '[t] -> Map (HKey t) (HVal t)
 hmapToMap (HMapEl x :& RNil) = x
 
+
+-- HSet
 newtype HSetEl (t :: u) = HSetEl {unHSetEl :: Set (HKey t)}
 type HSet = Rec HSetEl
 
@@ -60,11 +75,25 @@ hsetFromSet = (:& RNil) . HSetEl
 hsetToSet :: OrdHKey t => HSet '[t] -> Set (HKey t)
 hsetToSet (HSetEl x :& RNil) = x
 
+hmapToHSet :: HMap xs -> HSet xs
+hmapToHSet RNil             = RNil
+hmapToHSet (HMapEl x :& xs) = HSetEl (M.keysSet x) :& hmapToHSet xs
+
+------------------------
+-- Instances
+------------------------
+
 instance Default (Rec f '[]) where
     def = RNil
 
 instance (Default (f x), Default (Rec f xs')) => Default (Rec f (x ': xs')) where
     def = def :& def
+
+instance Buildable (Rec f '[]) where
+    build _ = bprint "RNil"
+
+instance (Buildable (f x), Buildable (Rec f xs')) => Buildable (Rec f (x ': xs')) where
+    build (x :& xs) = bprint (build%" :& "%build) x xs
 
 ------------------------
 -- HRemoveElement
@@ -87,50 +116,6 @@ instance {-# OVERLAPPABLE #-}
     , HRemoveElem t xs')
     => HRemoveElem t (x ': xs') where
     hremoveElem (x :& xs') = (x :&) <$> hremoveElem @t @xs' xs'
-
--- ------------------------
--- -- GElem
--- ------------------------
-
--- class GElem (t :: *) (xs :: [*]) where
---     elemAt :: GMap f xs -> (MapKV f t)
-
--- instance GElem t (t ': xs') where
---     elemAt (x :> _) = x
-
--- instance {-# OVERLAPPABLE #-}
---     GElem t xs' => GElem t (x ': xs') where
---     elemAt (_ :> gm) = elemAt @t @xs' gm
-
--- ------------------------
--- -- GMappendable
--- ------------------------
-
--- -- xs ++ ys \ xs
--- class GMappendable f xs ys where
---     gmappend :: GMap f xs -> GMap f ys -> GMap f (UnionTypes xs ys)
-
--- instance GMappendable f '[] ys where
---     gmappend _ ys = ys
-
--- instance ( Semigroup (GValF f t)
---          , Ord (GKey t)
---          , RemoveElem t ys
---          , GMappendable f xs (Rest t ys))
---          => GMappendable f (t : xs) ys where
---     gmappend (x :> xs) ys = case removeElem @t @ys ys of
---         (Nothing, rest) -> x :> gmappend xs rest
---         (Just y, rest)  -> (M.unionWith (<>) x y) :> gmappend xs rest
-
--- gappend :: NotIntersect xs ys => GMap f xs -> GMap f ys -> GMap f (xs ++ ys)
--- gappend = gappend'
---   where
---     gappend' :: GMap f xs -> GMap f ys -> GMap f (xs ++ ys)
---     gappend' GNil ys = ys
---     gappend' (x :> xs) ys = x :> gappend' xs ys
-
--- type GMappendableSet' xs = GMappendable (Const ()) xs
--- type GMappendableMap' xs = GMappendable Identity xs
 
 ------------------------
 -- Castable
@@ -164,65 +149,78 @@ hdowncast = rcast
 type HElem r rs = RElem r rs (RIndex r rs)
 
 ------------------------
--- Intersectable
+-- Intersection && Difference && Mappend
 ------------------------
 
-class HIntersectableF f g where
-    hintersectf :: OrdHKey t => f t -> g t -> f t
+class IntersectionF f g where
+    intersectf :: OrdHKey t => f t -> g t -> f t
 
-instance HIntersectableF HMapEl HMapEl where
-    hintersectf (HMapEl a) (HMapEl b) = HMapEl $ a `M.intersection` b
+instance IntersectionF HMapEl HMapEl where
+    intersectf (HMapEl a) (HMapEl b) = HMapEl $ a `M.intersection` b
 
-instance HIntersectableF HMapEl HSetEl where
-    hintersectf (HMapEl a) (HSetEl b) = HMapEl $ a `M.intersection` (toDummyMap b)
+instance IntersectionF HMapEl HSetEl where
+    intersectf (HMapEl a) (HSetEl b) = HMapEl $ a `M.intersection` (toDummyMap b)
 
-type HIntersectable xs res =
-    ( HDownCastable xs res
-    , RecAll' res OrdHKey
-    )
+instance IntersectionF HSetEl HMapEl where
+    intersectf (HSetEl a) (HMapEl b) = HSetEl $ a `S.intersection` (M.keysSet b)
+
+type HIntersectable xs res = (HDownCastable xs res, RecAll' res OrdHKey)
 
 hintersect
-    :: forall xs res f g . (HIntersectableF f g, HIntersectable xs res)
+    :: forall xs res f g . (IntersectionF f g, HIntersectable xs res)
     => Rec f xs -> Rec g res -> Rec f res
 hintersect a b = hdowncast a `hintersect'` b
   where
     hintersect' :: RecAll' res1 OrdHKey => Rec f res1 -> Rec g res1 -> Rec f res1
     hintersect' RNil RNil           = RNil
-    hintersect' (x :& xs) (y :& ys) = (x `hintersectf` y) :& (xs `hintersect'` ys)
+    hintersect' (x :& xs) (y :& ys) = (x `intersectf` y) :& (xs `hintersect'` ys)
 
--- ------------------------
--- -- Semigroup
--- ------------------------
+-- Difference
+class DifferenceF f g where
+    differencef :: OrdHKey t => f t -> g t -> f t
 
--- type SemigroupGF f xs = (GMappendable f xs xs, UnionTypes xs xs ~ xs)
+instance DifferenceF HSetEl HMapEl where
+    differencef (HSetEl a) (HMapEl b) = HSetEl $ a `S.difference` (M.keysSet b)
 
--- instance SemigroupGF f xs => Semigroup (GMap f xs) where
---     gm1 <> gm2 = gm1 `gmappend` gm2
+type HDifference xs res = (HDownCastable xs res, RecAll' res OrdHKey)
 
--- instance Default (GMap f '[]) where
---     def = GNil
+hdifference
+    :: forall xs res f g . (DifferenceF f g, HIntersectable xs res)
+    => Rec f xs -> Rec g res -> Rec f res
+hdifference a b = hdowncast a `hdiff` b
+  where
+    hdiff :: RecAll' res1 OrdHKey => Rec f res1 -> Rec g res1 -> Rec f res1
+    hdiff RNil RNil           = RNil
+    hdiff (x :& xs) (y :& ys) = (x `differencef` y) :& (xs `hdiff` ys)
 
--- instance Default (GMap f xs') => Default (GMap f (t ': xs')) where
---     def = def @(MapKV f t) :> def
+type HMappend f xs ys =
+    ( HUpCastable f xs (UnionTypes xs ys)
+    , HUpCastable f ys (UnionTypes xs ys)
+    , Semigroup (Rec f (UnionTypes xs ys))
+    )
+type HMappendMap xs ys = HMappend HMapEl xs ys
 
--- instance Monoid (GMap f '[]) where
---     mappend _ _ = GNil
---     mempty = GNil
+hmappend
+    :: forall xs ys f . HMappend f xs ys
+    => Rec f xs -> Rec f ys -> Rec f (UnionTypes xs ys)
+hmappend xs ys = hupcast xs <> hupcast ys
 
--- instance (Ord (GKey t), SemigroupGF f (t ': xs'), Monoid (GMap f xs'))
---        => Monoid (GMap f (t ': xs')) where
---     mappend = (<>)
---     mempty = mempty @(MapKV f t) :> mempty
-
--- memptyGMap' :: Monoid (GMap' xs) => GMap' xs
--- memptyGMap' = mempty
-
--- memptyGSet' :: Monoid (GSet' xs) => GSet' xs
--- memptyGSet' = mempty
+happend :: NotIntersect xs ys => Rec f xs -> Rec f ys -> Rec f (xs ++ ys)
+happend = rappend
 
 -- ------------------------
 -- -- Utilities
 -- ------------------------
+
+rnull :: Rec f xs -> Bool
+rnull RNil = True
+rnull _    = False
+
+rone :: f x -> Rec f '[x]
+rone = (:& RNil)
+
+unone :: Rec f '[x] -> f x
+unone (x :& RNil) = x
 
 -- gnull :: GMap f xs -> Bool
 -- gnull GNil = True

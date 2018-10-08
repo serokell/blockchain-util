@@ -60,8 +60,8 @@ data DbAccess chgAccum (components :: [*]) (res :: *)
     -- The first field is request set of keys which are requested from state.
     -- The second one is a callback which accepts result of request: Map key value
     -- and returns a continuation (a next request to state).
-
     | forall t . DbIterator (forall f . Rec f components -> f t) (FoldF (HKey t, HVal t) res)
+    -- TODO ^ comment
     | DbModifyAccum
         chgAccum
         (ChgAccumModifier components)

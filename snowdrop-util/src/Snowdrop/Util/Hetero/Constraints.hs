@@ -20,6 +20,7 @@ type family Fst a where Fst '(x,y) = x
 -- | Project the second component of a type-level tuple.
 type family Snd a where Snd '(x,y) = y
 type family Snd' f a where Snd' f '(x,y) = f y
+type family Head xs where Head (x ': xs') = x
 
 type family Elem (a :: k) (xs::[k]) where
     Elem a '[] = TypeError ('Text "Type " ':<>: 'ShowType a ':<>: 'Text " doesn't belong to list")
@@ -65,15 +66,6 @@ instance RecToList f '[] a where
 instance (f x ~ a, RecToList f xs a) => RecToList f (x ': xs) a where
     recToList (fx :& xs) = fx : recToList xs
 
--- xs is superset of res
--- instance res ⊆ xs => HasGetter (Rec f xs) (Rec f res) where
---     gett = rcast
-
--- type DownCastableRec f xs res = HasGetter (Rec f xs) (Rec f res)
-
--- rdowncast :: DownCastableRec f xs res => Rec f xs -> Rec f res
--- rdowncast = gett
-
 data SomeData (d :: * -> *) (c :: * -> Constraint) =
     forall txtype . c txtype => SomeData (d txtype)
 
@@ -89,6 +81,9 @@ instance (c1 x, c2 x) => Both c1 c2 x
 type family CList (xs :: [* -> Constraint]) :: * -> Constraint where
     CList '[x] = x
     CList (x ': xs) = Both x (CList xs)
+
+remConstraint :: SomeData d (Both c1 c2) -> SomeData d c2
+remConstraint (SomeData x) = SomeData x
 
 class RElem r rs (RIndex r rs) => RContains rs r
 instance RElem r rs (RIndex r rs) => RContains rs r
