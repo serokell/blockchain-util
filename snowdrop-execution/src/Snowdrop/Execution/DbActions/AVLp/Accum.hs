@@ -132,11 +132,11 @@ modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup' k avl
   where
     processResp ((lookupRes, (<> touched) -> touched'), avl') =
       case (valueop, lookupRes) of
-        (NotExisted, _     ) -> pure (avl', touched')
-        (New v     , _     ) -> (, touched') . snd <$> AVL.insert' k v avl'
-        (Rem       , Just _) -> (, touched') . snd <$> AVL.delete' k avl'
-        (Upd v     , Just _) -> (, touched') . snd <$> AVL.insert' k v avl'
-        _                    -> throwM $ CSMappendException k
+        (NotExisted, Nothing) -> pure (avl', touched')
+        (New v     , Nothing) -> (, touched') . snd <$> AVL.insert' k v avl'
+        (Rem       , Just _)  -> (, touched') . snd <$> AVL.delete' k avl'
+        (Upd v     , Just _)  -> (, touched') . snd <$> AVL.insert' k v avl'
+        _                     -> throwM $ CSMappendException k
 
 
 modAccumU
