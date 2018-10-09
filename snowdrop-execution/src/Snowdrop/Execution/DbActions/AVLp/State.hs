@@ -31,9 +31,9 @@ import           Data.Vinyl.Core (Rec (..))
 import           Loot.Log (MonadLogging, logDebug)
 
 import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
-                                                        AvlProofs, RootHash (..), RootHashComp (..),
-                                                        RootHashes, deserialiseM, materialize,
-                                                        mkAVL, saveAVL)
+                                                        AvlProofs, IsAvlEntry, RootHash (..),
+                                                        RootHashComp (..), RootHashes, deserialiseM,
+                                                        materialize, mkAVL, saveAVL)
 import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbActionsException (..))
 import           Snowdrop.Util
 
@@ -92,11 +92,12 @@ data ClientError = BrokenProofError | UnexpectedRootHash
 
 instance Exception ClientError
 
-reThrowAVLEx :: forall k m a . (MonadCatch m, Show k, Typeable k) => m a -> m a
+reThrowAVLEx :: forall k h m a . (MonadCatch m, Show h, Typeable h, Show k, Typeable k) => m a -> m a
 reThrowAVLEx m =
     m `catch` (\(e :: ClientError) -> throwM $ DbProtocolError $ show e)
       `catch` (\(e :: AVL.DeserialisationError) -> throwM $ DbProtocolError $ show e)
-      `catch` (\(e :: AVL.NotFound k) -> throwM $ DbProtocolError $ show e)
+      `catch` (\(e :: AVL.NotFound k) -> throwM $ DbProtocolError $ "Not found key: " <> show e)
+      `catch` (\(e :: AVL.NotFound h) -> throwM $ DbProtocolError $ "Not found hash: " <> show e)
 
 clientModeToTempSt
     :: forall h xs m n .
@@ -118,14 +119,13 @@ clientModeToTempSt _ (ProofMode proofs') rootHashes =
         -> AVLPureStorage h
         -> m (AVLPureStorage h)
     convertAll RNil RNil res          = pure res
-    convertAll (AvlProof p :& proofs) (RootHashComp rootH :& roots) cache =
+    convertAll (p :& proofs) (RootHashComp rootH :& roots) cache =
         convert p rootH cache >>= convertAll proofs roots
 
-    -- convert :: AVL.Proof h -> RootHash h -> AVLPureStorage h -> m (AVLPureStorage h)
-    convert p@(AVL.Proof avl) rootH cache = do
+    convert :: forall r . IsAvlEntry h r => AvlProof h r -> RootHash h -> AVLPureStorage h -> m (AVLPureStorage h)
+    convert (AvlProof p@(AVL.Proof avl)) rootH cache = reThrowAVLEx @(HKey r) @h $ do
         when (not $ AVL.checkProof (unRootHash rootH) p) $ throwM BrokenProofError
-        AVLPureStorage . unAVLCache . snd  <$>
-            runAVLCacheT (saveAVL avl) def cache
+        AVLPureStorage . unAVLCache . snd  <$> runAVLCacheT (saveAVL avl) def cache
 clientModeToTempSt retrieveF RemoteMode rootH = pure $ ClientTempState (Right retrieveF) rootH
 
 instance HasGetter (ClientTempState h xs n) (RootHashes h xs) where
@@ -163,12 +163,15 @@ initAVLPureStorage xs = initAVLPureStorageAll xs def
         => HMap rs
         -> AVLPureStorage h
         -> m (AVLServerState h rs)
-    initAVLPureStorage' ((M.toList . unHMapEl -> kvs) :& accums) cache = reThrowAVLEx @(HKey r) $ do
-        (rootH, AVLPureStorage . unAVLCache -> newCache) <-
+    initAVLPureStorage' ((M.toList . unHMapEl -> kvs) :& accums) cache = reThrowAVLEx @(HKey r) @h $ do
+        logDebug "Initializing AVL+ pure storage"
+        (rootH, unAVLCache -> cache') <-
             runAVLCacheT
                 (foldM (\b (k, v) -> snd <$> AVL.insert @h k v b) AVL.empty kvs >>= saveAVL)
                 def
                 cache
+        let newCache = AVLPureStorage $ unAVLPureStorage cache <> cache'
+        logDebug "Materializing AVL+ pure storage"
         fullAVL <-
             runAVLCacheT @_ @h
                 (materialize @h @(HKey r) @(HVal r) $ mkAVL rootH)

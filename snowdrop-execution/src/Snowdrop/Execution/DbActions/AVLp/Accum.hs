@@ -110,7 +110,7 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
         -> HChangeSetEl r
         -> m (AVLChgAccum h r)
     modAccumOneDo (AVLChgAccum avl acc touched) (hChangeSetElToList -> cs) =
-        reThrowAVLEx @(HKey r) $
+        reThrowAVLEx @(HKey r) @h $
         doUncurry AVLChgAccum <$> runAVLCacheT (foldM modAVL (avl, touched) cs) acc ctx
 
     doUncurry :: (a -> b -> c -> d) -> ((a, c), b) -> d
@@ -184,7 +184,7 @@ query ctx (Just ca) hset = queryAll ca hset
     query'
         :: forall r rs rs' . (rs ~ (r ': rs'), RecAll' rs (IsAvlEntry h))
         => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
-    query' (AVLChgAccum initAvl initAcc _ :& accums) (HSetEl req :& reqs) = reThrowAVLEx @(HKey r) $ do
+    query' (AVLChgAccum initAvl initAcc _ :& accums) (HSetEl req :& reqs) = reThrowAVLEx @(HKey r) @h $ do
         let queryDo = fst <$> foldM queryDoOne (mempty, initAvl) req
             queryDoOne (resp, avl) key = first (processResp resp key) <$> AVL.lookup' key avl
 
@@ -210,6 +210,6 @@ iter ctx (Just ca) = pure $ iterAll ca
     iterAll RNil = RNil
     iterAll (AVLChgAccum initAvl initAcc _ :& accums) =
         IterAction
-            (\initB f -> fmap fst $ reThrowAVLEx @(HKey (Head rs)) $
+            (\initB f -> fmap fst $ reThrowAVLEx @(HKey (Head rs)) @h $
                   runAVLCacheT (AVL.fold (initB, f, id) initAvl) initAcc ctx) :& iterAll accums
 iter ctx cA = iter ctx (Just $ resolveAvlCA ctx cA)
