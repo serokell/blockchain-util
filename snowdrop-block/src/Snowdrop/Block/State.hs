@@ -7,7 +7,6 @@ module Snowdrop.Block.State
        ( TipComponent
        , BlundComponent
 
-       , BlockStateException (..)
        , TipKey (..)
        , TipValue (..)
        , inmemoryBlkStateConfiguration
@@ -42,25 +41,13 @@ type instance HKeyVal (TipComponent blkType) = '(TipKey, TipValue (BlockRef blkT
 type instance HKeyVal (BlundComponent blkType)  =
       '(BlockRef blkType, Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))
 
-data BlockStateException
-    = TipNotFound
-    deriving (Show)
-
-instance Buildable BlockStateException where
-    build TipNotFound = "Tip not found"
-
 data TipKey = TipKey
   deriving (Eq, Ord, Show, Generic)
 
 instance Buildable TipKey where
     build TipKey = "tip"
 
-{-
-instance Buildable blockRef => Buildable (BlockRef blockRef) where
-    build br = bprint ("block ref "%build) br
--}
-
-data TipValue blockRef = TipValue {unTipValue :: Maybe blockRef}
+data TipValue blockRef = TipValue {unTipValue :: blockRef}
     deriving (Eq, Ord, Show, Generic)
 
 class ( RContains txtypes txtype
@@ -103,7 +90,6 @@ inmemoryBlkStateConfiguration
     , m ~ ERwComp e (DbAccessU (ChgAccum ctx) (BlockUndo blkType) xs) ctx (ChgAccum ctx)
     , HasExceptions e
         [ StatePException
-        , BlockStateException
         , CSMappendException
         ]
     , Payload blkType ~ [SomeTx c]
@@ -154,12 +140,15 @@ inmemoryBlkStateConfiguration cfg validator mkProof mkBlock = fix $ \this ->
            applyBlkChg chg
      , bscGetBlund = liftERoComp . queryOne @(BlundComponent blkType) @xs
      , bscBlockExists = liftERoComp . queryOneExists @(BlundComponent blkType) @xs
-     , bscGetTip = liftERoComp (queryOne @(TipComponent blkType) @xs TipKey)
-                     >>= maybe (throwLocalError TipNotFound) (pure . unTipValue)
+     , bscGetTip = unTipValue <<$>> liftERoComp (queryOne @(TipComponent blkType) @xs TipKey)
      , bscSetTip = \newTip' -> do
-           void $ bscGetTip this
-           let chg = hChangeSetFromMap @(TipComponent blkType) $ M.singleton TipKey (Upd (TipValue newTip'))
-           applyBlkChg chg
+           oldTip <- bscGetTip this
+           let applyChg tipMod = applyBlkChg $ hChangeSetFromMap @(TipComponent blkType) $ M.singleton TipKey tipMod
+           case (newTip', oldTip) of
+             (Nothing, Nothing) -> pure ()
+             (Just v, Nothing)  -> applyChg $ New (TipValue v)
+             (Just v, Just _)   -> applyChg $ Upd (TipValue v)
+             (Nothing, Just _)  -> applyChg Rem
     }
     where
       applyBlkChg :: forall t . HUpCastableChSet '[t] xs => HChangeSet '[t] -> m ()

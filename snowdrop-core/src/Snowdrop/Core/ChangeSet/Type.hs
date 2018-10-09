@@ -27,8 +27,10 @@ import           Universum hiding (head, init, last)
 
 import           Data.Default (Default (..))
 import qualified Data.Set as S
+import qualified Data.Text.Buildable as Buildable
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
+import           Formatting (bprint, shown, (%))
 
 import qualified Data.Map.Strict as M
 
@@ -108,9 +110,9 @@ data CSMappendException = forall id . (Show id, Eq id) => CSMappendException id
 deriving instance Show CSMappendException
 instance Exception CSMappendException
 
--- instance Buildable id => Buildable (CSMappendException id) where
---     build (CSMappendException i) =
---         bprint ("Failed to mappend ChangeSets due to conflict for key "%build) i
+instance Buildable CSMappendException where
+    build (CSMappendException i) =
+        bprint ("Failed to mappend ChangeSets due to conflict for key "%shown) i
 
 type MappendHChSet xs = RecAll' xs ExnHKey
 
