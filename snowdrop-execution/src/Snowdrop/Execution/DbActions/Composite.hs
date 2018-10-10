@@ -9,97 +9,96 @@ module Snowdrop.Execution.DbActions.Composite
 import           Universum
 
 import           Data.Default (Default (def))
-import qualified Data.Map.Strict as M
-import           Data.Reflection (Reifies, reflect)
-import qualified Data.Set as S
+import           Data.Vinyl.TypeLevel (type (++))
 
-import           Snowdrop.Core (CSMappendException, ChangeSet (..), IdSumPrefixed (..), Prefix (..),
-                                filterByPrefixPred, filterSetByPrefixPred)
+import           Snowdrop.Core (CSMappendException)
 import           Snowdrop.Execution.DbActions.Types
-import           Snowdrop.Util (NewestFirst (..), OldestFirst (..))
+import           Snowdrop.Util (HDownCastable, NewestFirst (..), NotIntersect, OldestFirst (..),
+                                happend, hdowncast)
 
-data CompositeChgAccum chgAccumPrimary chgAccumSecondary ps = CompositeChgAccum
+data CompositeChgAccum chgAccumPrimary chgAccumSecondary = CompositeChgAccum
     { ccaPrimary   :: chgAccumPrimary
     , ccaSecondary :: chgAccumSecondary
     }
 
 instance (Default chgAccumPrimary, Default chgAccumSecondary)
-        => Default (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps) where
+         => Default (CompositeChgAccum chgAccumPrimary chgAccumSecondary) where
     def = CompositeChgAccum def def
 
 constructCompositeDaa
-    :: forall ps chgAccumPrimary chgAccumSecondary id value m .
-    (Reifies ps (Set Prefix), Ord id, Applicative m, IdSumPrefixed id)
-    => DbAccessActions chgAccumPrimary id value m
-    -> DbAccessActions chgAccumSecondary id value m
-    -> DbAccessActions (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps) id value m
-constructCompositeDaa dbaP dbaS =
-    DbAccessActions cGetter $ \(CompositeChgAccum caP caS) p ->
-        bool (daaIter dbaS caS p) (daaIter dbaP caP p) $ p `S.member` prefixes
-  where
-    prefixes = reflect (Proxy @ps)
-    cGetter (CompositeChgAccum caP caS) reqIds =
-        -- We throw error as responses for sets of keys with divergent
-        -- prefixes are not expected to ever overlap
-        M.unionWith (error "constructCompositeDaa: responses overlap")
-          <$> daaGetter dbaP caP reqIdsP
-          <*> daaGetter dbaS caS reqIdsS
-      where
-        reqIdsP = filterSetByPrefixPred (`S.member` prefixes) reqIds
-        reqIdsS = reqIds S.\\ reqIdsP
+    :: forall caPrimary caSecondary components1 components2 m .
+    ( Monad m
+    , NotIntersect components1 components2
+
+    , HDownCastable (components1 ++ components2) components1
+    , HDownCastable (components1 ++ components2) components2
+    )
+    => DbAccessActions caPrimary components1 m
+    -> DbAccessActions caSecondary components2 m
+    -> DbAccessActions (CompositeChgAccum caPrimary caSecondary) (components1 ++ components2) m
+constructCompositeDaa dbaP dbaS = DbAccessActions {
+    daaGetter = \(CompositeChgAccum prim sec) reqs ->
+          liftA2 happend (daaGetter dbaP prim (hdowncast reqs)) (daaGetter dbaS sec (hdowncast reqs))
+  , daaIter = \(CompositeChgAccum prim sec) -> liftA2 happend (daaIter dbaP prim) (daaIter dbaS sec)
+  }
 
 constructCompositeDaaM
-    :: forall ps chgAccumPrimary chgAccumSecondary id value m .
-    (Reifies ps (Set Prefix), Ord id, Monad m, IdSumPrefixed id)
-    => DbAccessActionsM chgAccumPrimary id value m
-    -> DbAccessActionsM chgAccumSecondary id value m
-    -> DbAccessActionsM (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps) id value m
-constructCompositeDaaM dbaP dbaS = DbAccessActionsM daa' modifyAccum
+    :: forall caPrimary caSecondary components1 components2 m .
+    ( Monad m
+    , NotIntersect components1 components2
+
+    , HDownCastable (components1 ++ components2) components1
+    , HDownCastable (components1 ++ components2) components2
+    )
+    => DbAccessActionsM caPrimary components1 m
+    -> DbAccessActionsM caSecondary components2 m
+    -> DbAccessActionsM (CompositeChgAccum caPrimary caSecondary) (components1 ++ components2) m
+constructCompositeDaaM dbaP dbaS = DbAccessActionsM {
+    daaAccess = constructCompositeDaa (daaAccess dbaP) (daaAccess dbaS)
+  , daaModifyAccum = modifyAccum
+  }
   where
-    daa' = constructCompositeDaa (daaAccess dbaP) (daaAccess dbaS)
-    prefixes = reflect (Proxy @ps)
-    modifyAccum (CompositeChgAccum cP cS) (OldestFirst css) =
-        liftA2 glue <$> daaModifyAccum dbaP cP cssP <*> daaModifyAccum dbaS cS cssS
+    modifyAccum (CompositeChgAccum prim sec) (OldestFirst css) =
+        liftA2 glue <$> daaModifyAccum dbaP prim cssP <*> daaModifyAccum dbaS sec cssS
       where
-        (cssP, cssS) = bimap OldestFirst OldestFirst $ unzip $ splitCS prefixes <$> css
+        cssP = OldestFirst $ hdowncast <$> css
+        cssS = OldestFirst $ hdowncast <$> css
         glue (OldestFirst accsP) (OldestFirst accsS) =
             OldestFirst $ uncurry CompositeChgAccum <$> zip accsP accsS
 
-splitCS
-    :: forall id value . (Ord id, IdSumPrefixed id)
-    => Set Prefix
-    -> ChangeSet id value
-    -> (ChangeSet id value, ChangeSet id value)
-splitCS prefixes cs = (csP, csS)
-  where
-    csP = filterByPrefixPred @id (`S.member` prefixes) cs
-    csS = ChangeSet $ changeSet cs M.\\ changeSet csP
-
+-- TODO re-consider how undo is constructed (remove constructUndo/splitUndo)
 constructCompositeDaaU
-  :: forall ps chgAccumPrimary chgAccumSecondary undoPrimary undoSecondary undo id value m .
-    (Reifies ps (Set Prefix), Ord id, Monad m, IdSumPrefixed id)
-    => DbAccessActionsU chgAccumPrimary undoPrimary id value m
-    -> DbAccessActionsU chgAccumSecondary undoSecondary id value m
+  :: forall caPrimary caSecondary undoPrimary undoSecondary undo components1 components2 m .
+    ( Monad m
+    , NotIntersect components1 components2
+
+    , HDownCastable (components1 ++ components2) components1
+    , HDownCastable (components1 ++ components2) components2
+    )
+    => DbAccessActionsU caPrimary undoPrimary components1 m
+    -> DbAccessActionsU caSecondary undoSecondary components2 m
     -> (undoPrimary -> undoSecondary -> undo)
     -> (undo -> (undoPrimary, undoSecondary))
-    -> DbAccessActionsU (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps)
-                        undo id value m
-constructCompositeDaaU dbaP dbaS constructUndo splitUndo = DbAccessActionsU daaM' modifyAccumU computeUndo
+    -> DbAccessActionsU (CompositeChgAccum caPrimary caSecondary) undo (components1 ++ components2) m
+constructCompositeDaaU dbaP dbaS constructUndo splitUndo = DbAccessActionsU {
+    daaAccessM = constructCompositeDaaM (daaAccessM dbaP) (daaAccessM dbaS)
+  , daaModifyAccumUndo = modifyAccumU
+  , daaComputeUndo = computeUndo
+  }
   where
-    daaM' = constructCompositeDaaM (daaAccessM dbaP) (daaAccessM dbaS)
 
     modifyAccumU
-      :: CompositeChgAccum chgAccumPrimary chgAccumSecondary ps
+      :: CompositeChgAccum caPrimary caSecondary
       -> NewestFirst [] undo
-      -> m (Either (CSMappendException id) (CompositeChgAccum chgAccumPrimary chgAccumSecondary ps))
+      -> m (Either CSMappendException (CompositeChgAccum caPrimary caSecondary))
     modifyAccumU (CompositeChgAccum cP cS) (NewestFirst us) =
         liftA2 CompositeChgAccum <$> daaModifyAccumUndo dbaP cP usP <*> daaModifyAccumUndo dbaS cS usS
       where
         (usP, usS) = bimap NewestFirst NewestFirst $ unzip $ splitUndo <$> us
 
     computeUndo
-      :: CompositeChgAccum chgAccumPrimary chgAccumSecondary ps
-      -> CompositeChgAccum chgAccumPrimary chgAccumSecondary ps
-      -> m (Either (CSMappendException id) undo)
+      :: CompositeChgAccum caPrimary caSecondary
+      -> CompositeChgAccum caPrimary caSecondary
+      -> m (Either CSMappendException undo)
     computeUndo (CompositeChgAccum cP cS) (CompositeChgAccum cP' cS') =
         liftA2 constructUndo <$> daaComputeUndo dbaP cP cP' <*> daaComputeUndo dbaS cS cS'

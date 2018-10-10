@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -13,7 +14,6 @@ module Snowdrop.Execution.IOExecutor
        -- * Lens
        , ctxChgAccum
        , ctxExec
-       , ctxRestrict
        , ctxConcurrent
        ) where
 
@@ -33,7 +33,6 @@ import           Snowdrop.Core (BaseM (..), ChgAccum, ChgAccumCtx (..), CtxConcu
                                 DbAccessM, DbAccessU, ERwComp, Effectful (..), StatePException,
                                 getCAOrDefault, runERwComp)
 import           Snowdrop.Execution.DbActions (DbActions (..))
-import           Snowdrop.Execution.Restrict (RestrictCtx)
 import           Snowdrop.Util (ExecM, HasException, HasGetter (gett), HasLens (sett))
 import qualified Snowdrop.Util as Log
 
@@ -99,48 +98,41 @@ runBaseMIO
     -> ExecM a
 runBaseMIO bm ctx = runReaderT (unBaseMIO @e @eff $ unBaseM bm) ctx
 
-data IOCtx daa = IOCtx
-    { _ctxChgAccum   :: ChgAccumCtx (IOCtx daa)
-    , _ctxRestrict   :: RestrictCtx
-    , _ctxExec       :: BaseMIOExec daa (IOCtx daa)
+data IOCtx da = IOCtx
+    { _ctxChgAccum   :: ChgAccumCtx (IOCtx da)
+    , _ctxExec       :: BaseMIOExec da (IOCtx da)
     , _ctxLogger     :: Log.LoggingIO
     , _ctxConcurrent :: CtxConcurrently
     }
 
 makeLenses ''IOCtx
 
-type instance ChgAccum (IOCtx (DbAccessU chgAccum undo id value)) = chgAccum
-type instance ChgAccum (IOCtx (DbAccessM chgAccum id value)) = chgAccum
+type instance ChgAccum (IOCtx (DbAccessU chgAccum undo xs)) = chgAccum
+type instance ChgAccum (IOCtx (DbAccessM chgAccum xs)) = chgAccum
 
-instance Loot.HasLens Log.LoggingIO (IOCtx daa) Log.LoggingIO where
+instance Loot.HasLens Log.LoggingIO (IOCtx da) Log.LoggingIO where
     lensOf = ctxLogger
 
-instance HasLens (IOCtx daa) RestrictCtx where
-    sett ctx val = ctx { _ctxRestrict = val }
-
-instance HasGetter (IOCtx daa) RestrictCtx where
-    gett = _ctxRestrict
-
 instance HasLens
-           (IOCtx daa)
-           (BaseMIOExec daa (IOCtx daa)) where
+           (IOCtx da)
+           (BaseMIOExec da (IOCtx da)) where
     sett ctx val = ctx { _ctxExec = val }
 
 instance HasGetter
-           (IOCtx daa)
-           (BaseMIOExec daa (IOCtx daa)) where
+           (IOCtx da)
+           (BaseMIOExec da (IOCtx da)) where
     gett = _ctxExec
 
-instance HasLens (IOCtx daa) (ChgAccumCtx (IOCtx daa)) where
+instance HasLens (IOCtx da) (ChgAccumCtx (IOCtx da)) where
     sett ctx val = ctx { _ctxChgAccum = val }
 
-instance HasGetter (IOCtx daa) (ChgAccumCtx (IOCtx daa)) where
+instance HasGetter (IOCtx da) (ChgAccumCtx (IOCtx da)) where
     gett = _ctxChgAccum
 
-instance HasLens (IOCtx daa) CtxConcurrently where
+instance HasLens (IOCtx da) CtxConcurrently where
     sett ctx val = ctx { _ctxConcurrent = val }
 
-instance HasGetter (IOCtx daa) CtxConcurrently where
+instance HasGetter (IOCtx da) CtxConcurrently where
     gett = _ctxConcurrent
 
 runERoCompIO
@@ -161,8 +153,7 @@ runERoCompIO daa initAcc comp = do
     logger <- view (lensOf @Log.LoggingIO)
     liftIO $ Log.runRIO logger $ runBaseMIO comp $
         IOCtx
-          { _ctxRestrict = def
-          , _ctxChgAccum = maybe CANotInitialized CAInitialized initAcc
+          { _ctxChgAccum = maybe CANotInitialized CAInitialized initAcc
           , _ctxExec = exec
           , _ctxLogger = logger
           , _ctxConcurrent = def
@@ -189,8 +180,7 @@ runERwCompIO daa initS comp = do
     logger <- view (lensOf @Log.LoggingIO)
     liftIO $ Log.runRIO logger $ runBaseMIO (runERwComp comp initS) $
         IOCtx
-          { _ctxRestrict = def
-          , _ctxChgAccum = CANotInitialized
+          { _ctxChgAccum = CANotInitialized
           , _ctxExec = exec
           , _ctxLogger = logger
           , _ctxConcurrent = def

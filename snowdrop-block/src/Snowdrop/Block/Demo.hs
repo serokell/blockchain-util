@@ -20,12 +20,12 @@ import           Snowdrop.Util
 -- Client calls 'blockSync' on list of hashes of blocks to check
 -- whether server contains the same list of hashes or not
 blockSync
-  :: forall blkType e id value blockChgAccum ctx erwcomp.
+  :: forall blkType e xs blockChgAccum ctx erwcomp.
     ( Default blockChgAccum
     , HasException e (ForkVerificationException (BlockRef blkType))
     , HasGetter (RawBlund blkType) (RawBlk blkType)
     , Eq (BlockRef blkType)
-    , erwcomp ~ ERwComp e (DbAccessU blockChgAccum (BlockUndo blkType) id value) ctx blockChgAccum
+    , erwcomp ~ ERwComp e (DbAccessU blockChgAccum (BlockUndo blkType) xs) ctx blockChgAccum
     )
     => BlkStateConfiguration blkType erwcomp
     -> OldestFirst [] (BlockRef blkType)

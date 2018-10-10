@@ -4,7 +4,14 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Snowdrop.Execution.DbActions.AVLp.Avl
-       ( AvlHashable
+       ( AllAvlEntries
+       , IsAvlEntry
+       , RootHashes
+       , RootHashComp (..)
+       , AvlProof (..)
+       , AvlProofs
+
+       , AvlHashable
        , KVConstraint
        , RootHash (..)
        , AvlUndo
@@ -20,27 +27,47 @@ import           Universum
 import           Control.Monad.Free (Free (Free))
 import           Data.Tree.AVL (MapLayer (..), Serialisable (..))
 import qualified Data.Tree.AVL as AVL
+import           Data.Vinyl.Core (Rec (..))
 
 import           Data.Default (Default (def))
 import qualified Data.Text.Buildable as Buildable
 import           Snowdrop.Execution.DbActions.Types (DbActionsException (..))
-
-import           Snowdrop.Core (IdSumPrefixed (..))
+import           Snowdrop.Util (HKey, HVal, RecAll')
 
 
 type AvlHashable h = (Ord h, Show h, Typeable h, Serialisable h)
-type KVConstraint k v = (IdSumPrefixed k, Typeable k, Ord k, Show k,
+type KVConstraint k v = (Typeable k, Ord k, Show k,
                          Serialisable k, Serialisable v, Show v, Eq v)
 
 newtype RootHash h = RootHash { unRootHash :: h }
   deriving (Eq, Serialisable, Show)
 
-type AvlUndo = RootHash
+
+newtype RootHashComp h t = RootHashComp {unRootHashComp :: RootHash h}
+  deriving (Eq, Serialisable, Show)
+type RootHashes h = Rec (RootHashComp h)
+
+newtype AvlProof h t = AvlProof {unAvlProof :: AVL.Proof h (HKey t) (HVal t)}
+type AvlProofs h = Rec (AvlProof h)
+
+deriving instance (Show h, Show (HKey t), Show (HVal t)) => Buildable (AvlProof h t)
+
+class ( KVConstraint (HKey t) (HVal t)
+      , Serialisable (MapLayer h (HKey t) (HVal t) h)
+      , AVL.Hash h (HKey t) (HVal t)
+      ) => IsAvlEntry h t
+instance ( KVConstraint (HKey t) (HVal t)
+      , Serialisable (MapLayer h (HKey t) (HVal t) h)
+      , AVL.Hash h (HKey t) (HVal t)
+      ) => IsAvlEntry h t
+type AllAvlEntries h xs = RecAll' xs (IsAvlEntry h)
+
+type AvlUndo h = RootHashes h
 
 saveAVL :: forall h k v m . (AVL.Stores h k v m, MonadCatch m) => AVL.Map h k v -> m (RootHash h)
 saveAVL avl = AVL.save avl $> avlRootHash avl
 
--- | Load whole tree from disk in memory.
+-- | Load whole tree from disk into memory.
 materialize :: forall h k v m . AVL.Stores h k v m => AVL.Map h k v -> m (AVL.Map h k v)
 materialize initAVL = flip AVL.openAndM initAVL $ \case
     MLBranch h m c t l r -> fmap Free $ MLBranch h m c t <$> materialize l <*> materialize r

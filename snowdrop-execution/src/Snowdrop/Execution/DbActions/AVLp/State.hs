@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds           #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE NamedFieldPuns      #-}
@@ -23,51 +24,57 @@ import           Universum
 
 import           Data.Default (Default (..))
 import qualified Data.Map.Strict as M
-import           Data.Tree.AVL (KVStoreMonad (..), MapLayer (..), Serialisable (..))
+import qualified Data.Set as S
+import           Data.Tree.AVL (KVStoreMonad (..), Serialisable (..))
 import qualified Data.Tree.AVL as AVL
+import           Data.Vinyl.Core (Rec (..))
 import           Loot.Log (MonadLogging, logDebug)
 
+import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
+                                                        AvlProofs, IsAvlEntry, RootHash (..),
+                                                        RootHashComp (..), RootHashes, deserialiseM,
+                                                        materialize, mkAVL, saveAVL)
 import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbActionsException (..))
-import           Snowdrop.Util (HasGetter (..))
-
-import           Snowdrop.Execution.DbActions.AVLp.Avl (AvlHashable, KVConstraint, RootHash (..),
-                                                        deserialiseM, materialize, mkAVL, saveAVL)
+import           Snowdrop.Util
 
 ----------------------------------------------------------------------------
 -- Server state
 ----------------------------------------------------------------------------
 
 -- | Data type used as state of DbModifyActions.
-data AVLServerState h k = AMS
-    { amsRootHash  :: RootHash h       -- ^ Root hash of tree kept in storage
-    , amsState     :: AVLPureStorage h -- ^ Storage of whole AVL tree (including old nodes)
-    , amsRequested :: AMSRequested k
+data AVLServerState h xs = AMS
+    { amsRootHashes :: RootHashes h xs  -- ^ Root hash of tree kept in storage
+    , amsState      :: AVLPureStorage h -- ^ Storage of whole AVL tree (including old nodes)
+    , amsRequested  :: Rec AMSRequested xs
     -- ^ Set of keys that were requested since the last `apply` operation.
     -- Note, that keys which were requested with `RememberForProof False` passed to
     -- `avlServerDbActions` are not being added to this set.
     }
 
-instance HasGetter (AVLServerState h k) (RootHash h) where
-    gett = amsRootHash
+instance HasGetter (AVLServerState h xs) (RootHashes h xs) where
+    gett = amsRootHashes
 
-instance HasGetter (AVLServerState h k) (AVLPureStorage h) where
+instance HasGetter (AVLServerState h xs) (AVLPureStorage h) where
     gett = amsState
 
 
 -- | Data type for tracking keys which were requested from access actions.
-data AMSRequested k
+data AMSRequested t
     = AMSWholeTree
     -- ^ Constructor, identifying that all keys of tree were requested
     -- (which happens with current implementation of iteration)
-    | AMSKeys (Set k)
+    | AMSKeys (Set (HKey t))
     -- ^ Constructor, containing set of keys that were requested
 
-instance Ord k => Semigroup (AMSRequested k) where
+instance Default (AMSRequested t) where
+    def = AMSKeys S.empty
+
+instance Ord (HKey t) => Semigroup (AMSRequested t) where
     AMSWholeTree <> _ = AMSWholeTree
     _ <> AMSWholeTree = AMSWholeTree
     AMSKeys s1 <> AMSKeys s2 = AMSKeys $ s1 <> s2
 
-instance Ord k => Monoid (AMSRequested k) where
+instance Ord (HKey t) => Monoid (AMSRequested t) where
     mempty = AMSKeys mempty
     mappend = (<>)
 
@@ -75,9 +82,9 @@ instance Ord k => Monoid (AMSRequested k) where
 -- Client state
 ----------------------------------------------------------------------------
 
-data ClientTempState h k v n = ClientTempState
-    { ctRetrieve :: Either (AVLPureStorage h) (RetrieveF h n)
-    , ctRootHash :: RootHash h
+data ClientTempState h xs n = ClientTempState
+    { ctRetrieve   :: Either (AVLPureStorage h) (RetrieveF h n)
+    , ctRootHashes :: RootHashes h xs
     }
 
 data ClientError = BrokenProofError | UnexpectedRootHash
@@ -85,32 +92,44 @@ data ClientError = BrokenProofError | UnexpectedRootHash
 
 instance Exception ClientError
 
-reThrowAVLEx :: forall k m a . (MonadCatch m, Show k, Typeable k) => m a -> m a
+reThrowAVLEx :: forall k h m a . (MonadCatch m, Show h, Typeable h, Show k, Typeable k) => m a -> m a
 reThrowAVLEx m =
     m `catch` (\(e :: ClientError) -> throwM $ DbProtocolError $ show e)
       `catch` (\(e :: AVL.DeserialisationError) -> throwM $ DbProtocolError $ show e)
-      `catch` (\(e :: AVL.NotFound k) -> throwM $ DbProtocolError $ show e)
-
+      `catch` (\(e :: AVL.NotFound k) -> throwM $ DbProtocolError $ "Not found key: " <> show e)
+      `catch` (\(e :: AVL.NotFound h) -> throwM $ DbProtocolError $ "Not found hash: " <> show e)
 
 clientModeToTempSt
-    :: forall h k v m n .
-    ( MonadCatch m, AvlHashable h, AVL.Hash h k v, MonadIO n, MonadCatch n
-    , KVConstraint k v, Serialisable (MapLayer h k v h))
+    :: forall h xs m n .
+    ( AvlHashable h
+    , MonadCatch m, MonadIO n, MonadCatch n
+    , AllAvlEntries h xs
+    )
     => RetrieveF h n
-    -> ClientMode (AVL.Proof h k v)
-    -> RootHash h
-    -> m (ClientTempState h k v n)
-clientModeToTempSt _ (ProofMode p@(AVL.Proof avl)) rootH =
-    flip ClientTempState rootH <$> fmap Left convert
+    -> ClientMode (AvlProofs h xs)
+    -> RootHashes h xs
+    -> m (ClientTempState h xs n)
+clientModeToTempSt _ (ProofMode proofs') rootHashes =
+    flip ClientTempState rootHashes <$> fmap Left (convertAll proofs' rootHashes def)
   where
-    convert = do
+    convertAll
+        :: AllAvlEntries h rs
+        => AvlProofs h rs
+        -> RootHashes h rs
+        -> AVLPureStorage h
+        -> m (AVLPureStorage h)
+    convertAll RNil RNil res          = pure res
+    convertAll (p :& proofs) (RootHashComp rootH :& roots) cache =
+        convert p rootH cache >>= convertAll proofs roots
+
+    convert :: forall r . IsAvlEntry h r => AvlProof h r -> RootHash h -> AVLPureStorage h -> m (AVLPureStorage h)
+    convert (AvlProof p@(AVL.Proof avl)) rootH cache = reThrowAVLEx @(HKey r) @h $ do
         when (not $ AVL.checkProof (unRootHash rootH) p) $ throwM BrokenProofError
-        AVLPureStorage . unAVLCache . snd  <$>
-            runAVLCacheT (saveAVL avl) def (AVLPureStorage @h def)
+        AVLPureStorage . unAVLCache . snd  <$> runAVLCacheT (saveAVL avl) def cache
 clientModeToTempSt retrieveF RemoteMode rootH = pure $ ClientTempState (Right retrieveF) rootH
 
-instance HasGetter (ClientTempState h k v n) (RootHash h) where
-    gett = ctRootHash
+instance HasGetter (ClientTempState h xs n) (RootHashes h xs) where
+    gett = ctRootHashes
 
 ----------------------------------------------------------------------------
 -- AVL-storage datatypes
@@ -118,27 +137,49 @@ instance HasGetter (ClientTempState h k v n) (RootHash h) where
 
 -- | Pure implementation of permanent storage
 newtype AVLPureStorage h = AVLPureStorage { unAVLPureStorage :: Map h ByteString }
+instance Default (AVLPureStorage h) where
+    def = AVLPureStorage def
 
 initAVLPureStorage
-    :: forall k v m h .
-    ( MonadIO m
-    , MonadCatch m
-    , MonadThrow m
-    , MonadLogging m
-    , KVConstraint k v
+    :: forall xs h m .
+    ( MonadIO m, MonadCatch m, MonadLogging m
     , AvlHashable h
-    , AVL.Hash h k v
-    , Serialisable (MapLayer h k v h)
+    , AllAvlEntries h xs
     )
-    => Map k v -> m (AVLServerState h k)
-initAVLPureStorage (M.toList -> kvs) = reThrowAVLEx @k $ do
-    (rootH, AVLPureStorage . unAVLCache -> st) <-
-      runAVLCacheT
-        (foldM (\b (k, v) -> snd <$> AVL.insert @h k v b) AVL.empty kvs >>= saveAVL)
-        def (AVLPureStorage @h def)
-    fullAVL <- runAVLCacheT @_ @h (materialize @h @k @v $ mkAVL rootH) def st
-    logDebug . fromString $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)
-    pure $ AMS { amsRootHash = rootH, amsState = st, amsRequested = mempty }
+    => HMap xs
+    -> m (AVLServerState h xs)
+initAVLPureStorage xs = initAVLPureStorageAll xs def
+  where
+    initAVLPureStorageAll
+        :: forall rs . AllAvlEntries h rs
+        => HMap rs
+        -> AVLPureStorage h
+        -> m (AVLServerState h rs)
+    initAVLPureStorageAll RNil cache        = pure $ AMS RNil cache RNil
+    initAVLPureStorageAll rs@(_ :& _) cache = initAVLPureStorage' rs cache
+
+    initAVLPureStorage'
+        :: forall rs r rs' . (rs ~ (r ': rs'), AllAvlEntries h rs)
+        => HMap rs
+        -> AVLPureStorage h
+        -> m (AVLServerState h rs)
+    initAVLPureStorage' ((M.toList . unHMapEl -> kvs) :& accums) cache = reThrowAVLEx @(HKey r) @h $ do
+        logDebug "Initializing AVL+ pure storage"
+        (rootH, unAVLCache -> cache') <-
+            runAVLCacheT
+                (foldM (\b (k, v) -> snd <$> AVL.insert @h k v b) AVL.empty kvs >>= saveAVL)
+                def
+                cache
+        let newCache = AVLPureStorage $ unAVLPureStorage cache <> cache'
+        logDebug "Materializing AVL+ pure storage"
+        fullAVL <-
+            runAVLCacheT @_ @h
+                (materialize @h @(HKey r) @(HVal r) $ mkAVL rootH)
+                def
+                newCache
+        logDebug . fromString $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)
+        AMS{..} <- initAVLPureStorageAll accums newCache
+        pure $ AMS (RootHashComp rootH :& amsRootHashes) amsState (def :& amsRequested)
 
 -- | Accumulator for changes emerging from `save` operations
 -- being performed on AVL tree
@@ -150,7 +191,8 @@ newtype AVLCacheT h m a = AVLCacheT (StateT (AVLCache h) m a)
     deriving (Functor, Applicative, Monad, MonadThrow,
               MonadCatch, MonadState (AVLCache h), MonadTrans)
 
-instance (MonadThrow m, AvlHashable h, RetrieveImpl m h) => KVStoreMonad h (AVLCacheT h m) where
+instance (MonadThrow m, AvlHashable h, RetrieveImpl m h)
+         => KVStoreMonad h (AVLCacheT h m) where
     retrieve k = checkInAccum >>= deserialiseM
       where
         checkInAccum = M.lookup k . unAVLCache <$> get >>= maybe checkInState pure
@@ -184,6 +226,6 @@ instance (Monad m, AvlHashable h) => RetrieveImpl (ReaderT (AVLServerState h k) 
 instance (Monad m, AvlHashable h) => RetrieveImpl (ReaderT (AVLPureStorage h) m) h where
     retrieveImpl k = asks ( M.lookup k . unAVLPureStorage )
 
-instance (AvlHashable h, MonadCatch m) => RetrieveImpl (ReaderT (ClientTempState h k v m) m) h where
+instance (AvlHashable h, MonadCatch m) => RetrieveImpl (ReaderT (ClientTempState h xs m) m) h where
     retrieveImpl k = asks ctRetrieve >>=
         lift . either (runReaderT $ retrieveImpl k) (runReaderT $ retrieveImpl k)

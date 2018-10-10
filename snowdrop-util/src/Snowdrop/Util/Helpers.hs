@@ -2,8 +2,6 @@ module Snowdrop.Util.Helpers
        (
          VerRes (..)
        , VerifySign (..)
-       , IdStorage
-       , getId
        , eitherToVerRes
        , verResToEither
        , runExceptTV
@@ -17,8 +15,6 @@ import           Universum hiding (head, init, last)
 
 import qualified Data.Text.Buildable
 import           Formatting (bprint, build, (%))
-
-import           Snowdrop.Util.Prism.Class
 
 -- | Data family to specify a public key type for a given signature scheme type
 data family PublicKey sigScheme :: *
@@ -58,45 +54,6 @@ instance (Buildable (PublicKey sigScheme),
         -- We omit 'message' for purpose. Currently 'Signed' is used
         -- in witnesses, and witness is always coupled with related transaction.
         bprint ("signature (pubkey="%(build)%", signature="%(build)%")") pk sig
-
--- | Type class which allows to get an instance of some enum data type @s@,
--- specified for a given value @a@.
---
--- Usage pattern is as follows:
---
--- @
--- data MyId = MyId1 | MyId2
--- data HerId = HerId
---
--- data AllIds = AMyId MyId | AHerId HerId
---
--- instance Enum AllIds where
---     toEnum x
---         | x < fromEnum (maxBound @MyId) = AMyId $ toEnum x
---         | rest < fromEnum (maxBound @HerId) = AHerId $ toEnum rest
---         | otherwise  = error "invalid int"
---       where
---         rest = x - fromEnum (maxBound @MyId)
---     fromEnum (AMyId s)      = fromEnum s
---     fromEnum (AHerId HerId) = maxBound @MyId
---
--- instance IdStorage AllIds MyId
--- instance IdStorage AllIds HerId
---
--- deriveView withInjProj ''AllIds
---
--- -- Integer corresponding to MyId2:
--- myId2 :: Int
--- myId2 = getId (Proxy @AllIds) MyId2
--- @
---
--- The type class allows to get an unique integer for any concrete id,
--- which can be further used for instance for indexing components of database.
-class (HasPrism s a, Enum s) => IdStorage s a
-
--- | Get integer index for a given id
-getId :: forall ids i . IdStorage ids i => Proxy ids -> i -> Int
-getId _ i = fromEnum (inj i :: ids)
 
 -- | Data type, similar to `Either` which provides instances of 'Semigroup' and 'Monoid',
 -- well suited for error handling.

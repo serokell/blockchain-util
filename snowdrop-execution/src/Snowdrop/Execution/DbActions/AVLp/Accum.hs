@@ -1,11 +1,16 @@
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE Rank2Types          #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Snowdrop.Execution.DbActions.AVLp.Accum
-       ( AVLChgAccum
-       , AVLChgAccum' (..)
+       ( AVLChgAccum (..)
+       , AVLChgAccums
+       , RootHashComp (..)
+       , RootHashes
+       , AllAvlEntries
        , modAccum
        , modAccumU
        , computeUndo
@@ -20,19 +25,25 @@ import qualified Data.Tree.AVL as AVL
 
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
+import           Data.Vinyl (Rec (..))
+import           Data.Vinyl.Recursive (rmap)
 
-import           Snowdrop.Core (CSMappendException (..), ChangeSet, IdSumPrefixed (..), Prefix (..),
-                                StateP, StateR, ValueOp (..), changeSetToList, idSumPrefix)
-import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..))
-
-import           Snowdrop.Execution.DbActions.AVLp.Avl (AvlHashable, AvlUndo, KVConstraint,
-                                                        RootHash (..), avlRootHash, mkAVL)
+import           Snowdrop.Core (CSMappendException (..), HChangeSet, HChangeSetEl, ValueOp (..),
+                                hChangeSetElToList)
+import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashable, AvlUndo,
+                                                        IsAvlEntry, KVConstraint,
+                                                        RootHash (unRootHash), RootHashComp (..),
+                                                        RootHashes, avlRootHash, mkAVL)
 import           Snowdrop.Execution.DbActions.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl,
-                                                          runAVLCacheT)
+                                                          reThrowAVLEx, runAVLCacheT)
+import           Snowdrop.Execution.DbActions.Types (DGetter, DIter, DIter', DModify,
+                                                     IterAction (..))
+import           Snowdrop.Util (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, HasGetter (..),
+                                Head, NewestFirst (..), OldestFirst (..), RecAll')
 
 -- | Change accumulator type for AVL tree.
-data AVLChgAccum' h k v = AVLChgAccum
-    { acaMap     :: AVL.Map h k v
+data AVLChgAccum h t = AVLChgAccum
+    { acaMap     :: AVL.Map h (HKey t) (HVal t)
     -- ^ AVL map, which contains avl tree with most-recent updates
     , acaStorage :: AVLCache h
     -- ^ AVL tree cache, which stores results of all `save` operations performed on AVL tree
@@ -43,120 +54,162 @@ data AVLChgAccum' h k v = AVLChgAccum
 -- | Change accumulator type for AVL tree, wrapped with Maybe.
 -- `Nothing` is treated identically to `Just $ AVLChgAccum (Pure rootHash) def mempty`,
 -- where `rootHash` is root hash of current state
-type AVLChgAccum h k v = Maybe (AVLChgAccum' h k v)
+type AVLChgAccums h xs = Maybe (Rec (AVLChgAccum h) xs)
 
 resolveAvlCA
-    :: (AvlHashable h, HasGetter state (RootHash h))
+    :: (AvlHashable h, HasGetter state (RootHashes h xs))
     => state
-    -> AVLChgAccum h k v
-    -> AVLChgAccum' h k v
+    -> AVLChgAccums h xs
+    -> Rec (AVLChgAccum h) xs
 resolveAvlCA _ (Just cA) = cA
-resolveAvlCA st  _ = AVLChgAccum
-    { acaMap = pure $ unRootHash $ gett st
-    , acaStorage = mempty
-    , acaTouched = mempty
-    }
-
-modAccumU
-    :: AVLChgAccum h k v
-    -> NewestFirst [] (AvlUndo h)
-    -> AVLChgAccum h k v
-modAccumU accM (NewestFirst []) = accM
-modAccumU (Just (AVLChgAccum _avl initAcc initTouched)) (NewestFirst (u:us)) =
-    Just $ AVLChgAccum (mkAVL undoRootH) initAcc initTouched
+resolveAvlCA st Nothing = rmap crAVLChgAccum (gett st)
   where
-    undoRootH = last $ u :| us
-modAccumU Nothing (NewestFirst (u:us)) =
-    Just $ AVLChgAccum (mkAVL undoRootH) def def
-  where
-    undoRootH = last $ u :| us
+    crAVLChgAccum (RootHashComp rh) = AVLChgAccum
+      { acaMap = pure $ unRootHash rh
+      , acaStorage = mempty
+      , acaTouched = mempty
+      }
 
-computeUndo
-    :: forall k v ctx h .
-    ( HasGetter ctx (RootHash h)
+modAccum
+    :: forall h xs ctx m .
+    ( AvlHashable h, HasGetter ctx (RootHashes h xs)
+    , RetrieveImpl (ReaderT ctx m) h
+    , MonadIO m, MonadCatch m
+    , AllAvlEntries h xs
     )
-    => AVLChgAccum h k v
-    -> ctx
-    -> AvlUndo h
-computeUndo Nothing ctx                    = gett ctx
-computeUndo (Just (AVLChgAccum avl _ _)) _ = avlRootHash avl
-
-modAccum'
-    :: forall k v ctx h m .
-    ( AvlHashable h, RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
-    , KVConstraint k v, Serialisable (MapLayer h k v h)
-    )
-    => AVLChgAccum' h k v
-    -> OldestFirst [] (ChangeSet k v)
-    -> ctx
-    -> m (Either (CSMappendException k) (OldestFirst [] (AVLChgAccum h k v)))
-modAccum' initAcc (OldestFirst css) pState =
-    (Right <$> modAccumDo) `catch` \e@(CSMappendException _) -> pure $ Left e
+    => ctx
+    -> DModify (AVLChgAccums h xs) xs m
+modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
+    Just acc -> modAccumAll acc cs'
+    Nothing  -> modAccumAll (resolveAvlCA ctx acc') cs'
   where
-    modAccumDo = fmap Just . OldestFirst . reverse . snd <$> foldM processCS (initAcc, []) css
-    processCS (AVLChgAccum avl acc touched, res) (changeSetToList -> cs) = do
-        acc' <- doUncurry AVLChgAccum <$> runAVLCacheT (foldM modAVL (avl, touched) cs) acc pState
-        pure (acc', acc' : res)
+    modAccumAll
+        :: RecAll' rs (IsAvlEntry h)
+        => Rec (AVLChgAccum h) rs
+        -> OldestFirst [] (HChangeSet rs)
+        -> m (Either CSMappendException (OldestFirst [] (Rec (AVLChgAccum h) rs)))
+    modAccumAll initAcc css =
+        fmap Right impl `catch` \(e :: CSMappendException) -> pure $ Left e
+      where
+        impl = OldestFirst . reverse . snd <$> foldM foldHandler (initAcc, []) css
+        foldHandler (curAcc, resAccs) hcs = (\acc -> (acc, acc : resAccs)) <$> modAccumOne curAcc hcs
+
+    modAccumOne
+        :: RecAll' rs (IsAvlEntry h)
+        => Rec (AVLChgAccum h) rs
+        -> HChangeSet rs
+        -> m (Rec (AVLChgAccum h) rs)
+    modAccumOne RNil RNil                     = pure RNil
+    modAccumOne (ca :& caRest) (cs :& csRest) =
+        liftA2 (:&) (modAccumOneDo ca cs) (modAccumOne caRest csRest)
+
+    modAccumOneDo
+        :: forall r .
+          IsAvlEntry h r
+        => AVLChgAccum h r
+        -> HChangeSetEl r
+        -> m (AVLChgAccum h r)
+    modAccumOneDo (AVLChgAccum avl acc touched) (hChangeSetElToList -> cs) =
+        reThrowAVLEx @(HKey r) @h $
+        doUncurry AVLChgAccum <$> runAVLCacheT (foldM modAVL (avl, touched) cs) acc ctx
 
     doUncurry :: (a -> b -> c -> d) -> ((a, c), b) -> d
     doUncurry f ((a, c), b) = f a b c
 
-    modAVL
-        :: (AVL.Map h k v, Set h)
-        -> (k, ValueOp v)
-        -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
-    modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup' k avl
-      where
-        processResp ((lookupRes, (<> touched) -> touched'), avl') =
-          case (valueop, lookupRes) of
-            (NotExisted ,_     ) -> pure (avl', touched')
-            (New v      ,_     ) -> (, touched') . snd <$> AVL.insert' k v avl'
-            (Rem        ,Just _) -> (, touched') . snd <$> AVL.delete' k avl'
-            (Upd v      ,Just _) -> (, touched') . snd <$> AVL.insert' k v avl'
-            _                    -> throwM $ CSMappendException k
+modAVL
+    ::
+      ( KVConstraint k v
+      , Serialisable (MapLayer h k v h)
+      , AVL.Hash h k v
+      , AvlHashable h
+      , MonadCatch m
+      , RetrieveImpl (ReaderT ctx m) h
+      )
+    => (AVL.Map h k v, Set h)
+    -> (k, ValueOp v)
+    -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
+modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup' k avl
+  where
+    processResp ((lookupRes, (<> touched) -> touched'), avl') =
+      case (valueop, lookupRes) of
+        (NotExisted, Nothing) -> pure (avl', touched')
+        (New v     , Nothing) -> (, touched') . snd <$> AVL.insert' k v avl'
+        (Rem       , Just _)  -> (, touched') . snd <$> AVL.delete' k avl'
+        (Upd v     , Just _)  -> (, touched') . snd <$> AVL.insert' k v avl'
+        _                     -> throwM $ CSMappendException k
 
-modAccum
-    :: forall k v ctx h m .
-    ( AvlHashable h, HasGetter ctx (RootHash h), RetrieveImpl (ReaderT ctx m) h
-    , AVL.Hash h k v, MonadIO m, MonadCatch m
-    , KVConstraint k v, Serialisable (MapLayer h k v h))
-    => AVLChgAccum h k v
-    -> OldestFirst [] (ChangeSet k v)
+
+modAccumU
+    :: forall h xs . AVLChgAccums h xs
+    -> NewestFirst [] (AvlUndo h xs)
+    -> AVLChgAccums h xs
+modAccumU accM (NewestFirst []) = accM
+modAccumU (Just accum) (NewestFirst (u:us)) =
+    Just $ rmap' accum undoRootH
+  where
+    rmap' :: forall xs'. Rec (AVLChgAccum h) xs' -> AvlUndo h xs' -> Rec (AVLChgAccum h) xs'
+    rmap' RNil RNil     = RNil
+    rmap' (AVLChgAccum _ acc touched :& xs) (RootHashComp rootH :& rhs) =
+      AVLChgAccum (mkAVL rootH) acc touched :& rmap' xs rhs
+    undoRootH = last $ u :| us
+modAccumU Nothing (NewestFirst (u:us)) =
+    Just $ rmap (\(RootHashComp rootH) -> AVLChgAccum (mkAVL rootH) def def) undoRootH
+  where
+    undoRootH = last $ u :| us
+
+computeUndo
+    :: forall h xs ctx .
+    ( HasGetter ctx (RootHashes h xs)
+    )
+    => AVLChgAccums h xs
     -> ctx
-    -> m (Either (CSMappendException k) (OldestFirst [] (AVLChgAccum h k v)))
--- modAccum accM (changeSetToList -> []) _ = pure $ Right accM
--- empty changeset won't alter accumulator
-modAccum (Just acc) cs sth = modAccum' @k @v @ctx acc cs sth
-modAccum cA cs sth         = modAccum' @k @v @ctx (resolveAvlCA sth cA) cs sth
+    -> AvlUndo h xs
+computeUndo Nothing ctx    = gett ctx
+computeUndo (Just accum) _ = rmap (RootHashComp . avlRootHash . acaMap) accum
 
 query
-    :: forall k v ctx h m .
-    ( AvlHashable h, HasGetter ctx (RootHash h)
-    , RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
-    , KVConstraint k v, Serialisable (MapLayer h k v h)
+    :: forall h xs ctx m .
+    ( AvlHashable h, HasGetter ctx (RootHashes h xs)
+    , RetrieveImpl (ReaderT ctx m) h
+    , MonadIO m, MonadCatch m
+    , AllAvlEntries h xs
     )
-    => AVLChgAccum h k v -> StateR k -> ctx -> m (StateP k v)
-query (Just (AVLChgAccum initAvl initAcc _)) req sth = fmap fst $ runAVLCacheT queryDo initAcc sth
+    => ctx -> DGetter (AVLChgAccums h xs) xs m
+query ctx (Just ca) hset = queryAll ca hset
   where
-    queryDo = fst <$> foldM queryDoOne (mempty, initAvl) req
-    queryDoOne (m, avl) key = first processResp <$> AVL.lookup' key avl
-      where
-        processResp (Just v, _touched) = M.insert key v m
-        processResp _                  = m
-query cA req sth = query (Just $ resolveAvlCA sth cA) req sth
+    queryAll :: forall rs . RecAll' rs (IsAvlEntry h) => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
+    queryAll RNil RNil                       = pure RNil
+    queryAll accums'@(_ :& _) reqs'@(_ :& _) = query' accums' reqs'
+
+    query'
+        :: forall r rs rs' . (rs ~ (r ': rs'), RecAll' rs (IsAvlEntry h))
+        => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
+    query' (AVLChgAccum initAvl initAcc _ :& accums) (HSetEl req :& reqs) = reThrowAVLEx @(HKey r) @h $ do
+        let queryDo = fst <$> foldM queryDoOne (mempty, initAvl) req
+            queryDoOne (resp, avl) key = first (processResp resp key) <$> AVL.lookup' key avl
+
+            processResp resp key (Just v, _touched) = M.insert key v resp
+            processResp resp _ _                    = resp
+        responses <- fst <$> runAVLCacheT queryDo initAcc ctx
+        (HMapEl responses :&) <$> queryAll accums reqs
+query ctx cA req = query ctx (Just $ resolveAvlCA ctx cA) req
 
 iter
-    :: forall k v ctx b h m.
-    ( AvlHashable h, HasGetter ctx (RootHash h)
-    , RetrieveImpl (ReaderT ctx m) h, AVL.Hash h k v, MonadIO m, MonadCatch m
-    , KVConstraint k v,  Serialisable (MapLayer h k v h)
+    :: forall h xs ctx m.
+    ( AvlHashable h
+    , HasGetter ctx (RootHashes h xs)
+    , RetrieveImpl (ReaderT ctx m) h
+    , MonadIO m, MonadCatch m
+    , AllAvlEntries h xs
     )
-    => AVLChgAccum h k v -> Prefix -> b -> ((k, v) -> b -> b) -> ctx -> m b
-iter (Just (AVLChgAccum initAvl initAcc _)) pr initB f sth =
-    fmap fst $ runAVLCacheT (AVL.fold (initB, f', id) initAvl) initAcc sth
+    => ctx
+    -> DIter (AVLChgAccums h xs) xs m
+iter ctx (Just ca) = pure $ iterAll ca
   where
-    f' kv@(k, _) b =
-      if idSumPrefix k == pr
-      then f kv b
-      else b
-iter cA pr b f sth = iter (Just $ resolveAvlCA sth cA) pr b f sth
+    iterAll :: forall rs . RecAll' rs (IsAvlEntry h) => Rec (AVLChgAccum h) rs -> DIter' rs m
+    iterAll RNil = RNil
+    iterAll (AVLChgAccum initAvl initAcc _ :& accums) =
+        IterAction
+            (\initB f -> fmap fst $ reThrowAVLEx @(HKey (Head rs)) @h $
+                runAVLCacheT (AVL.fold (initB, flip f, id) initAvl) initAcc ctx) :& iterAll accums
+iter ctx cA = iter ctx (Just $ resolveAvlCA ctx cA)

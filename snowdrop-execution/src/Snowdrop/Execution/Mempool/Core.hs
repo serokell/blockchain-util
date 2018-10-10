@@ -1,16 +1,21 @@
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DataKinds               #-}
+{-# LANGUAGE ScopedTypeVariables     #-}
+{-# LANGUAGE UndecidableSuperClasses #-}
 
 module Snowdrop.Execution.Mempool.Core
        ( Mempool
-       , MempoolConfig (..)
        , MempoolState (..)
-       , ExpanderRawTx
+       , StateTxHandler (..)
+       , MempoolConfig (..)
        , msTxsL
-       , RwActionWithMempool
-       , defaultMempoolConfig
+       , RwMempoolAct
+       , actionWithMempool
        , createMempool
        , getMempoolTxs
-       , actionWithMempool
+       , getMempoolChgAccum
+
+       , MempoolTx
+       , defaultMempoolConfig
        ) where
 
 import           Universum
@@ -18,11 +23,12 @@ import           Universum
 import           Control.Lens (lens)
 import           Data.Default (Default (..))
 
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx, ConvertEffect,
-                                DbAccessM, ERoCompM, ERwComp, SomeTx, StatePException, StateTx (..),
-                                Validator, applySomeTx, convertERwComp, convertEffect, liftERoComp,
-                                modifyAccumOne, runValidator)
+import           Snowdrop.Core (CSMappendException, ChgAccum, ChgAccumCtx, ConvertEffect, DbAccessM,
+                                ERwComp, ProofNExp, StatePException, StateTx (..), TxComponents,
+                                UpCastableERoM, Validator, convertERwComp, convertEffect,
+                                liftERoComp, modifyAccumOne, runValidator)
 import           Snowdrop.Execution.DbActions (DbActions)
+import           Snowdrop.Execution.Expand (ExpandOneTxMode, expandOneTx)
 import           Snowdrop.Execution.IOExecutor (IOCtx, runERwCompIO)
 import           Snowdrop.Util
 
@@ -30,22 +36,19 @@ import           Snowdrop.Util
 -- Core part
 ---------------------------
 
+type RwMempoolAct e xs ctx rawtx a =
+    ERwComp e (DbAccessM (ChgAccum ctx) xs) ctx (MempoolState (ChgAccum ctx) rawtx) a
 
-type ExpanderRawTx e id c value ctx rawtx =
-    rawtx -> ERoCompM e id value ctx (SomeTx id value c)
-
-type RwActionWithMempool e id value rawtx ctx a =
-    ERwComp e (DbAccessM (ChgAccum ctx) id value) ctx (MempoolState id value (ChgAccum ctx) rawtx) a
-
-type ProcessStateTx e id c value rawtx ctx =
-    SomeTx id value c -> RwActionWithMempool e id value rawtx ctx ()
-
-data MempoolConfig e id c value ctx rawtx = MempoolConfig
-    { mcExpandTx  :: ExpanderRawTx e id c value ctx rawtx
-    , mcProcessTx :: ProcessStateTx e id c value rawtx ctx
+newtype StateTxHandler e ctx rawtx txtype = StateTxHandler
+    { getStateTxHandler :: RwMempoolAct e (TxComponents txtype) ctx rawtx (StateTx txtype)
     }
 
-data MempoolState id value chgAccum rawtx = MempoolState
+type SomeStateTxHandler e ctx c rawtx = SomeData (StateTxHandler e ctx rawtx) c
+
+newtype MempoolConfig e ctx c rawtx =
+    MempoolConfig { mcProcessTx :: rawtx -> SomeStateTxHandler e ctx c rawtx }
+
+data MempoolState chgAccum rawtx = MempoolState
     { msTxs      :: [rawtx]
     , msChgAccum :: chgAccum
     }
@@ -55,56 +58,35 @@ data Versioned t = Versioned
     , vsVersion :: Int
     }
 
-instance HasGetter (MempoolState id value chgAccum rawtx) chgAccum where
+newtype Mempool chgAccum rawtx
+    = Mempool { mempoolState :: TVar (Versioned (MempoolState chgAccum rawtx)) }
+
+instance HasGetter (MempoolState chgAccum rawtx) chgAccum where
     gett = msChgAccum
 
-instance HasLens (MempoolState id value chgAccum rawtx) chgAccum where
+instance HasLens (MempoolState chgAccum rawtx) chgAccum where
     sett s x = s {msChgAccum = x}
 
-msTxsL :: Lens' (MempoolState id value chgAccum rawtx) [rawtx]
+msTxsL :: Lens' (MempoolState chgAccum rawtx) [rawtx]
 msTxsL = lens msTxs (\s x -> s {msTxs = x})
 
-instance Default chgAccum => Default (MempoolState id value chgAccum rawtx) where
+instance Default chgAccum => Default (MempoolState chgAccum rawtx) where
     def = MempoolState def def
 
-instance Default chgAccum => Default (Versioned (MempoolState id value chgAccum rawtx)) where
+instance Default chgAccum => Default (Versioned (MempoolState chgAccum rawtx)) where
     def = Versioned def 0
 
-newtype Mempool id value chgAccum rawtx = Mempool
-    { mempoolState :: TVar (Versioned (MempoolState id value chgAccum rawtx)) }
-
-defaultMempoolConfig
-    :: forall e id value ctx txtypes rawtx .
-    ( HasExceptions e [
-          StatePException
-        , CSMappendException id
-        ]
-    , Ord id
-    , HasLens ctx (ChgAccumCtx ctx)
-    )
-    => ExpanderRawTx e id (RContains txtypes) value ctx rawtx
-    -> Validator e id value ctx txtypes
-    -> MempoolConfig e id (RContains txtypes) value ctx rawtx
-defaultMempoolConfig expander validator = MempoolConfig {
-      mcProcessTx = applySomeTx $ \tx -> do
-        chgAccum' <- liftERoComp $ do
-            () <- convertEffect $ runValidator validator tx
-            modifyAccumOne (txBody tx)
-        modify (flip sett chgAccum')
-    , mcExpandTx = expander
-    }
-
 actionWithMempool
-  :: forall e da chgAccum id value rawtx daa a .
+    :: forall da daa xs chgAccum e rawtx a.
        ( Show e, Typeable e, Default chgAccum
-       , HasReview e StatePException
+       , HasException e StatePException
        , chgAccum ~ ChgAccum (IOCtx da)
        , DbActions da daa chgAccum ExecM
-       , ConvertEffect e (IOCtx da) (DbAccessM chgAccum id value) da
+       , ConvertEffect e (IOCtx da) (DbAccessM chgAccum xs) da
        )
-    => Mempool id value chgAccum rawtx
+    => Mempool chgAccum rawtx
     -> daa ExecM
-    -> RwActionWithMempool e id value rawtx (IOCtx da) a
+    -> RwMempoolAct e xs (IOCtx da) rawtx a
     -> ExecM a
 actionWithMempool mem@Mempool{..} dbActs callback = do
     Versioned{vsVersion=version,..} <- liftIO $ atomically $ readTVar mempoolState
@@ -119,11 +101,58 @@ actionWithMempool mem@Mempool{..} dbActs callback = do
     then pure res
     else actionWithMempool mem dbActs callback
 
-createMempool :: (Default chgAccum, MonadIO m) => m (Mempool id value chgAccum rawtx)
+createMempool :: (Default chgAccum, MonadIO m) => m (Mempool chgAccum rawtx)
 createMempool = Mempool <$> atomically (newTVar def)
+
+getMempoolChgAccum
+    :: (Default chgAccum, MonadIO m)
+    => Mempool chgAccum rawtx
+    -> m chgAccum
+getMempoolChgAccum Mempool{..} = msChgAccum . vsData <$> atomically (readTVar mempoolState)
 
 getMempoolTxs
     :: (Default chgAccum, MonadIO m)
-    => Mempool id value chgAccum rawtx
+    => Mempool chgAccum rawtx
     -> m [rawtx]
 getMempoolTxs Mempool{..} = msTxs . vsData <$> atomically (readTVar mempoolState)
+
+---------------------------
+-- Default mempool and constraints
+---------------------------
+
+class ( ExpandOneTxMode txtype
+      , RContains txtypes txtype
+      , UpCastableERoM (TxComponents txtype) xs
+      ) => MempoolTx txtypes xs txtype
+instance (
+        ExpandOneTxMode txtype
+      , RContains txtypes txtype
+      , UpCastableERoM (TxComponents txtype) xs
+      ) => MempoolTx txtypes xs txtype
+
+defaultMempoolConfig
+    :: forall e xs ctx (c :: * -> Constraint) txtypes rawtx .
+    ( HasExceptions e [
+          StatePException
+        , CSMappendException
+        ]
+    , HasLens ctx (ChgAccumCtx ctx)
+    )
+    => (rawtx -> SomeData (ProofNExp e ctx rawtx) (Both (MempoolTx txtypes xs) c))
+    -> Validator e ctx txtypes
+    -> MempoolConfig e ctx (Both (MempoolTx txtypes xs) c) rawtx
+defaultMempoolConfig expander validator = MempoolConfig handler
+  where
+    handler :: rawtx -> SomeStateTxHandler e ctx (Both (MempoolTx txtypes xs) c) rawtx
+    handler rawtx = usingSomeData (expander rawtx) $ SomeData . StateTxHandler . processTx rawtx
+
+    processTx
+        :: forall txtype . MempoolTx txtypes xs txtype
+        => rawtx
+        -> ProofNExp e ctx rawtx txtype
+        -> RwMempoolAct e (TxComponents txtype) ctx rawtx (StateTx txtype)
+    processTx rawtx prfNexp = do
+        tx@StateTx{..} <- liftERoComp (expandOneTx prfNexp rawtx)
+        liftERoComp $ runValidator validator tx
+        liftERoComp (modifyAccumOne txBody) >>= modify . flip sett
+        pure tx

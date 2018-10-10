@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds        #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Test.Snowdrop.Core.ChangeSet
@@ -13,7 +14,8 @@ import qualified Hedgehog.Range as Range
 import           Test.Tasty (TestTree)
 import           Test.Tasty.Hedgehog (testProperty)
 
-import           Snowdrop.Core (ValueOp (..), ValueOpEx (..), ChangeSet (..), mappendChangeSet)
+import           Snowdrop.Core (HChangeSet (..), HChangeSetEl (..), ValueOp (..), ValueOpEx (..),
+                                mappendChangeSet)
 import           Snowdrop.Util
 
 --  'Int' is used in types for simplicity.
@@ -81,7 +83,6 @@ prop_changeSetAss = property $ do
 prop_verResAss :: Property
 prop_verResAss = checkAssociativity genVerRes
 
-
 prop_memptyVerResL :: Property
 prop_memptyVerResL = property $ do
     x <- genVerRes
@@ -118,9 +119,12 @@ genValueOpEx = forAll valChooser
             , Err
             ]
 
+data Comp
+type instance HKeyVal Comp = '(Int, Int)
+
 -- | Generates random 'ChangeSet'.
-genChangeSet :: Monad m => PropertyT m (ChangeSet Int Int)
-genChangeSet = forAll $ ChangeSet <$> Gen.map (Range.constant 1 100) genPair
+genChangeSet :: Monad m => PropertyT m (HChangeSet '[Comp])
+genChangeSet = forAll $ rone . HChangeSetEl <$> Gen.map (Range.constant 1 100) genPair
   where
     genPair :: MonadGen m => m (Int, ValueOp Int)
     genPair = do

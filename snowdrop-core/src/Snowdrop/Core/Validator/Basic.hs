@@ -1,46 +1,33 @@
 module Snowdrop.Core.Validator.Basic
-       ( TxValidationException (..)
-       , valid
+       ( valid
        , validateIff
        , validateAll
 
        , StructuralValidationException (..)
        , structuralPreValidator
 
-       , redundantIdsPreValidator
-       , RedundantIdException (..)
+       -- , inputsExist
+       -- , inputsSigned
+       -- , exampleStateTxValidator
        ) where
 
+import           Control.Monad.Except (MonadError (..))
 import           Universum
 
-import           Control.Monad.Except (MonadError (..))
-import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import qualified Data.Set as S
 import qualified Data.Text.Buildable
+import           Data.Vinyl.Core (Rec (..))
 import           Formatting (bprint, build, (%))
 
-import           Snowdrop.Core.ChangeSet.Type (changeSetToList, csNew, csRemove)
-import           Snowdrop.Core.ERoComp.Helpers (query)
-import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
-import           Snowdrop.Core.Transaction (TxProof, txBody, txProof)
-import           Snowdrop.Core.Validator.Types (PreValidator (..), Validator, mkValidator)
+import           Snowdrop.Core.ChangeSet (HChangeSet, csNew, csRemove)
+import           Snowdrop.Core.ERoComp (ERoComp, QueryERo, query)
+import           Snowdrop.Core.Transaction (TxComponents, txBody)
+import           Snowdrop.Core.Validator.Types (PreValidator (..))
 import           Snowdrop.Util
 
--- | Exception type for transaction validation (general failures)
-data TxValidationException
-    = PayloadProjectionFailed String Prefix
-    -- ^ Failed to project payload (from general type to concrete subtype)
-    deriving (Show)
-
-instance Buildable TxValidationException where
-    build = \case
-        PayloadProjectionFailed tx p ->
-            bprint
-              ("Projection of payload is failed during validation of StateTx with type: "
-               %build%", got prefix: "%build)
-              tx
-              p
+---------------------------
+-- Helpers for validation
+---------------------------
 
 -- | Helper, which can be used for a validator to specify success case.
 valid :: (Monoid a, Monad m) => m a
@@ -67,14 +54,14 @@ validateAll ex p ls = maybe (pure ()) (throwError . ex) (find (not . p) ls)
 ---------------------------
 
 -- | Exception type for structural validation ('structuralPreValidator').
-data StructuralValidationException id
-    = DpRemoveDoesntExist id
+data StructuralValidationException
+    = forall id . (Show id, Buildable id) => DpRemoveDoesntExist id
     -- ^ Id is expected to exist in state, but doesn't.
-    | DpAddExist id
+    | forall id . (Show id, Buildable id) => DpAddExist id
     -- ^ Id is expected to be absent in state, but exists.
-    deriving (Show)
+deriving instance Show StructuralValidationException
 
-instance Buildable id => Buildable (StructuralValidationException id) where
+instance Buildable StructuralValidationException where
     build = \case
         DpRemoveDoesntExist i ->
             bprint ("Removing entry associated with key "%build%
@@ -85,85 +72,90 @@ instance Buildable id => Buildable (StructuralValidationException id) where
             -- this is an error as soon as we have separated 'New' and 'Upd'
             -- 'ValueOp's.
 
+type StructuralC txtype xs = (
+    RecAll' xs (QueryERo (TxComponents txtype))
+  , RecAll' xs ExnHKey
+  )
+
 csRemoveExist
-    :: (Ord id, HasException e (StructuralValidationException id))
-    => PreValidator e id value ctx txtype
-csRemoveExist = PreValidator $ \(csRemove . txBody -> inRefs) -> do
-    ins <- query inRefs
-    validateAll (inj . DpRemoveDoesntExist) (flip M.member ins) inRefs
+    :: forall e ctx txtype .
+    ( HasException e StructuralValidationException
+    , StructuralC txtype (TxComponents txtype)
+    )
+    => PreValidator e ctx txtype
+csRemoveExist = PreValidator $ checkBody . txBody
+  where
+    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp e (TxComponents txtype) ctx ()
+    checkBody RNil         = pure ()
+    checkBody gs'@(_ :& _) = checkBody' gs'
+
+    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp e (TxComponents txtype) ctx ()
+    checkBody' (cs :& gs) = do
+        let inRefs = csRemove cs
+        ins <- query @t inRefs
+        validateAll (inj . DpRemoveDoesntExist) (flip M.member ins) inRefs
+        checkBody gs
 
 csNewNotExist
-    :: (Ord id, HasException e (StructuralValidationException id))
-    => PreValidator e id value ctx txtype
-csNewNotExist = PreValidator $ \tx -> do
-    let ks = M.keysSet (csNew (txBody tx))
-    mp <- query ks
-    validateAll (inj . DpAddExist) (not . flip M.member mp) ks
+    :: forall e ctx txtype .
+    ( HasException e StructuralValidationException
+    , StructuralC txtype (TxComponents txtype)
+    ) => PreValidator e ctx txtype
+csNewNotExist = PreValidator $ checkBody . txBody
+  where
+    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp e (TxComponents txtype) ctx ()
+    checkBody RNil         = pure ()
+    checkBody gs'@(_ :& _) = checkBody' gs'
+
+    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp e (TxComponents txtype) ctx ()
+    checkBody' (cs :& gs) = do
+        let ks = M.keysSet (csNew cs)
+        mp <- query @t ks
+        validateAll (inj . DpAddExist) (not . flip M.member mp) ks
+        checkBody gs
 
 -- | Structural validation checks whether the ids which are to be removed
 -- (or to be modified) exist in state and vice versa.
 structuralPreValidator
-    :: (Ord id, HasException e (StructuralValidationException id))
-    => PreValidator e id value ctx txtype
+    :: forall e ctx txtype .
+    ( HasException e StructuralValidationException
+    , StructuralC txtype (TxComponents txtype)
+    ) => PreValidator e ctx txtype
 structuralPreValidator = csRemoveExist <> csNewNotExist
-
--- | Exception type for 'redundantIdsPreValidator'.
-data RedundantIdException = RedundantIdException (NonEmpty Prefix)
-    deriving (Show, Generic)
-
-instance Buildable RedundantIdException where
-    build (RedundantIdException pref) =
-        bprint ("encountered unexpected prefixes: "%listF ", " build) (toList pref)
-
--- | Redundant id validation asserts that transaction contains no keys with unexpected prefixes.
-redundantIdsPreValidator
-    :: forall e id txtype value ctx.
-    ( IdSumPrefixed id
-    , HasException e RedundantIdException
-    )
-    => [Prefix]
-    -> PreValidator e id value ctx txtype
-redundantIdsPreValidator prefixes = PreValidator $ \statetx -> do
-    let prefixesSet = S.fromList prefixes
-    let obtainedPrefixesSet = S.fromList $ (idSumPrefix . fst)
-                                        <$> (changeSetToList $ txBody statetx)
-    let rest = obtainedPrefixesSet `S.difference` prefixesSet
-    unless (S.null rest) $
-        throwLocalError $ RedundantIdException $ NE.fromList $ S.toList rest
 
 ---------------------------
 -- Example validators
 ---------------------------
 
-data GlobalError = StateTxError StateTxValidationException
+-- data GlobalError = StateTxError StateTxValidationException
 
--- instance of HasReview declared at bottom with TH
+-- -- instance of HasReview declared at bottom with TH
 
-data StateTxValidationException
-    = InputDoesntExist
-    | InputNotSigned
+-- data StateTxValidationException
+--     = InputDoesntExist
+--     | InputNotSigned
 
-inputsExist
-    :: (Ord id, HasException e StateTxValidationException)
-    => PreValidator e id value ctx txtype
-inputsExist = PreValidator $ \(csRemove . txBody -> inRefs) -> do
-    ins <- query inRefs
-    validateIff InputDoesntExist (all (flip M.member ins) inRefs)
+-- inputsExist
+--     :: (Ord id, HasException e StateTxValidationException)
+--     => PreValidator e id value ctx txtype
+-- inputsExist = PreValidator $ \(csRemove . txBody -> inRefs) -> do
+--     ins <- query inRefs
+--     validateIff InputDoesntExist (all (flip M.member ins) inRefs)
 
-inputsSigned
-    :: (Ord id, HasException e StateTxValidationException)
-    => PreValidator e id (TxProof txtype -> Bool, value) ctx txtype
-inputsSigned = PreValidator $ \tx -> do
-    let inRefs = csRemove $ txBody tx
-        proof  = txProof tx
-    ins <- query inRefs
-    validateIff InputNotSigned (all (($ proof) . fst) ins)
+-- inputsSigned
+--     :: (Ord id, HasException e StateTxValidationException)
+--     => PreValidator e id (TxProof txtype -> Bool, value) ctx txtype
+-- inputsSigned = PreValidator $ \tx -> do
+--     let inRefs = csRemove $ txBody tx
+--         proof  = txProof tx
+--     ins <- query inRefs
+--     validateIff InputNotSigned (all (($ proof) . fst) ins)
 
-_exampleStateTxValidator :: Ord id => Validator GlobalError id ((TxProof txtype) -> Bool, value) ctx '[txtype]
-_exampleStateTxValidator = mkValidator [inputsExist, inputsSigned]
+-- exampleStateTxValidator :: Ord id => Validator GlobalError id ((TxProof txtype) -> Bool, value) ctx '[txtype]
+-- exampleStateTxValidator = mkValidator [inputsExist, inputsSigned]
 
----------------------------
--- HasReview instances
----------------------------
+-- ---------------------------
+-- -- HasReview instances
+-- ---------------------------
 
-deriveView withInj ''GlobalError
+-- deriveView withInj ''GlobalError

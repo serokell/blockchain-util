@@ -5,6 +5,7 @@ module Snowdrop.Core.ERwComp
        , runERwComp
        , liftERoComp
        , convertERwComp
+       , upcastEffERwCompM
        ) where
 
 import           Universum
@@ -12,8 +13,9 @@ import           Universum
 import           Control.Monad.Except (MonadError)
 
 import           Snowdrop.Core.BaseM (BaseM)
-import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), ConvertEffect (..),
-                                        StatePException (..), initAccumCtx)
+import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), ConvertEffect (..), DbAccessM,
+                                        StatePException (..), UpCastableERoM, initAccumCtx,
+                                        upcastEffERoCompM)
 import           Snowdrop.Util
 
 -- | StateT over ERoComp.
@@ -51,6 +53,12 @@ liftERoComp
 liftERoComp comp =
     gets (gett @_ @(ChgAccum ctx)) >>= ERwComp . lift . flip initAccumCtx (convertEffect comp)
 
-
 convertERwComp :: (BaseM e eff1 ctx (a, s) -> BaseM e eff2 ctx (a, s)) -> ERwComp e eff1 ctx s a -> ERwComp e eff2 ctx s a
 convertERwComp f (ERwComp (StateT act)) = ERwComp $ StateT $ \s -> f (act s)
+
+upcastEffERwCompM
+    :: forall xs supxs e ctx s a . UpCastableERoM xs supxs
+    => ERwComp e (DbAccessM (ChgAccum ctx) xs) ctx s a
+    -> ERwComp e (DbAccessM (ChgAccum ctx) supxs) ctx s a
+upcastEffERwCompM (ERwComp comp) = ERwComp $ StateT $ upcastEffERoCompM . runStateT comp
+

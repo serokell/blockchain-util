@@ -1,17 +1,19 @@
+{-# LANGUAGE Rank2Types              #-}
+{-# LANGUAGE TypeInType              #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
-{-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE TypeInType #-}
 
 module Snowdrop.Util.Hetero.Constraints where
 
-import           Universum hiding (show)
+import           Universum hiding (Const (..), show)
 
 import           Data.Kind
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Lens (RElem)
-import           Data.Vinyl.TypeLevel (RIndex)
+import           Data.Vinyl.TypeLevel (RIndex, RecAll)
 
 import           GHC.TypeLits (ErrorMessage (..), TypeError)
+
+import           Snowdrop.Util.Containers (IsEmpty (..))
 
 -- Aux type level fuctions and constraints
 
@@ -20,6 +22,7 @@ type family Fst a where Fst '(x,y) = x
 -- | Project the second component of a type-level tuple.
 type family Snd a where Snd '(x,y) = y
 type family Snd' f a where Snd' f '(x,y) = f y
+type family Head xs where Head (x ': xs') = x
 
 type family Elem (a :: k) (xs::[k]) where
     Elem a '[] = TypeError ('Text "Type " ':<>: 'ShowType a ':<>: 'Text " doesn't belong to list")
@@ -40,10 +43,12 @@ type family NotIntersect (xs::[k]) (ys::[k]) where
     NotIntersect _ '[] = (() :: Constraint)
     NotIntersect (a:xs) ys = (NotElem a ys, NotIntersect xs ys)
 
-type family Rest (t :: k) (xs :: [k]) where
-    Rest t '[] = '[]
-    Rest t (t:xs') = xs'
-    Rest t (x:xs') = x ': Rest t xs'
+-- | RemoveElem type family removes type from the list of types if it's presented.
+-- Otherwise it leaves the list unchanged.
+type family RemoveElem (t :: k) (xs :: [k]) where
+    RemoveElem t '[] = '[]
+    RemoveElem t (t:xs') = xs'
+    RemoveElem t (x:xs') = x ': RemoveElem t xs'
 
 type family RecAll' (rs :: [u]) (c :: u -> Constraint) :: Constraint where
     RecAll' '[] c = ()
@@ -52,7 +57,7 @@ type family RecAll' (rs :: [u]) (c :: u -> Constraint) :: Constraint where
 -- xs ++ ys \ xs
 type family UnionTypes xs ys :: [k] where
     UnionTypes '[] ys = ys
-    UnionTypes (t : xs) ys = t ': UnionTypes xs (Rest t ys)
+    UnionTypes (t : xs) ys = t ': UnionTypes xs (RemoveElem t ys)
 
 class RecToList f xs a where
     recToList :: Rec f xs -> [a]
@@ -62,15 +67,6 @@ instance RecToList f '[] a where
 
 instance (f x ~ a, RecToList f xs a) => RecToList f (x ': xs) a where
     recToList (fx :& xs) = fx : recToList xs
-
--- xs is superset of res
--- instance res ⊆ xs => HasGetter (Rec f xs) (Rec f res) where
---     gett = rcast
-
--- type DownCastableRec f xs res = HasGetter (Rec f xs) (Rec f res)
-
--- rdowncast :: DownCastableRec f xs res => Rec f xs -> Rec f res
--- rdowncast = gett
 
 data SomeData (d :: * -> *) (c :: * -> Constraint) =
     forall txtype . c txtype => SomeData (d txtype)
@@ -88,5 +84,12 @@ type family CList (xs :: [* -> Constraint]) :: * -> Constraint where
     CList '[x] = x
     CList (x ': xs) = Both x (CList xs)
 
+remConstraint :: SomeData d (Both c1 c2) -> SomeData d c2
+remConstraint (SomeData x) = SomeData x
+
 class RElem r rs (RIndex r rs) => RContains rs r
 instance RElem r rs (RIndex r rs) => RContains rs r
+
+rAllEmpty :: RecAll f rs IsEmpty => Rec f rs -> Bool
+rAllEmpty RNil      = True
+rAllEmpty (x :& xs) = isEmpty x && rAllEmpty xs

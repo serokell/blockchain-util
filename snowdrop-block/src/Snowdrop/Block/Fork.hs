@@ -138,7 +138,7 @@ iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDep
     loadBlock depth (Just blockRef)
         | depth <= 0 = pure $ NewestFirst []
         | otherwise = bscGetBlund blockRef >>= \case
-            Nothing -> pure $ NewestFirst []
+            Nothing -> pure $ NewestFirst [] -- TODO throw exception
             Just b  -> newestFirstFContainer (b:) <$>
                 loadBlock
                   (depth - 1)

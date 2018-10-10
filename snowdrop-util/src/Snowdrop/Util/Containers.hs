@@ -9,6 +9,7 @@ module Snowdrop.Util.Containers
        , toOldestFirst
        , mapSet
        , mapKeys
+       , IsEmpty (..)
        ) where
 
 import           Universum hiding (head, init, last)
@@ -45,3 +46,6 @@ mapKeys f = M.fromList . map (first f) . M.toList
 
 toOldestFirst :: NewestFirst [] a -> OldestFirst [] a
 toOldestFirst (NewestFirst xs) = OldestFirst $ reverse xs
+
+class IsEmpty x where
+  isEmpty :: x -> Bool

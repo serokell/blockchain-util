@@ -1,15 +1,11 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE Rank2Types    #-}
 
 -- | Basic types for Exceptionable Read-Only Computation.
 
 module Snowdrop.Core.ERoComp.Types
-       ( Prefix (..)
-       , IdSumPrefixed (..)
-       , StateR
-       , StateP
-       , FoldF (..)
+       ( FoldF (..)
        , ChgAccum
-       , ChgAccumCtx (..)
 
        , DbAccess (..)
        , ERoComp
@@ -25,17 +21,16 @@ module Snowdrop.Core.ERoComp.Types
 
 import           Universum
 
+import           Data.Vinyl.Core (Rec)
+
 import           Snowdrop.Core.BaseM (BaseM)
 
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), ChangeSet (..))
-import           Snowdrop.Core.Prefix (IdSumPrefixed (..), Prefix (..))
-import           Snowdrop.Util (NewestFirst, OldestFirst)
+import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet)
+import           Snowdrop.Util (HKey, HMap, HSet, HVal, NewestFirst, OldestFirst)
 
--- | Set of requested keys from a key-value storage.
-type StateR id = Set id
-
--- | Result of request.
-type StateP id value = Map id value
+------------------------
+-- DbAccess
+------------------------
 
 -- | Datatype describing read only interface for access to a state:
 --
@@ -43,13 +38,13 @@ type StateP id value = Map id value
 --
 -- Type variables @id@, @value@ describe types of key and value of key-value storage.
 -- Variable @res@ denotes result of 'DbAccess' execution.
-data DbAccess id value res
-    = DbQuery (StateR id) (StateP id value -> res)
+data DbAccess (components :: [*]) (res :: *)
+    = DbQuery (HSet components) (HMap components -> res)
     -- ^ Request to state.
     -- The first field is request set of keys which are requested from state.
     -- The second one is a callback which accepts result of request: Map key value
     -- and returns a continuation (a next request to state).
-    | DbIterator Prefix (FoldF (id, value) res)
+    | forall t . DbIterator (forall f . Rec f components -> f t) (FoldF (HKey t, HVal t) res)
     -- ^ Iteration over state.
     -- The first field is prefix for iteration over keys with this prefix.
     -- The second one is used to accumulate entries during iteration.
@@ -65,10 +60,10 @@ data DbAccess id value res
 -- Type variables @id@, @value@ describe types of key and value of key-value storage,
 -- @chgAccum@ is in-memory accumulator of changes.
 -- Variable @res@ denotes result of 'DbAccessM' execution.
-data DbAccessM chgAccum id value res
+data DbAccessM (chgAccum :: *) (components :: [*]) (res :: *)
     = DbModifyAccum
-        (OldestFirst [] (ChangeSet id value))
-        (Either (CSMappendException id) (OldestFirst [] chgAccum) -> res)
+        (OldestFirst [] (HChangeSet components))
+        (Either CSMappendException (OldestFirst [] chgAccum) -> res)
     -- ^ Operation to construct sequence of @chgAccum@ change accumulators
     -- from a sequence of change sets.
     -- Resulting sequence can later be applied to current state
@@ -84,7 +79,7 @@ data DbAccessM chgAccum id value res
     -- change accumulator which modifies the actual state. To perform the
     -- 'DbModifyAccum' operation underlying monad is required to read this
     -- internal change accumulator and apply sequence of change sets to it.
-    | DbAccess (DbAccess id value res)
+    | DbAccess (DbAccess components res)
     -- ^ Object for simple access to state (query, iteration).
 
 -- | Datatype describing read only interface for access to a state:
@@ -98,10 +93,10 @@ data DbAccessM chgAccum id value res
 -- @chgAccum@ is in-memory accumulator of changes,
 -- @undo@ is an object allowing to revert changes proposed by some @chgAccum@.
 -- Variable @res@ denotes result of 'DbAccessU' execution.
-data DbAccessU chgAccum undo id value res
+data DbAccessU (chgAccum :: *) (undo :: *) (components :: [*]) (res :: *)
     = DbModifyAccumUndo
         (NewestFirst [] undo)
-        (Either (CSMappendException id) chgAccum -> res)
+        (Either CSMappendException chgAccum -> res)
     -- ^ Operation to construct change accumulator @chgAccum@
     -- from a sequence of undo objects.
     -- Resulting change accumulator can later be applied to current state
@@ -120,7 +115,7 @@ data DbAccessU chgAccum undo id value res
     -- internal change accumulator and apply sequence of change sets to it.
     | DbComputeUndo
         chgAccum
-        (Either (CSMappendException id) undo -> res)
+        (Either CSMappendException undo -> res)
     -- ^ Operation to construct @undo@ object from a given
     -- change accumulator @chgAccum@.
     -- Resulting undo object can later be used to rollback state
@@ -131,27 +126,30 @@ data DbAccessU chgAccum undo id value res
     -- use 'SumChangeSet' as change accumulator).
     -- Some storage types though do require an access to internal state (e.g. AVL+ storage)
     -- due to more complicated structure of their respective change accumulator.
-    | DbAccessM (DbAccessM chgAccum id value res)
+    | DbAccessM (DbAccessM chgAccum components res)
     -- ^ Object for simple access to state (query, iteration)
     -- and change accumulator construction.
+
+deriving instance Functor (DbAccess xs)
+deriving instance Functor (DbAccessM chgAccum xs)
+deriving instance Functor (DbAccessU chgAccum undo xs)
 
 -- | FoldF holds functions which are intended to accumulate result of iteratio
 -- over entries.
 -- The first field is an initial value.
 -- The second one is an accumulator.
 -- The third one is convertor result of iteration to continuation (a next request to state).
-data FoldF a res = forall b. FoldF (b, a -> b -> b, b -> res)
+data FoldF a res = forall b. FoldF (b, b -> a -> b, b -> res)
 
 instance Functor (FoldF a) where
     fmap f (FoldF (e, foldf, applier)) = FoldF (e, foldf, f . applier)
 
 -- | Mappend operation for two @FoldF@s.
 foldFMappend :: (res -> res -> res) -> FoldF a res -> FoldF a res -> FoldF a res
-foldFMappend resMappend (FoldF (e1, f1, applier1)) (FoldF (e2, f2, applier2))
-    = FoldF (e, f, applier)
+foldFMappend resMappend (FoldF (e1, f1, applier1)) (FoldF (e2, f2, applier2)) = FoldF (e, f, applier)
   where
     e = (e1, e2)
-    f a (b1, b2) = (f1 a b1, f2 a b2)
+    f (b1, b2) a = (f1 b1 a, f2 b2 a)
     applier (b1, b2) = applier1 b1 `resMappend` applier2 b2
 
 -- It can't be defined Monoid instance for @FoldF@ because @mempty@ can't be defined.
@@ -167,10 +165,7 @@ type family ChgAccum ctx :: *
 -- | Reader computation which allows you to query for part of bigger state
 -- and build computation considering returned result.
 -- DbAccess is used as an effect of BaseM.
-type ERoComp e id value = BaseM e (DbAccess id value)
+type ERoComp e xs = BaseM e (DbAccess xs)
 
-type ERoCompM e id value ctx = BaseM e (DbAccessM (ChgAccum ctx) id value) ctx
-type ERoCompU e id value undo ctx = BaseM e (DbAccessU (ChgAccum ctx) undo id value) ctx
-
--- | Auxiliary datatype for context-dependant computations.
-data ChgAccumCtx ctx = CANotInitialized | CAInitialized (ChgAccum ctx)
+type ERoCompM e xs ctx = BaseM e (DbAccessM (ChgAccum ctx) xs) ctx
+type ERoCompU e xs undo ctx = BaseM e (DbAccessU (ChgAccum ctx) undo xs) ctx
