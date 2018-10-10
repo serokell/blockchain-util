@@ -12,6 +12,7 @@ module Snowdrop.Execution.Mempool.Core
        , actionWithMempool
        , createMempool
        , getMempoolTxs
+       , getMempoolChgAccum
 
        , MempoolTx
        , defaultMempoolConfig
@@ -102,6 +103,12 @@ actionWithMempool mem@Mempool{..} dbActs callback = do
 
 createMempool :: (Default chgAccum, MonadIO m) => m (Mempool chgAccum rawtx)
 createMempool = Mempool <$> atomically (newTVar def)
+
+getMempoolChgAccum
+    :: (Default chgAccum, MonadIO m)
+    => Mempool chgAccum rawtx
+    -> m chgAccum
+getMempoolChgAccum Mempool{..} = msChgAccum . vsData <$> atomically (readTVar mempoolState)
 
 getMempoolTxs
     :: (Default chgAccum, MonadIO m)

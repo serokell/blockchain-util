@@ -105,7 +105,7 @@ computeHChSetUndo getter sch chs = do
 
 sumChangeSetDaa
     :: forall xs m .
-       ( Applicative m
+       ( Monad m
        , MappendHChSet xs
        , HIntersectable xs xs
        , Semigroup (HMap xs)
@@ -187,14 +187,14 @@ sumChangeSetDaaU daa = daaU
     computeUndoDo = computeHChSetUndo (daaGetter daa)
 
 chgAccumIter
-    :: (Applicative m, RecAll' xs OrdHKey)
+    :: (Monad m, RecAll' xs OrdHKey)
     => DIter' xs m
     -> DIter (SumChangeSet xs) xs m
 chgAccumIter RNil (SumChangeSet RNil) = pure RNil
 chgAccumIter (iter' :& xs) (SumChangeSet (csel' :& ys)) =
     (chgAccumIter' iter' csel' :&) <$> chgAccumIter xs (SumChangeSet ys)
   where
-    chgAccumIter' :: (OrdHKey t, Functor m2) => IterAction m2 t -> HChangeSetEl t -> IterAction m2 t
+    chgAccumIter' :: (OrdHKey t, Monad m2) => IterAction m2 t -> HChangeSetEl t -> IterAction m2 t
     chgAccumIter' iter ac'@(HChangeSetEl accum) = IterAction $ \initB foldF -> do
         let extractMin i m = do
                 (k, v) <- M.lookupMin m
@@ -208,7 +208,8 @@ chgAccumIter (iter' :& xs) (SumChangeSet (csel' :& ys)) =
 
                     (Just NotExisted, _) -> (b, newKeys) -- TODO shall we throw error here ?
                     (Just (New _),    _) -> (b, newKeys) -- TODO shall we throw error here?
-        fst <$> runIterAction iter (initB, csNew ac') newFoldF
+        (b, remainedNewKeys) <- runIterAction iter (initB, csNew ac') newFoldF
+        pure $ M.foldlWithKey' (curry . foldF) b remainedNewKeys
 
 chgAccumGetter
     ::
