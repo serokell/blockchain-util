@@ -76,7 +76,7 @@ query req = do
 iterator
     :: forall t b xs e ctx. (HElem t xs)
     => b
-    -> ((HKey t, HVal t) -> b -> b)
+    -> (b -> (HKey t, HVal t) -> b)
     -> ERoComp e xs ctx b
 iterator e foldf = effect $ DbIterator @xs @b @t rget (FoldF (e, foldf, id))
 

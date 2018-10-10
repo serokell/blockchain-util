@@ -37,7 +37,7 @@ type DModify chgAccum xs m = chgAccum -> OldestFirst [] (HChangeSet xs) -> m (Ei
 type DModifyUndo chgAccum undo m = chgAccum -> NewestFirst [] undo -> m (Either CSMappendException chgAccum)
 type DComputeUndo chgAccum undo m = chgAccum -> chgAccum -> m (Either CSMappendException undo)
 
-newtype IterAction m t = IterAction {runIterAction :: forall b . b -> ((HKey t, HVal t) -> b -> b) -> m b }
+newtype IterAction m t = IterAction {runIterAction :: forall b . b -> (b -> (HKey t, HVal t) -> b) -> m b }
 type DIter' xs m = Rec (IterAction m) xs
 type DIter chgAccum xs m = chgAccum -> m (DIter' xs m)
 

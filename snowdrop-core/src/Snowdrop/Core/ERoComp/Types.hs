@@ -139,7 +139,7 @@ deriving instance Functor (DbAccessU chgAccum undo xs)
 -- The first field is an initial value.
 -- The second one is an accumulator.
 -- The third one is convertor result of iteration to continuation (a next request to state).
-data FoldF a res = forall b. FoldF (b, a -> b -> b, b -> res)
+data FoldF a res = forall b. FoldF (b, b -> a -> b, b -> res)
 
 instance Functor (FoldF a) where
     fmap f (FoldF (e, foldf, applier)) = FoldF (e, foldf, f . applier)
@@ -149,7 +149,7 @@ foldFMappend :: (res -> res -> res) -> FoldF a res -> FoldF a res -> FoldF a res
 foldFMappend resMappend (FoldF (e1, f1, applier1)) (FoldF (e2, f2, applier2)) = FoldF (e, f, applier)
   where
     e = (e1, e2)
-    f a (b1, b2) = (f1 a b1, f2 a b2)
+    f (b1, b2) a = (f1 b1 a, f2 b2 a)
     applier (b1, b2) = applier1 b1 `resMappend` applier2 b2
 
 -- It can't be defined Monoid instance for @FoldF@ because @mempty@ can't be defined.

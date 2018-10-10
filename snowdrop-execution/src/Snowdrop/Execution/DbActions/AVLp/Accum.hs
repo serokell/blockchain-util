@@ -211,5 +211,5 @@ iter ctx (Just ca) = pure $ iterAll ca
     iterAll (AVLChgAccum initAvl initAcc _ :& accums) =
         IterAction
             (\initB f -> fmap fst $ reThrowAVLEx @(HKey (Head rs)) @h $
-                  runAVLCacheT (AVL.fold (initB, f, id) initAvl) initAcc ctx) :& iterAll accums
+                runAVLCacheT (AVL.fold (initB, flip f, id) initAvl) initAcc ctx) :& iterAll accums
 iter ctx cA = iter ctx (Just $ resolveAvlCA ctx cA)

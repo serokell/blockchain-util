@@ -191,20 +191,24 @@ chgAccumIter
     => DIter' xs m
     -> DIter (SumChangeSet xs) xs m
 chgAccumIter RNil (SumChangeSet RNil) = pure RNil
-chgAccumIter (iter' :& xs) (unSumCS -> csel' :& ys) =
+chgAccumIter (iter' :& xs) (SumChangeSet (csel' :& ys)) =
     (chgAccumIter' iter' csel' :&) <$> chgAccumIter xs (SumChangeSet ys)
   where
-    chgAccumIter' :: OrdHKey t => IterAction m t -> HChangeSetEl t -> IterAction m t
+    chgAccumIter' :: (OrdHKey t, Functor m2) => IterAction m2 t -> HChangeSetEl t -> IterAction m2 t
     chgAccumIter' iter ac'@(HChangeSetEl accum) = IterAction $ \initB foldF -> do
-        let newKeysB = M.foldrWithKey (\i v r -> foldF (i, v) r) initB $ csNew ac'
-            newFoldF (i, val) b = case M.lookup i accum of
-                Nothing         -> foldF (i, val) b
-                Just Rem        -> b
-                Just NotExisted -> b -- TODO shall we throw error here ?
-                Just (Upd newV) -> foldF (i, newV) b
-                Just (New _)    -> b -- TODO shall we throw error here?
-        runIterAction iter newKeysB newFoldF
-chgAccumIter _ _ = error "Absurd. Lol, without this I get non exhaustive pattern matching "
+        let extractMin i m = do
+                (k, v) <- M.lookupMin m
+                (k, v) <$ guard (k <= i)
+            newFoldF (b, newKeys) (i, val) =
+                case (M.lookup i accum, extractMin i newKeys) of
+                    (_,   Just (i', v')) -> newFoldF (foldF b (i', v'), M.deleteMin newKeys) (i, val)
+                    (Nothing,         _) -> (foldF b (i, val) ,newKeys)
+                    (Just Rem,        _) -> (b, newKeys)
+                    (Just (Upd newV), _) -> (foldF b (i, newV), newKeys)
+
+                    (Just NotExisted, _) -> (b, newKeys) -- TODO shall we throw error here ?
+                    (Just (New _),    _) -> (b, newKeys) -- TODO shall we throw error here?
+        fst <$> runIterAction iter (initB, csNew ac') newFoldF
 
 chgAccumGetter
     ::
