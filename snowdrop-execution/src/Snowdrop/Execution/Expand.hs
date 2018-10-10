@@ -162,7 +162,7 @@ type family UnionSeqExpanders (txtypes :: [*]) where
 type UnionSeqExpandersInps txtypes = UnionExpandersInps (UnionSeqExpanders txtypes)
 
 class ( HUpCastableChSet (TxComponents txtype) (UnionSeqExpandersInps txtypes)
-      -- ^ TODO This constraint is inaccurate because of dirty code. will be fixed.
+      -- TODO This constraint is inaccurate because of dirty code. will be fixed.
       -- It is caused when we apply expanded diffs to StateT state, however,
       -- it's not needed @TxComponents txtype@ to be subset of @UnionSeqExpandersInps txtypes@.
       -- We must just apply presented components in @TxComponents txtype@ to @UnionSeqExpandersInps txtypes@.
