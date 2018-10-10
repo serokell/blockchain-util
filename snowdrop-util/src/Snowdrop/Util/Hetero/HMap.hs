@@ -31,8 +31,8 @@ type HVal t = Snd (HKeyVal t)
 class Ord (HKey t) => OrdHKey t
 instance Ord (HKey t) => OrdHKey t
 
-class (Ord (HKey t), Show (HKey t), Buildable (HKey t)) => ExnHKey t
-instance (Ord (HKey t), Show (HKey t), Buildable (HKey t)) => ExnHKey t
+class (Ord (HKey t), Show (HKey t), Buildable (HKey t), Typeable (HKey t)) => ExnHKey t
+instance (Ord (HKey t), Show (HKey t), Buildable (HKey t), Typeable (HKey t)) => ExnHKey t
 
 -- HMap
 newtype HMapEl (t :: u) = HMapEl {unHMapEl :: Map (HKey t) (HVal t)}
@@ -227,30 +227,13 @@ rone = (:& RNil)
 unone :: Rec f '[x] -> f x
 unone (x :& RNil) = x
 
--- gnull :: GMap f xs -> Bool
--- gnull GNil = True
--- gnull _ = False
-
--- -- gsetElemToSet :: Map k (Const () v) -> Set k
--- -- gsetElemToSet = M.keysSet
-
--- -- mapToGMapElem :: Map k v -> Map k (Identity v)
--- -- mapToGMapElem = fmap Identity
-
--- gsetFromSet :: forall t . Set (GKey t) -> GSet' '[t]
--- gsetFromSet s = fmap Const (toDummyMap s) :> GNil
-
--- gmapToMap :: forall t f . GMap f '[t] -> MapKV f t
--- gmapToMap (x :> GNil) = x
-
--- gmapToMap' :: forall t . GMap' '[t] -> Map (GKey t) (GVal t)
--- gmapToMap' (x :> GNil) = fmap runIdentity x
-
--- gmapFromMap :: forall t f . MapKV f t -> GMap f '[t]
--- gmapFromMap mp = mp :> GNil
-
--- class (Ord (GKey t), Show (GKey t), Buildable (GKey t)) => GKeyC t
--- instance (Ord (GKey t), Show (GKey t), Buildable (GKey t)) => GKeyC t
+rzipWithM
+    :: forall f g h m . Applicative m
+    => (forall x  .     f x  ->     g x  ->     m (h x))
+    -> (forall xs . Rec f xs -> Rec g xs -> m (Rec h xs))
+rzipWithM m = \r -> case r of
+  RNil        -> \RNil        -> pure RNil
+  (fa :& fas) -> \(ga :& gas) -> (:&) <$> (m fa ga) <*> rzipWithM m fas gas
 
 ------------------------
 -- Examples

@@ -28,6 +28,7 @@ import           Universum hiding (head, init, last)
 import           Data.Default (Default (..))
 import qualified Data.Set as S
 import qualified Data.Text.Buildable as Buildable
+import           Data.Typeable (cast)
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 import           Formatting (bprint, shown, (%))
@@ -41,6 +42,7 @@ newtype HChangeSetEl t = HChangeSetEl {unHChangeSetEl :: Map (HKey t) (ValueOp (
     deriving (Generic)
 
 deriving instance (Show (HKey t), Show (ValueOp (HVal t))) => Show (HChangeSetEl t)
+deriving instance (Eq (HKey t), Eq (ValueOp (HVal t))) => Eq (HChangeSetEl t)
 
 type HChangeSet = Rec HChangeSetEl
 
@@ -105,9 +107,15 @@ hChangeSetElToList :: HChangeSetEl t -> [(HKey t, ValueOp (HVal t))]
 hChangeSetElToList = M.toList . unHChangeSetEl
 
 -- | Exception throwing from @mappendChangeSet@.
-data CSMappendException = forall id . (Show id, Eq id) => CSMappendException id
+data CSMappendException = forall id . (Show id, Eq id, Typeable id) => CSMappendException id
 
 deriving instance Show CSMappendException
+-- deriving instance Eq CSMappendException
+instance Eq CSMappendException where
+    (==) (CSMappendException a) (CSMappendException b) = case cast a of
+        Nothing -> False
+        Just b' -> b == b'
+
 instance Exception CSMappendException
 
 instance Buildable CSMappendException where
