@@ -136,8 +136,6 @@ test-suite snowdrop-core-test
       Spec
       Test.Snowdrop.Core.ChangeSet
       Test.Snowdrop.Core.Executor
-      -- Test.Snowdrop.Core.Free
-      -- Test.Snowdrop.Core.Types
   default-language: Haskell2010
   default-extensions:   NoImplicitPrelude
                         OverloadedStrings

@@ -77,7 +77,7 @@ verifyFork
     :: forall blkType e m .
        ( MonadError e m
        , Eq (BlockRef blkType)
-       , HasException e (ForkVerificationException (BlockRef blkType))
+       , HasReview e (ForkVerificationException (BlockRef blkType))
        )
     => BlkStateConfiguration blkType m
     -> OSParams blkType

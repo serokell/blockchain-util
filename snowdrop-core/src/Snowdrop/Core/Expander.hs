@@ -28,16 +28,16 @@ import           Snowdrop.Core.ChangeSet (HChangeSet)
 import           Snowdrop.Core.ERoComp (ERoComp)
 import           Snowdrop.Core.Transaction (TxProof)
 
-newtype ProofNExp e ctx rawtx txtype =
-    ProofNExp (TxProof txtype, SeqExpander e ctx rawtx txtype)
+newtype ProofNExp conf rawTx txtype =
+    ProofNExp (TxProof txtype, SeqExpander conf rawTx txtype)
 
-contramapProofNExp :: (a -> b) -> ProofNExp e ctx b txtype -> ProofNExp e ctx a txtype
+contramapProofNExp :: (a -> b) -> ProofNExp conf b txtype -> ProofNExp conf a txtype
 contramapProofNExp f (ProofNExp (prf, se)) = ProofNExp (prf, contramapSeqExpander f se)
 
 -- | Sequence of expand stages to be consequently executed upon a given transaction.
-type SeqExpander e ctx rawtx txtype = Rec (PreExpander e ctx rawtx) (SeqExpanderComponents txtype)
+type SeqExpander conf rawTx txtype = Rec (PreExpander conf rawTx) (SeqExpanderComponents txtype)
 
-contramapSeqExpander :: (a -> b) -> Rec (PreExpander e ctx b) xs -> Rec (PreExpander e ctx a) xs
+contramapSeqExpander :: (a -> b) -> Rec (PreExpander conf b) xs -> Rec (PreExpander conf a) xs
 contramapSeqExpander _ RNil         = RNil
 contramapSeqExpander f (ex :& rest) = contramapPreExpander f ex :& contramapSeqExpander f rest
 
@@ -47,11 +47,12 @@ contramapSeqExpander f (ex :& rest) = contramapPreExpander f ex :& contramapSeqE
 --  expanderAct takes raw tx, returns addition to txBody.
 --  So the result StateTx is constructed as
 --  _StateTx proofFromRawTx (addtionFromExpander1 <> additionFromExpander2 <> ...)_
-newtype PreExpander e ctx rawtx ioRestr = PreExpander
-    { runExpander :: rawtx -> ERoComp e (ExpInpComps ioRestr) ctx (DiffChangeSet (ExpOutComps ioRestr))
+newtype PreExpander conf rawTx ioRestr = PreExpander
+    { runExpander :: rawTx
+                  -> ERoComp conf (ExpInpComps ioRestr) (DiffChangeSet (ExpOutComps ioRestr))
     }
 
-contramapPreExpander :: (a -> b) -> PreExpander e ctx b ioRestr -> PreExpander e ctx a ioRestr
+contramapPreExpander :: (a -> b) -> PreExpander conf b ioRestr -> PreExpander conf a ioRestr
 contramapPreExpander f (PreExpander act) = PreExpander $ act . f
 
 -- | DiffChangeSet holds changes which one expander returns

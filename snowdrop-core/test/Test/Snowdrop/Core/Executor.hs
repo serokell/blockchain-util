@@ -20,9 +20,10 @@ import qualified Data.Map.Strict as M
 import           Data.Vinyl.Core (Rec (..))
 
 import           Loot.Log (NameSelector (..))
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), DbAccess (..),
-                                ERoComp, Effectful (..), FoldF (..), HChangeSet, HChangeSetEl,
-                                ValueOp (..), getCAOrDefault, hChangeSetElToList, unBaseM)
+import           Snowdrop.Core (BException, CSMappendException (..), ChgAccum, ChgAccumCtx (..),
+                                Ctx, DbAccess (..), ERoComp, Effectful (..), FoldF (..), HChangeSet,
+                                HChangeSetEl, ValueOp (..), getCAOrDefault, hChangeSetElToList,
+                                unBaseM)
 import           Snowdrop.Util
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
@@ -46,16 +47,14 @@ simpleStateAccessor st (DbIterator getComp (FoldF (e, foldf, applier))) = applie
       e
       (M.toList $ unHMapEl $ getComp st)
 
-data TestCtx (xs :: [*]) = TestCtx
-    { tctxChgAccum :: ChgAccumCtx (TestCtx xs)
+data TestCtx conf = TestCtx
+    { tctxChgAccum :: ChgAccumCtx conf
     }
 
-type instance ChgAccum (TestCtx xs) = SumChangeSet xs
-
-instance HasLens (TestCtx xs) (ChgAccumCtx (TestCtx xs)) where
+instance HasLens (TestCtx conf) (ChgAccumCtx conf) where
     sett ctx val = ctx { tctxChgAccum = val }
 
-instance HasGetter (TestCtx xs) (ChgAccumCtx (TestCtx xs)) where
+instance HasGetter (TestCtx conf) (ChgAccumCtx conf) where
     gett = tctxChgAccum
 
 data Counter = Counter
@@ -68,21 +67,21 @@ makeLenses ''Counter
 instance Default Counter where
     def = Counter 0 0
 
-newtype TestExecutorT e xs m a = TestExecutorT
-    { runTestExecutorT :: ReaderT (TestCtx xs) (StateT Counter (ExceptT e m)) a }
-    deriving (Functor, Applicative, Monad, MonadError e, MonadReader (TestCtx xs))
+newtype TestExecutorT e conf m a = TestExecutorT
+    { runTestExecutorT :: ReaderT (TestCtx conf) (StateT Counter (ExceptT e m)) a }
+    deriving (Functor, Applicative, Monad, MonadError e, MonadReader (TestCtx conf))
 
 -- Dummy logging
-instance Monad m => MonadLogging (TestExecutorT e xs m) where
+instance Monad m => MonadLogging (TestExecutorT e conf m) where
     log _ _ _ = pure ()
     logName = pure (GivenName "")
 
-instance Monad m => ModifyLogName (TestExecutorT e xs m) where
+instance Monad m => ModifyLogName (TestExecutorT e conf m) where
     modifyLogNameSel _ = id
 
 applyDiff
     :: forall e m xs .
-    ( HasException e CSMappendException
+    ( HasReview e CSMappendException
     , MonadError e m
     , RecAll' xs ExnHKey
     )
@@ -110,11 +109,12 @@ applyDiff = applyDiffDo
 
 instance ( MonadReader (HMap xs) m
          , Default (HChangeSet xs)
-         , HasException e CSMappendException
+         , HasReview e CSMappendException
          , HIntersectable xs xs
          , RecAll' xs ExnHKey
+         , ChgAccum conf ~ SumChangeSet xs
          ) =>
-    Effectful (DbAccess xs) (TestExecutorT e xs m) where
+    Effectful (DbAccess xs) (TestExecutorT e conf m) where
         effect dbAccess = do
             SumChangeSet acc <- getCAOrDefault . tctxChgAccum <$> ask
             storage <- TestExecutorT $ lift $ lift ask
@@ -124,27 +124,36 @@ instance ( MonadReader (HMap xs) m
                 DbIterator _ _ -> TestExecutorT $ lift $ modify $ cntIter %~ (+1)
             pure $ simpleStateAccessor storage' dbAccess
 
+data TestConf e (xs :: [*])
+
+type instance BException (TestConf e xs) = e
+type instance Ctx (TestConf e xs) = TestCtx (TestConf e xs)
+type instance ChgAccum (TestConf e xs) = SumChangeSet xs
+
+
 countERoComp
-    :: ( MonadReader (HMap xs) m
-       , HasException e CSMappendException
+    :: forall e xs m a .
+       ( MonadReader (HMap xs) m
+       , HasReview e CSMappendException
        , Default (HChangeSet xs)
        , HIntersectable xs xs
        , RecAll' xs ExnHKey
        )
-    => ERoComp e xs (TestCtx xs) a
+    => ERoComp (TestConf e xs) xs a
     -> m (Either e Counter)
 countERoComp comp =
     runExceptT $ flip execStateT def $
         runReaderT (runTestExecutorT (unBaseM comp)) $ TestCtx CANotInitialized
 
 runERoComp
-    :: ( MonadReader (HMap xs) m
-       , HasException e CSMappendException
+    :: forall e xs m a .
+       ( MonadReader (HMap xs) m
+       , HasReview e CSMappendException
        , Default (HChangeSet xs)
        , HIntersectable xs xs
        , RecAll' xs ExnHKey
        )
-    => ERoComp e xs (TestCtx xs) a
+    => ERoComp (TestConf e xs) xs a
     -> m (Either e a)
 runERoComp comp =
     runExceptT $ flip evalStateT def $

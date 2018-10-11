@@ -2,9 +2,7 @@
 
 module Snowdrop.Util.Prism.Exception
        (
-         HasException
-       , HasExceptions
-       , HasReviews
+         HasReviews
        , HasPrisms
 
        , eitherThrow
@@ -20,13 +18,9 @@ import           Data.Kind (Constraint)
 
 import           Snowdrop.Util.Prism.Class
 
-type HasException e e1 = HasReview e e1
-
 type family HasReviews (e :: *) (exs :: [*]) where
     HasReviews e '[]    = (() :: Constraint)
     HasReviews e (e1:xs) = (HasReview e e1, HasReviews e xs)
-
-type HasExceptions e xs = HasReviews e xs
 
 type family HasPrisms (e :: *) (exs :: [*]) where
     HasPrisms e '[]    = (() :: Constraint)

@@ -10,9 +10,9 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..), getCurrent
                                                getPreviousBlockRef)
 import           Snowdrop.Block.Fork (ForkVerificationException (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (BlockRef, BlockUndo, CurrentBlockRef (..), PrevBlockRef (..),
-                                       RawBlk, RawBlund)
-import           Snowdrop.Core (DbAccessU, ERwComp)
+import           Snowdrop.Block.Types (BlockRef, CurrentBlockRef (..), PrevBlockRef (..), RawBlk,
+                                       RawBlund)
+import           Snowdrop.Core (ChgAccum, DbAccessU, ERwComp, HasBException)
 import           Snowdrop.Util
 
 
@@ -20,12 +20,13 @@ import           Snowdrop.Util
 -- Client calls 'blockSync' on list of hashes of blocks to check
 -- whether server contains the same list of hashes or not
 blockSync
-  :: forall blkType e xs blockChgAccum ctx erwcomp.
+  :: forall blkType conf xs blockChgAccum erwcomp.
     ( Default blockChgAccum
-    , HasException e (ForkVerificationException (BlockRef blkType))
+    , HasBException conf (ForkVerificationException (BlockRef blkType))
     , HasGetter (RawBlund blkType) (RawBlk blkType)
     , Eq (BlockRef blkType)
-    , erwcomp ~ ERwComp e (DbAccessU blockChgAccum (BlockUndo blkType) xs) ctx blockChgAccum
+    , ChgAccum conf ~ blockChgAccum
+    , erwcomp ~ ERwComp conf (DbAccessU conf xs) blockChgAccum
     )
     => BlkStateConfiguration blkType erwcomp
     -> OldestFirst [] (BlockRef blkType)

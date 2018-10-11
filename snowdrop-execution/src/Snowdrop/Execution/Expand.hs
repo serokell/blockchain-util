@@ -20,30 +20,30 @@ import           Universum
 import           Data.Default (Default (def))
 import           Data.Vinyl (Rec (..))
 
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..),
-                                DiffChangeSet (..), ERoCompM, ExpInpComps, ExpOutComps,
-                                ExpRestriction (..), HChangeSet, HUpCastableChSet, MappendHChSet,
-                                PreExpander (..), ProofNExp (..), SeqExpander,
+import           Snowdrop.Core (BException, CSMappendException (..), ChgAccum, ChgAccumCtx (..),
+                                Ctx, DiffChangeSet (..), ERoCompM, ExpInpComps, ExpOutComps,
+                                ExpRestriction (..), HChangeSet, HUpCastableChSet, HasBException,
+                                MappendHChSet, PreExpander (..), ProofNExp (..), SeqExpander,
                                 SeqExpanderComponents, SomeTx, StateTx (..), TxComponents,
                                 UpCastableERoM, convertEffect, mappendChangeSet, upcastEffERoCompM,
                                 withModifiedAccumCtxOne)
 import           Snowdrop.Execution.DbActions (SumChangeSet (..), mappendStOrThrow)
 import           Snowdrop.Util
 
-type ExpandRawTxsMode e ctx txtypes =
-    ( HasException e CSMappendException
-    , HasLens ctx (ChgAccumCtx ctx)
+type ExpandRawTxsMode conf txtypes =
+    ( HasBException conf CSMappendException
+    , HasLens (Ctx conf) (ChgAccumCtx conf)
     , MappendHChSet (UnionSeqExpandersInps txtypes)
 
-    , Default (ChgAccum ctx)
+    , Default (ChgAccum conf)
     , Default (SumChangeSet (UnionSeqExpandersInps txtypes))
     )
 
 expandUnionRawTxs
-    :: forall rawtx txtypes (c :: * -> Constraint) e ctx . ExpandRawTxsMode e ctx txtypes
-    => (rawtx -> SomeData (ProofNExp e ctx rawtx) (Both (ExpandableTx txtypes) c))
+    :: forall rawtx txtypes (c :: * -> Constraint) conf . ExpandRawTxsMode conf txtypes
+    => (rawtx -> SomeData (ProofNExp conf rawtx) (Both (ExpandableTx txtypes) c))
     -> [rawtx]
-    -> ERoCompM e (UnionSeqExpandersInps txtypes) ctx [SomeTx c]
+    -> ERoCompM conf (UnionSeqExpandersInps txtypes) [SomeTx c]
 expandUnionRawTxs f txs = runSeqExpandersSequentially (zip txs $ map f txs)
 
 type ExpandOneTxMode txtype =
@@ -54,62 +54,62 @@ type ExpandOneTxMode txtype =
 
 -- TODO there is assumption that tx can be expanded within own TxComponents txtype
 expandOneTx
-    :: forall txtype rawtx e ctx .
-    ( HasException e CSMappendException
+    :: forall txtype rawtx conf .
+    ( HasBException conf CSMappendException
     , ExpandOneTxMode txtype
     )
-    => ProofNExp e ctx rawtx txtype
+    => ProofNExp conf rawtx txtype
     -> rawtx
-    -> ERoCompM e (TxComponents txtype) ctx (StateTx txtype)
+    -> ERoCompM conf (TxComponents txtype) (StateTx txtype)
 expandOneTx (ProofNExp (prf, sexp)) tx = do
     hcs <- unSumCS <$> runSeqExpanderForTx @txtype tx sexp
     pure $ StateTx prf hcs
 
 runSeqExpandersSequentially
-    :: forall rawtx txtypes (c :: * -> Constraint) e ctx .
-    ( HasException e CSMappendException
-    , HasLens ctx (ChgAccumCtx ctx)
+    :: forall rawtx txtypes (c :: * -> Constraint) conf .
+    ( HasBException conf CSMappendException
+    , HasLens (Ctx conf) (ChgAccumCtx conf)
     , MappendHChSet (UnionSeqExpandersInps txtypes)
 
-    , Default (ChgAccum ctx)
+    , Default (ChgAccum conf)
     , Default (SumChangeSet (UnionSeqExpandersInps txtypes))
     )
-    => [(rawtx, SomeData (ProofNExp e ctx rawtx) (Both (ExpandableTx txtypes) c))]
-    -> ERoCompM e (UnionSeqExpandersInps txtypes) ctx [SomeTx c]
+    => [(rawtx, SomeData (ProofNExp conf rawtx) (Both (ExpandableTx txtypes) c))]
+    -> ERoCompM conf (UnionSeqExpandersInps txtypes) [SomeTx c]
 runSeqExpandersSequentially txWithExp =
     reverse <$> evalStateT (foldM runExps [] txWithExp) def
   where
     runExps
         :: [SomeTx c]
-        -> (rawtx, SomeData (ProofNExp e ctx rawtx) (Both (ExpandableTx txtypes) c))
+        -> (rawtx, SomeData (ProofNExp conf rawtx) (Both (ExpandableTx txtypes) c))
         -> StateT (SumChangeSet (UnionSeqExpandersInps txtypes))
-              (ERoCompM e (UnionSeqExpandersInps txtypes) ctx) [SomeTx c]
+              (ERoCompM conf (UnionSeqExpandersInps txtypes)) [SomeTx c]
     runExps txs (rtx, sd) = do
         chgAcc <- get
         (stx, txbody) <- lift $
             withModifiedAccumCtxOne (unSumCS chgAcc) $
               applySomeData (constructStateTx rtx) sd
-        (stx : txs) <$ mappendStOrThrow @e txbody
+        (stx : txs) <$ mappendStOrThrow @(BException conf) txbody
 
     constructStateTx
         :: forall txtype . (ExpandableTx txtypes txtype, c txtype)
         => rawtx
-        -> ProofNExp e ctx rawtx txtype
-        -> ERoCompM e (UnionSeqExpandersInps txtypes) ctx (SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))
+        -> ProofNExp conf rawtx txtype
+        -> ERoCompM conf (UnionSeqExpandersInps txtypes) (SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))
     constructStateTx tx (ProofNExp (prf, sexp)) = do
         hcs <- unSumCS <$> runSeqExpanderForTx @txtype tx sexp
         pure (SomeData (StateTx @txtype prf hcs), hupcast hcs)
 
 runSeqExpanderForTx
-    :: forall txtype components e ctx rawtx .
-    ( HasException e CSMappendException
+    :: forall txtype components conf rawtx .
+    ( HasBException conf CSMappendException
     , Default (SumChangeSet (TxComponents txtype))
     , MappendHChSet (TxComponents txtype)
     , RestrictTx components txtype
     )
     => rawtx
-    -> SeqExpander e ctx rawtx txtype
-    -> ERoCompM e components ctx (SumChangeSet (TxComponents txtype))
+    -> SeqExpander conf rawtx txtype
+    -> ERoCompM conf components (SumChangeSet (TxComponents txtype))
 runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
   where
     runSeqExpanderForTxAll
@@ -117,8 +117,8 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
            ( RecAll' rs (RestrictIo components txtype)
            , MappendHChSet (TxComponents txtype)
            )
-        => Rec (PreExpander e ctx rawtx) rs
-        -> ERoCompM e components ctx (SumChangeSet (TxComponents txtype))
+        => Rec (PreExpander conf rawtx) rs
+        -> ERoCompM conf components (SumChangeSet (TxComponents txtype))
     runSeqExpanderForTxAll RNil           = pure def
     runSeqExpanderForTxAll exps'@(_ :& _) = runSeqExpanderForTx' exps'
 
@@ -128,24 +128,24 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
         , RecAll' rs (RestrictIo components txtype)
         , MappendHChSet (TxComponents txtype)
         )
-        => Rec (PreExpander e ctx rawtx)  rs
-        -> ERoCompM e components ctx (SumChangeSet (TxComponents txtype))
+        => Rec (PreExpander conf rawtx)  rs
+        -> ERoCompM conf components (SumChangeSet (TxComponents txtype))
     runSeqExpanderForTx' (ex :& rest) = do
         sm <- runSeqExpanderForTxAll rest
         upcastEffERoCompM @(ExpInpComps r) $ applyPreExpander @txtype tx ex sm
 
 applyPreExpander
-    :: forall txtype rawtx e ctx ioRestr .
-    ( HasException e CSMappendException
+    :: forall txtype rawtx conf ioRestr .
+    ( HasBException conf CSMappendException
     , HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
     , MappendHChSet (TxComponents txtype)
     )
     => rawtx
-    -> PreExpander e ctx rawtx ioRestr
+    -> PreExpander conf rawtx ioRestr
     -> SumChangeSet (TxComponents txtype)
-    -> ERoCompM e (ExpInpComps ioRestr) ctx (SumChangeSet (TxComponents txtype))
+    -> ERoCompM conf (ExpInpComps ioRestr) (SumChangeSet (TxComponents txtype))
 applyPreExpander tx ex sumCS = do
-    DiffChangeSet diffCS <- convertEffect $ runExpander ex tx
+    DiffChangeSet diffCS <- convertEffect @conf $ runExpander ex tx
     case hupcast diffCS `mappendChangeSet` unSumCS sumCS of
         Left e      -> throwLocalError e
         Right newCS -> pure $ SumChangeSet newCS
@@ -197,10 +197,10 @@ instance ( HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
 --     }
 
 -- mappendExpander
---     :: (HasException e (CSMappendException id), Ord id)
---     => PreExpander e id proof value ctx rawTx
---     -> PreExpander e id proof value ctx rawTx
---     -> PreExpander e id proof value ctx rawTx
+--     :: (HasBException conf (CSMappendException id), Ord id)
+--     => PreExpander e id proof valuconf rawTx
+--     -> PreExpander e id proof valuconf rawTx
+--     -> PreExpander e id proof valuconf rawTx
 -- mappendExpander a b = PreExpander
 --     (inpSet a `S.union` inpSet b)
 --     (outSet a `S.union` outSet b)
@@ -213,8 +213,8 @@ instance ( HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
 --             _      -> error "impossibro"
 
 -- squashSeqExpanders
---     :: (Ord id, HasException e (CSMappendException id))
---     => SeqExpander' e id txtype value ctx rawTx -> SeqExpander' e id txtype value ctx rawTx
+--     :: (Ord id, HasBException conf (CSMappendException id))
+--     => SeqExpander' e id txtype valuconf rawTx -> SeqExpander' e id txtype valuconf rawTx
 -- squashSeqExpanders (x:|[]) = one x
 -- squashSeqExpanders (a:|b:xs) =
 --     if inpOutIntersection then NE.cons a (squashSeqExpanders (b :| xs))
@@ -264,16 +264,16 @@ instance ( HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
 -- We can just mappend E_i tx1 to the first parentheses, E_i tx2 to the second and so on and so forth.
 -- TODO Must be generialized for several expanders
 -- expandRawTxs
---   :: forall rawTx e id txtype value ctx .
+--   :: forall rawTx e id txtype valuconf .
 --     ( Ord id
 --     , IdSumPrefixed id
 --     , HasExceptions e [CSMappendException id, RestrictionInOutException]
---     , HasLens ctx (ChgAccumCtx ctx)
---     , Default (ChgAccum ctx)
+--     , HasLens ctx (ChgAccumCtx conf)
+--     , Default (ChgAccum conf)
 --     , HasLens ctx RestrictCtx
 --     )
---     => [(rawtx, SomeData (ProofNExp e ctx rawtx) c)]
---     -> ERoCompM e id value ctx [SomeTx id value c]
+--     => [(rawtx, SomeData (ProofNExp conf rawtx) c)]
+--     -> ERoCompM conf id valuconf [SomeTx id value c]
 -- expandRawTxs mkProof rawTxs (getSeqExpanders -> exps) =
 --     -- Check whether expanding can be run in parallel.
 --     if checkParallelization expander then
@@ -281,20 +281,20 @@ instance ( HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
 --     else
 --         runSeqExpandersSequentially mkProof (zip rawTxs $ repeat expander)
 --   where
---     intersectsInpOut :: PreExpander e id txtype value ctx rawTx -> PreExpander e id txtype value ctx rawTx -> Bool
+--     intersectsInpOut :: PreExpander e id txtype valuconf rawTx -> PreExpander e id txtype valuconf rawTx -> Bool
 --     intersectsInpOut e1 e2 = not $ S.null $ S.intersection (inpSet e1) (outSet e2)
 
 --     -- Check that (inpSet E_i) ∩ (outSet E_j) = ∅ for j >= i, for 0 <= i, j < numbers of expanders.
---     checkParallelization :: SeqExpander' e id txtype value ctx rawTx -> Bool
+--     checkParallelization :: SeqExpander' e id txtype valuconf rawTx -> Bool
 --     checkParallelization (x :| []) = intersectsInpOut x x
 --     checkParallelization (x :| xs) =
 --         if any (intersectsInpOut x) (x:xs) then False
 --         else checkParallelization $ NE.fromList xs
 
 --     runExpandersInParallel
---         :: SeqExpander' e id txtype value ctx rawTx
+--         :: SeqExpander' e id txtype valuconf rawTx
 --         -> [RawTxState id value]
---         -> ERoCompM e id value ctx [StateTx id value txtype]
+--         -> ERoCompM conf id valuconf [StateTx id value txtype]
 --     runExpandersInParallel (ex:|xs) prevRawTxStates =
 --       runExpanderOnAllTxsParallel >>= \stxSums ->
 --             -- We should apply portion of expanded data for next expander.
@@ -323,7 +323,7 @@ instance ( HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
 --             newRtsExpState <- rtsExpState sumSt `modifySumChgSet` accumToDiff (rtsSum sumSt)
 --             pure $ RawTxState newRtsSum newRtsExpState : a
 
---         runExpanderOnAllTxsParallel :: ERoCompM e id value ctx [SumChangeSet id value]
+--         runExpanderOnAllTxsParallel :: ERoCompM conf id valuconf [SumChangeSet id value]
 --         runExpanderOnAllTxsParallel =
 --             mconcat $
 --               map (fmap one . applyExpWithState) $
@@ -331,7 +331,7 @@ instance ( HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
 
 --         applyExpWithState
 --             :: (RawTxState id value, rawTx)
---             -> ERoCompM e id value ctx (SumChangeSet id value)
+--             -> ERoCompM conf id valuconf (SumChangeSet id value)
 --         applyExpWithState (RawTxState{..}, rawTx) =
 --             withModifiedAccumCtx (accumToDiff rtsExpState) $ applyExpander rawTx rtsSum ex
 

@@ -47,7 +47,7 @@ applyBlock
     :: forall blkType e m
     . ( MonadError e m
       , Eq (BlockRef blkType)
-      , HasException e (BlockApplicationException (BlockRef blkType))
+      , HasReview e (BlockApplicationException (BlockRef blkType))
       , HasGetter (RawBlk blkType) (RawPayload blkType)
       )
     => OSParams blkType
@@ -61,7 +61,7 @@ expandAndApplyBlock
     :: forall blkType e m
     . ( MonadError e m
       , Eq (BlockRef blkType)
-      , HasException e (BlockApplicationException (BlockRef blkType))
+      , HasReview e (BlockApplicationException (BlockRef blkType))
       , HasGetter (RawBlk blkType) (RawPayload blkType)
       )
     => Bool
@@ -77,7 +77,7 @@ applyBlockImpl
     :: forall blkType e m
     . ( MonadError e m
       , Eq (BlockRef blkType)
-      , HasException e (BlockApplicationException (BlockRef blkType))
+      , HasReview e (BlockApplicationException (BlockRef blkType))
       )
     => Bool
     -> OSParams blkType
@@ -120,7 +120,7 @@ tryApplyFork
       -- 4. apply appropriate chain
       , HasGetter (RawBlk blkType) (RawPayload blkType)
       , Eq (BlockRef blkType)
-      , HasExceptions e [ ForkVerificationException (BlockRef blkType)
+      , HasReviews e [ ForkVerificationException (BlockRef blkType)
                         , BlockApplicationException (BlockRef blkType)]
       , MonadError e m
       )
