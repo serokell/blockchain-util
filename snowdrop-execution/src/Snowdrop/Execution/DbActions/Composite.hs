@@ -3,9 +3,12 @@ module Snowdrop.Execution.DbActions.Composite
          constructCompositeDaa
        , constructCompositeDaaM
        , constructCompositeDaaU
+       , constructCompositeDma
        , CompositeChgAccum (..)
        , CompositeUndo (..)
        , CompositeConf
+       , Conf1
+       , Conf2
        ) where
 
 import           Universum
@@ -23,6 +26,13 @@ data CompositeConf conf1 conf2
 type instance Undo (CompositeConf conf1 conf2) = CompositeUndo conf1 conf2
 type instance ChgAccum (CompositeConf conf1 conf2) = CompositeChgAccum conf1 conf2
 type instance DbComponents (CompositeConf conf1 conf2) = DbComponents conf1 ++ DbComponents conf2
+type instance DbApplyProof (CompositeConf conf1 conf2) = (DbApplyProof conf1, DbApplyProof conf2)
+
+type family Conf1 a where
+    Conf1 (CompositeConf conf1 conf2) = conf1
+
+type family Conf2 a where
+    Conf2 (CompositeConf conf1 conf2) = conf2
 
 data CompositeUndo conf1 conf2 = CompositeUndo
     { cuPrimary   :: Undo conf1
@@ -122,3 +132,29 @@ constructCompositeDaaU dbaP dbaS = DbAccessActionsU {
       -> m (Either CSMappendException (CompositeUndo conf1 conf2))
     computeUndo (CompositeChgAccum cP cS) (CompositeChgAccum cP' cS') =
         liftA2 CompositeUndo <$> daaComputeUndo dbaP cP cP' <*> daaComputeUndo dbaS cS cS'
+
+constructCompositeDma
+    :: forall conf1 conf2 m components1 components2 .
+    ( Monad m
+    , components1 ~ DbComponents conf1
+    , components2 ~ DbComponents conf2
+
+    , NotIntersect components1 components2
+
+    , HDownCastable (components1 ++ components2) components1
+    , HDownCastable (components1 ++ components2) components2
+    )
+    => DbModifyActions conf1 m
+    -> DbModifyActions conf2 m
+    -> DbModifyActions (CompositeConf conf1 conf2) m
+constructCompositeDma dbaP dbaS = DbModifyActions {
+    dmaAccess = constructCompositeDaaU (dmaAccess dbaP) (dmaAccess dbaS)
+  , dmaApply = apply
+  }
+  where
+    apply
+      :: CompositeChgAccum conf1 conf2
+      -> m (DbApplyProof conf1, DbApplyProof conf2)
+    apply (CompositeChgAccum cP cS) =
+        liftA2 (,) (dmaApply dbaP cP) (dmaApply dbaS cS)
+

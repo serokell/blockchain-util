@@ -109,12 +109,13 @@ inmemoryBlkStateConfiguration
     , HUpCastableChSet '[BlundComponent blkType] xs
     , UpCastableERoM (UnionSeqExpandersInps txtypes) xs
     , Default (HChangeSet xs)
-    , Undo conf ~ BlockUndo blkType
+    , HasGetter (Undo conf) (BlockUndo blkType)
+    , HasReview (Undo conf) (BlockUndo blkType)
     )
     => BlkConfiguration blkType
     -> Validator conf txtypes
     -> (rawTx -> SomeData (ProofNExp conf rawTx) (Both (ExpandableTx txtypes) c))
-    -> (RawBlk blkType -> [SomeTx c] -> Block (BlockHeader blkType) (Payload blkType))
+    -> (RawBlk blkType -> [SomeTx c] -> Block (BlockHeader blkType) [SomeTx c])
     -> BlkStateConfiguration blkType m
 inmemoryBlkStateConfiguration cfg validator mkProof mkBlock = fix $ \this ->
     BlkStateConfiguration {
@@ -130,9 +131,9 @@ inmemoryBlkStateConfiguration cfg validator mkProof mkBlock = fix $ \this ->
               let preAccs = init (curAcc :| accs)
                   lastAcc = last (curAcc :| accs)
               convertEffect @conf $ mapTxs_ @conf (runValidator validator) (zip preAccs txs)
-              (lastAcc,) <$> computeUndo @xs @conf lastAcc
+              (lastAcc,) . gett <$> computeUndo @xs @conf lastAcc
           undo <$ modify (flip sett newSt)
-     , bscApplyUndo = liftERoComp . modifyAccumUndo @xs @conf . pure >=> modify . flip sett
+     , bscApplyUndo = liftERoComp . modifyAccumUndo @xs @conf . pure . inj >=> modify . flip sett
      , bscStoreBlund = \blund -> do
            let blockRef = unCurrentBlockRef $ bcBlockRef cfg (blkHeader $ buBlock blund)
            let chg = hChangeSetFromMap @(BlundComponent blkType) $ M.singleton blockRef (New blund)

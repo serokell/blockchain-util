@@ -146,7 +146,6 @@ data DbActionsException
     | DbWrongIdQuery Text
     | DbWrongPrefixIter Text
     | DbProtocolError Text
-    | DbUndoProjectionError
     deriving Show
 
 instance Exception DbActionsException
@@ -157,7 +156,6 @@ instance Buildable DbActionsException where
         DbWrongIdQuery t -> bprint ("Wrong id query to DB: "%build) t
         DbWrongPrefixIter t -> bprint ("Wrong prefix iterator: "%build) t
         DbProtocolError t -> bprint ("Db protocol error: "%build) t
-        DbUndoProjectionError -> "Wrong undo object provided: projection failed"
 
 -- | Toggle on whether to record proof within DbModifyActions
 data RememberForProof = RememberForProof { unRememberForProof :: Bool }

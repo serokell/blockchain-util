@@ -25,8 +25,8 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, H
                                 hChangeSetToHMap, hChangeSetToHSet, mappendChangeSet)
 import           Snowdrop.Execution.DbActions.Types (DGetter, DGetter', DIter',
                                                      DbAccessActions (..), DbAccessActionsM (..),
-                                                     DbAccessActionsU (..), DbActionsException (..),
-                                                     DbComponents, IterAction (..))
+                                                     DbAccessActionsU (..), DbComponents,
+                                                     IterAction (..))
 import           Snowdrop.Util
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
@@ -154,42 +154,28 @@ sumChangeSetDaaU
        , HIntersectable xs xs
        , Semigroup (HMap xs)
        , undo ~ Undo conf
+       , undo ~ HChangeSet xs
        , xs ~ DbComponents conf
-       , HasPrism undo (HChangeSet xs)
        , ChgAccum conf ~ SumChangeSet xs
        )
     => DbAccessActions  conf m
     -> DbAccessActionsU conf m
 sumChangeSetDaaU daa = daaU
   where
-    daaU = DbAccessActionsU (sumChangeSetDaaM daa) modifyAccumU computeUndo
+    daaU = DbAccessActionsU (sumChangeSetDaaM daa) (pure ... modifyAccumU) computeUndo
 
     modifyAccumU
       :: SumChangeSet xs
-      -> NewestFirst [] undo
-      -> m (Either CSMappendException (SumChangeSet xs))
-    modifyAccumU scs undos = do
-        undos' <- maybe (throwM DbUndoProjectionError) pure (traverse projUndo undos)
-        pure (modifyAccumU' scs undos')
-
-    projUndo :: undo -> Maybe (HChangeSet xs)
-    projUndo = proj
-
-    modifyAccumU'
-      :: SumChangeSet xs
       -> NewestFirst [] (HChangeSet xs)
       -> Either CSMappendException (SumChangeSet xs)
-    modifyAccumU' scs (NewestFirst css) = foldM modifySumChgSet scs css
+    modifyAccumU scs (NewestFirst css) = foldM modifySumChgSet scs css
 
     computeUndo
         :: SumChangeSet xs
         -> SumChangeSet xs
         -> m (Either CSMappendException undo)
     computeUndo scs@(SumChangeSet scs1) (SumChangeSet scs2) =
-        either (pure . Left) ((fmap $ fmap injUndo) <$> computeUndoDo scs) (scs2 `diffChangeSet` scs1)
-
-    injUndo :: HChangeSet xs -> undo
-    injUndo = inj
+        either (pure . Left) (computeUndoDo scs) (scs2 `diffChangeSet` scs1)
 
     computeUndoDo
         :: SumChangeSet xs

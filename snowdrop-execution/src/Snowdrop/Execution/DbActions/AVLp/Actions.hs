@@ -41,7 +41,7 @@ import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessAc
 import           Snowdrop.Util (HKey, HVal, NewestFirst, unHSetEl)
 
 avlClientDbActions
-    :: forall h conf m n xs .
+    :: forall conf h m n xs .
     ( MonadIO m, MonadCatch m, MonadIO n, MonadCatch n
     , AvlHashable h
     , RetrieveImpl (ReaderT (ClientTempState h xs n) m) h

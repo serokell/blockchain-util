@@ -17,8 +17,8 @@ import           Data.Default (Default (..))
 
 import           Snowdrop.Core (BException, ChgAccum, ChgAccumCtx, Ctx, HasBException,
                                 StatePException, upcastEffERwCompM)
-import           Snowdrop.Execution.Mempool.Core (MempoolConfig (..), MempoolState (..), MempoolTx,
-                                                  RwMempoolAct, StateTxHandler (..), msTxsL)
+import           Snowdrop.Execution.Mempool.Core (MempoolConfig (..), MempoolTx, RwMempoolAct,
+                                                  StateTxHandler (..), msTxsL)
 import           Snowdrop.Util
 
 ---------------------------
@@ -28,7 +28,7 @@ import           Snowdrop.Util
 evictMempool
     :: Default (ChgAccum conf)
     => RwMempoolAct conf xs rawtx [rawtx]
-evictMempool = gets msTxs <* put def
+evictMempool = gets (view msTxsL) <* put def
 
 processTxAndInsertToMempool
     :: ( HasBException conf StatePException

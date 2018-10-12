@@ -4,7 +4,7 @@
 
 module Snowdrop.Execution.Mempool.Core
        ( Mempool
-       , MempoolState (..)
+       , MempoolState
        , StateTxHandler (..)
        , MempoolConfig (..)
        , msTxsL
@@ -38,7 +38,7 @@ import           Snowdrop.Util
 ---------------------------
 
 type RwMempoolAct conf xs rawtx a =
-    ERwComp conf (DbAccessM conf xs) (MempoolState (ChgAccum conf) rawtx) a
+    ERwComp conf (DbAccessM conf xs) (MempoolState conf rawtx) a
 
 newtype StateTxHandler conf rawtx txtype = StateTxHandler
     { getStateTxHandler :: RwMempoolAct conf (TxComponents txtype) rawtx (StateTx txtype)
@@ -49,32 +49,34 @@ type SomeStateTxHandler conf c rawtx = SomeData (StateTxHandler conf rawtx) c
 newtype MempoolConfig conf c rawtx =
     MempoolConfig { mcProcessTx :: rawtx -> SomeStateTxHandler conf c rawtx }
 
-data MempoolState chgAccum rawtx = MempoolState
+data MempoolState' chgAccum rawtx = MempoolState
     { msTxs      :: [rawtx]
     , msChgAccum :: chgAccum
     }
+
+type MempoolState conf = MempoolState' (ChgAccum conf)
 
 data Versioned t = Versioned
     { vsData    :: t
     , vsVersion :: Int
     }
 
-newtype Mempool chgAccum rawtx
-    = Mempool { mempoolState :: TVar (Versioned (MempoolState chgAccum rawtx)) }
+newtype Mempool conf rawtx
+    = Mempool { mempoolState :: TVar (Versioned (MempoolState conf rawtx)) }
 
-instance HasGetter (MempoolState chgAccum rawtx) chgAccum where
+instance HasGetter (MempoolState' chgAccum rawtx) chgAccum where
     gett = msChgAccum
 
-instance HasLens (MempoolState chgAccum rawtx) chgAccum where
+instance HasLens (MempoolState' chgAccum rawtx) chgAccum where
     sett s x = s {msChgAccum = x}
 
-msTxsL :: Lens' (MempoolState chgAccum rawtx) [rawtx]
+msTxsL :: Lens' (MempoolState' chgAccum rawtx) [rawtx]
 msTxsL = lens msTxs (\s x -> s {msTxs = x})
 
-instance Default chgAccum => Default (MempoolState chgAccum rawtx) where
+instance Default chgAccum => Default (MempoolState' chgAccum rawtx) where
     def = MempoolState def def
 
-instance Default chgAccum => Default (Versioned (MempoolState chgAccum rawtx)) where
+instance Default chgAccum => Default (Versioned (MempoolState' chgAccum rawtx)) where
     def = Versioned def 0
 
 actionWithMempool
@@ -87,7 +89,7 @@ actionWithMempool
       , ConvertEffect conf (DbAccessM conf xs) (IOExecEffect conf)
       , Ctx conf ~ IOCtx conf
       )
-    => Mempool chgAccum rawtx
+    => Mempool conf rawtx
     -> daa ExecM
     -> RwMempoolAct conf xs rawtx a
     -> ExecM a
@@ -104,18 +106,18 @@ actionWithMempool mem@Mempool{..} dbActs callback = do
     then pure res
     else actionWithMempool mem dbActs callback
 
-createMempool :: (Default chgAccum, MonadIO m) => m (Mempool chgAccum rawtx)
+createMempool :: (Default (ChgAccum conf), MonadIO m) => m (Mempool conf rawtx)
 createMempool = Mempool <$> atomically (newTVar def)
 
 getMempoolChgAccum
-    :: (Default chgAccum, MonadIO m)
-    => Mempool chgAccum rawtx
-    -> m chgAccum
+    :: (Default (ChgAccum conf), MonadIO m)
+    => Mempool conf rawtx
+    -> m (ChgAccum conf)
 getMempoolChgAccum Mempool{..} = msChgAccum . vsData <$> atomically (readTVar mempoolState)
 
 getMempoolTxs
-    :: (Default chgAccum, MonadIO m)
-    => Mempool chgAccum rawtx
+    :: (Default (ChgAccum conf), MonadIO m)
+    => Mempool conf rawtx
     -> m [rawtx]
 getMempoolTxs Mempool{..} = msTxs . vsData <$> atomically (readTVar mempoolState)
 
