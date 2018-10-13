@@ -10,7 +10,6 @@ module Snowdrop.Block.Fork
        ( ForkVerResult (..)
        , ForkVerificationException (..)
        , verifyFork
-       , iterateChain
        ) where
 
 import           Universum
@@ -120,26 +119,3 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
                       (unPrevBlockRef $ bcPrevBlockRef bscConfig (blkHeader $ buBlock b))
             Nothing -> throwLocalError $ BlockDoesntExistInChain from
         | otherwise = throwLocalError @(ForkVerificationException (BlockRef blkType)) OriginOfBlockchainReached
-
--- | Load up to @maxDepth@ blocks from the currently adopted block sequence.
-iterateChain
-    :: forall blkType m .
-    ( Monad m
-    )
-    => BlkStateConfiguration blkType m
-    -> Int -- ^ Max depth of block sequence to load.
-    -> m (NewestFirst [] (RawBlund blkType))
-iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDepth
-  where
-    loadBlock
-        :: Int -> Maybe (BlockRef blkType)
-        -> m (NewestFirst [] (RawBlund blkType))
-    loadBlock _ Nothing = pure $ NewestFirst []
-    loadBlock depth (Just blockRef)
-        | depth <= 0 = pure $ NewestFirst []
-        | otherwise = bscGetBlund blockRef >>= \case
-            Nothing -> pure $ NewestFirst [] -- TODO throw exception
-            Just b  -> newestFirstFContainer (b:) <$>
-                loadBlock
-                  (depth - 1)
-                  (unPrevBlockRef . (bcPrevBlockRef bscConfig) . blkHeader . buBlock $ b)
