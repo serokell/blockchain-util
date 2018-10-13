@@ -55,6 +55,8 @@ library
       Snowdrop.Execution.DbActions
       Snowdrop.Execution.DbActions.Types
       Snowdrop.Execution.DbActions.Simple
+      Snowdrop.Execution.DbActions.Simple.Actions
+      Snowdrop.Execution.DbActions.Simple.SumChangeSet
       Snowdrop.Execution.DbActions.AVLp
       Snowdrop.Execution.DbActions.AVLp.Accum
       Snowdrop.Execution.DbActions.AVLp.Actions
