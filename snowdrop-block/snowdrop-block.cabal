@@ -42,6 +42,7 @@ library
       Snowdrop.Block.Types
       Snowdrop.Block.Configuration
       Snowdrop.Block.StateConfiguration
+      Snowdrop.Block.Chain
       Snowdrop.Block.Fork
       Snowdrop.Block.Application
       Snowdrop.Block.State
