@@ -31,6 +31,7 @@ library
     , time
     , hashable-time
     , text-format
+    , vinyl
     , universum >= 1.1.0
   build-tool-depends:
       autoexporter:autoexporter
@@ -47,7 +48,7 @@ library
       Snowdrop.Block.Application
       Snowdrop.Block.State
       Snowdrop.Block.Demo
-      
+
   default-language: Haskell2010
   ghc-options:         -Wall
                        -fno-warn-orphans

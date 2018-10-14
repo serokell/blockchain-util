@@ -8,7 +8,6 @@ module Snowdrop.Core.Expander
        ( ProofNExp (..)
        , SeqExpander
        , PreExpander (..)
-       , contramapProofNExp
        , contramapSeqExpander
        , contramapPreExpander
        , DiffChangeSet (..)
@@ -26,16 +25,13 @@ import           Data.Vinyl (Rec (..))
 
 import           Snowdrop.Core.ChangeSet (HChangeSet)
 import           Snowdrop.Core.ERoComp (ERoComp)
-import           Snowdrop.Core.Transaction (TxProof)
+import           Snowdrop.Core.Transaction (TxProof, TxRaw)
 
-newtype ProofNExp conf rawTx txtype =
-    ProofNExp (TxProof txtype, SeqExpander conf rawTx txtype)
-
-contramapProofNExp :: (a -> b) -> ProofNExp conf b txtype -> ProofNExp conf a txtype
-contramapProofNExp f (ProofNExp (prf, se)) = ProofNExp (prf, contramapSeqExpander f se)
+newtype ProofNExp conf txtype =
+    ProofNExp (TxRaw txtype -> TxProof txtype, SeqExpander conf txtype)
 
 -- | Sequence of expand stages to be consequently executed upon a given transaction.
-type SeqExpander conf rawTx txtype = Rec (PreExpander conf rawTx) (SeqExpanderComponents txtype)
+type SeqExpander conf txtype = Rec (PreExpander conf (TxRaw txtype)) (SeqExpanderComponents txtype)
 
 contramapSeqExpander :: (a -> b) -> Rec (PreExpander conf b) xs -> Rec (PreExpander conf a) xs
 contramapSeqExpander _ RNil         = RNil

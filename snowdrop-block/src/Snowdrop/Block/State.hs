@@ -19,6 +19,7 @@ import           Universum
 import           Data.Default (Default)
 import qualified Data.Map as M
 import qualified Data.Text.Buildable
+import           Data.Vinyl (Rec)
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
@@ -27,13 +28,13 @@ import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockU
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
                                 ERoComp, ERwComp, HChangeSet, HUpCastableChSet, HasBExceptions,
                                 MappendHChSet, QueryERo, SomeTx, StatePException (..), StateTx (..),
-                                TxComponents, Undo, UnitedTxType, UpCastableERoM, Validator,
+                                TxComponents, TxRaw, Undo, UnitedTxType, UpCastableERoM, Validator,
                                 ValueOp (..), applySomeTx, computeUndo, convertEffect,
                                 getCAOrDefault, hChangeSetFromMap, liftERoComp, modifyAccum,
                                 modifyAccumOne, modifyAccumUndo, queryOne, queryOneExists,
                                 runValidator, upcastEffERoComp, upcastEffERoCompM)
 import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
-                                     UnionSeqExpandersInps, expandUnionRawTxs)
+                                     UnionSeqExpandersInps, runSeqExpandersSequentially)
 import           Snowdrop.Util
 
 data TipComponent blkType
@@ -85,7 +86,7 @@ mapTxs_ handleTxDo txsWithAccs =
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-  :: forall blkType rawTx txtypes conf xs c m .
+  :: forall blkType txtypes conf xs c m .
     ( xs ~ BlkProcComponents blkType txtypes c
     , c ~ BlkProcConstr txtypes xs
     , m ~ ERwComp conf (DbAccessU conf xs) (ChgAccum conf)
@@ -97,8 +98,8 @@ inmemoryBlkStateConfiguration
     , Ord (BlockHeader blkType)
     , HasLens (ChgAccum conf) (ChgAccum conf)
     , HasLens (Ctx conf) (ChgAccumCtx conf)
-    , HasGetter (RawBlk blkType) [rawTx]
-    , HasGetter (Payload blkType) [SomeTx (BlkProcConstr txtypes xs)]
+    , HasGetter (RawBlk blkType) [SomeData TxRaw (Both (ExpandableTx txtypes) c)]
+    , HasGetter (Payload blkType) [SomeTx c]
     , Default (ChgAccum conf)
     , ExpandRawTxsMode conf txtypes
     , MappendHChSet xs
@@ -114,14 +115,16 @@ inmemoryBlkStateConfiguration
     )
     => BlkConfiguration blkType
     -> Validator conf txtypes
-    -> (rawTx -> SomeData (ProofNExp conf rawTx) (Both (ExpandableTx txtypes) c))
+    -> Rec (ProofNExp conf) txtypes
     -> (RawBlk blkType -> [SomeTx c] -> Block (BlockHeader blkType) [SomeTx c])
     -> BlkStateConfiguration blkType m
-inmemoryBlkStateConfiguration cfg validator mkProof mkBlock = fix $ \this ->
+inmemoryBlkStateConfiguration cfg validator exps mkBlock = fix $ \this ->
     BlkStateConfiguration {
       bscConfig = cfg
     , bscExpand = \rawBlock -> do
-          blkPayload <- liftERoComp $ upcastEffERoCompM @_ @xs $ expandUnionRawTxs mkProof (gett rawBlock)
+          blkPayload <-
+              liftERoComp $ upcastEffERoCompM @_ @xs $
+                  runSeqExpandersSequentially exps (gett rawBlock)
           pure (mkBlock rawBlock blkPayload)
     , bscApplyPayload = \(gett @_ @[SomeTx (BlkProcConstr txtypes xs)] -> txs) -> do
           (newSt, undo) <- liftERoComp $ do
