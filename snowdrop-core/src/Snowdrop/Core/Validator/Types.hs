@@ -14,6 +14,7 @@ module Snowdrop.Core.Validator.Types
        -- , castPreValidator
        , fromPreValidator
        , getPreValidator
+       , validate
        ) where
 
 import           Universum hiding (Nat)
@@ -23,9 +24,9 @@ import           Data.Vinyl.TypeLevel (Nat (..), RLength)
 
 import           Snowdrop.Core.ERoComp (ERoComp, UpCastableERo, upcastEffERoComp)
 import           Snowdrop.Core.Stuff (UnitedTxType)
-import           Snowdrop.Core.Transaction (DownCastableTx, StateTx, TxComponents, downcastStateTx)
+import           Snowdrop.Core.Transaction (DownCastableTx, StateTx (..), TxComponents, downcastStateTx)
 
-import           Snowdrop.Util (RContains, RecAll', RecToList (..))
+import           Snowdrop.Util (RContains, RecAll', RecToList (..), SomeData (..))
 
 ------------------------------------------------------
 -- PreValidator
@@ -131,3 +132,13 @@ runValidator
     -> ERoComp e (TxComponents txtype) ctx ()
 runValidator prevalidators statetx =
     runPrevalidator (rget @txtype prevalidators) statetx
+
+validate
+    :: forall e ctx txtype txtypes .
+    ( RContains txtypes txtype
+    )
+    => Validator e ctx txtypes
+    -> [SomeData StateTx (RContains txtypes)]
+    -> ERoComp e (TxComponents txtypes) ctx ()
+validate _ [] = pure ()
+validate validator ((SomeData (StateTx a b)) : txs) = undefined
