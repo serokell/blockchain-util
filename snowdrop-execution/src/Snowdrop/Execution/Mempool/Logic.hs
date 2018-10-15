@@ -7,6 +7,7 @@ module Snowdrop.Execution.Mempool.Logic
        , processTxAndInsertToMempool
        , normalizeMempool
        , Rejected (..)
+       , logInfoMempool
        ) where
 
 import           Universum
@@ -14,11 +15,13 @@ import           Universum
 import           Control.Lens ((%=))
 import           Control.Monad.Except (catchError)
 import           Data.Default (Default (..))
+import           Formatting (sformat, (%))
 
 import           Snowdrop.Core (BException, ChgAccum, ChgAccumCtx, Ctx, HasBException,
                                 StatePException, upcastEffERwCompM)
-import           Snowdrop.Execution.Mempool.Core (MempoolConfig (..), MempoolTx, RwMempoolAct,
-                                                  StateTxHandler (..), msTxsL)
+import           Snowdrop.Execution.Mempool.Core (Mempool, MempoolConfig (..), MempoolTx,
+                                                  RwMempoolAct, StateTxHandler (..), getMempoolTxs,
+                                                  msTxsL)
 import           Snowdrop.Util
 
 ---------------------------
@@ -68,3 +71,15 @@ normalizeMempool MempoolConfig{..} = do
         forM txs $ \rawtx ->
             (Right <$> processOne rawtx)
               `catchError` (\_ -> pure $ Left rawtx)
+
+logInfoMempool
+    :: ( Default (ChgAccum conf)
+       , DBuildable rawtx
+       )
+    => Mempool conf rawtx
+    -> ExecM ()
+logInfoMempool mempool = do
+    txs <- getMempoolTxs mempool
+    let fmtLine dp = newlineF dp%"* "%dlater dbuild (indented dp)
+    logDoc logInfo $ \dp ->
+        sformat ("Mempool:\n"%bareListF "" (fmtLine dp)) txs
