@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -12,6 +13,7 @@ module Snowdrop.Execution.IOExecutor
        , IOCtx (..)
        , runERwCompIO
        , runERoCompIO
+       , applyERwComp
        -- * Lens
        , ctxChgAccum
        , ctxExec
@@ -32,9 +34,10 @@ import qualified Loot.Log.Rio as Rio
 
 import           Snowdrop.Core (BException, BaseM (..), ChgAccum, ChgAccumCtx (..), Ctx,
                                 CtxConcurrently (..), ERwComp, Effectful (..), HasBException,
-                                StatePException, getCAOrDefault, runERwComp)
-import           Snowdrop.Execution.DbActions (DbActions (..))
-import           Snowdrop.Util (ExecM, HasGetter (gett), HasLens (sett))
+                                StatePException, Undo, getCAOrDefault, runERwComp)
+import           Snowdrop.Execution.DbActions (DbAccessActionsU, DbActions (..), DbApplyProof,
+                                               DbModifyActions (..))
+import           Snowdrop.Util (ExecM, HasGetter (gett), HasLens (sett), HasReview)
 import qualified Snowdrop.Util as Log
 
 type family IOExecEffect conf :: * -> *
@@ -187,3 +190,21 @@ runERwCompIO daa initS comp = do
           }
   where
     exec = BaseMIOExec $ \(getCAOrDefault . _ctxChgAccum -> chgAccum) dAccess -> executeEffect dAccess daa chgAccum
+
+applyERwComp
+    :: forall stateConf conf a.
+    ( Default (ChgAccum conf)
+    , HasGetter (Undo conf) (Undo stateConf)
+    , HasReview (Undo conf) (Undo stateConf)
+    , Show (BException conf)
+    , Typeable (BException conf)
+    , HasBException conf StatePException
+    , Ctx conf ~ IOCtx conf
+    , DbActions (IOExecEffect conf) (DbAccessActionsU conf) (ChgAccum conf) ExecM
+    )
+    => DbModifyActions conf ExecM
+    -> ERwComp conf (IOExecEffect conf) (ChgAccum conf) a
+    -> ExecM (a, DbApplyProof conf)
+applyERwComp dma rwComp = do
+    (a, cs) <- runERwCompIO (dmaAccess dma) def rwComp
+    (a,) <$> dmaApply dma cs
