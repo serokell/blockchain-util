@@ -95,7 +95,6 @@ inmemoryBlkStateConfiguration
         , CSMappendException
         ]
     , Payload blkType ~ [SomeTx c]
-    , Ord (BlockHeader blkType)
     , HasLens (ChgAccum conf) (ChgAccum conf)
     , HasLens (Ctx conf) (ChgAccumCtx conf)
     , HasGetter (RawBlk blkType) [SomeData TxRaw (Both (ExpandableTx txtypes) c)]

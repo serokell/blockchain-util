@@ -14,6 +14,7 @@ module Snowdrop.Util.Helpers
        , Sign (..)
        , SecretKey
        , SignKeyPair (..)
+       , SecureHash (..)
        ) where
 
 import           Universum hiding (head, init, last)
@@ -112,3 +113,7 @@ propagateSecondF (fa, b) = (,b) <$> fa
 -- | Higher-order version of Functor class.
 class HFunctor t where
     fmapH :: Functor a => (forall x . a x -> b x) -> t a -> t b
+
+class SecureHash hash msg where
+    secureHash :: msg -> hash
+
