@@ -34,10 +34,10 @@ import qualified Loot.Log.Rio as Rio
 
 import           Snowdrop.Core (BException, BaseM (..), ChgAccum, ChgAccumCtx (..), Ctx,
                                 CtxConcurrently (..), ERwComp, Effectful (..), HasBException,
-                                StatePException, Undo, getCAOrDefault, runERwComp)
+                                StatePException, getCAOrDefault, runERwComp)
 import           Snowdrop.Execution.DbActions (DbAccessActionsU, DbActions (..), DbApplyProof,
                                                DbModifyActions (..))
-import           Snowdrop.Util (ExecM, HasGetter (gett), HasLens (sett), HasReview)
+import           Snowdrop.Util (ExecM, HasGetter (gett), HasLens (sett))
 import qualified Snowdrop.Util as Log
 
 type family IOExecEffect conf :: * -> *
@@ -192,10 +192,8 @@ runERwCompIO daa initS comp = do
     exec = BaseMIOExec $ \(getCAOrDefault . _ctxChgAccum -> chgAccum) dAccess -> executeEffect dAccess daa chgAccum
 
 applyERwComp
-    :: forall stateConf conf a.
+    :: forall conf a.
     ( Default (ChgAccum conf)
-    , HasGetter (Undo conf) (Undo stateConf)
-    , HasReview (Undo conf) (Undo stateConf)
     , Show (BException conf)
     , Typeable (BException conf)
     , HasBException conf StatePException
