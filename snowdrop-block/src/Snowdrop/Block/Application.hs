@@ -4,21 +4,23 @@ module Snowdrop.Block.Application
        ( applyBlock
        , expandAndApplyBlock
        , tryApplyFork
-
+       , rollback
        , BlockApplicationException (..)
        ) where
 
 import           Universum
 
 import           Control.Monad.Except (MonadError)
+import           Data.Default (def)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Buildable
 import           Formatting (bprint, build, (%))
 
-import           Snowdrop.Block.Configuration (BlkConfiguration (..), unBIV)
+import           Snowdrop.Block.Chain (nDepthChainNE)
+import           Snowdrop.Block.Configuration (BlkConfiguration (..), getPreviousBlockRef, unBIV)
 import           Snowdrop.Block.Fork (ForkVerResult (..), ForkVerificationException, verifyFork)
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, Blund (..),
+import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
                                        CurrentBlockRef (..), OSParams, Payload, PrevBlockRef (..),
                                        RawBlk, RawPayload)
 import           Snowdrop.Util
@@ -140,3 +142,19 @@ tryApplyFork bcs@(BlkStateConfiguration {..}) osParams (OldestFirst rawBlocks) =
             bscSetTip fvrLCA
             mapM_ (applyBlock osParams bcs) $ NE.toList rawBlocks
             pure True
+
+rollback
+    :: Monad m
+    => Int
+    -> BlkStateConfiguration blkType m
+    -> m (OldestFirst [] (Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType)))
+rollback rollbackBy bsConf = do
+    toRoll <- nDepthChainNE bsConf rollbackBy
+    case toRoll of
+        Nothing -> pure $ OldestFirst def
+        Just blundsNE -> do
+          bscSetTip bsConf $ unPrevBlockRef $ getPreviousBlockRef (bscConfig bsConf) $ head (unOldestFirst blundsNE)
+          forM_ (reverse $ toList $ unOldestFirst blundsNE) $ \blund -> do
+              bscApplyUndo bsConf (buUndo blund)
+              bscRemoveBlund bsConf $ unCurrentBlockRef $ bcBlockRef (bscConfig bsConf) (blkHeader $ buBlock blund)
+          pure $ OldestFirst $ toList $ unOldestFirst blundsNE
