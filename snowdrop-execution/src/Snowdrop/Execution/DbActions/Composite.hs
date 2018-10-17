@@ -3,7 +3,12 @@ module Snowdrop.Execution.DbActions.Composite
          constructCompositeDaa
        , constructCompositeDaaM
        , constructCompositeDaaU
+       , constructCompositeDma
        , CompositeChgAccum (..)
+       , CompositeUndo (..)
+       , CompositeConf
+       , Conf1
+       , Conf2
        ) where
 
 import           Universum
@@ -11,31 +16,52 @@ import           Universum
 import           Data.Default (Default (def))
 import           Data.Vinyl.TypeLevel (type (++))
 
-import           Snowdrop.Core (CSMappendException)
+import           Snowdrop.Core (CSMappendException, ChgAccum, Undo)
 import           Snowdrop.Execution.DbActions.Types
 import           Snowdrop.Util (HDownCastable, NewestFirst (..), NotIntersect, OldestFirst (..),
                                 happend, hdowncast)
 
-data CompositeChgAccum chgAccumPrimary chgAccumSecondary = CompositeChgAccum
-    { ccaPrimary   :: chgAccumPrimary
-    , ccaSecondary :: chgAccumSecondary
+data CompositeConf conf1 conf2
+
+type instance Undo (CompositeConf conf1 conf2) = CompositeUndo conf1 conf2
+type instance ChgAccum (CompositeConf conf1 conf2) = CompositeChgAccum conf1 conf2
+type instance DbComponents (CompositeConf conf1 conf2) = DbComponents conf1 ++ DbComponents conf2
+type instance DbApplyProof (CompositeConf conf1 conf2) = (DbApplyProof conf1, DbApplyProof conf2)
+
+type family Conf1 a where
+    Conf1 (CompositeConf conf1 conf2) = conf1
+
+type family Conf2 a where
+    Conf2 (CompositeConf conf1 conf2) = conf2
+
+data CompositeUndo conf1 conf2 = CompositeUndo
+    { cuPrimary   :: Undo conf1
+    , cuSecondary :: Undo conf2
     }
 
-instance (Default chgAccumPrimary, Default chgAccumSecondary)
-         => Default (CompositeChgAccum chgAccumPrimary chgAccumSecondary) where
+data CompositeChgAccum conf1 conf2 = CompositeChgAccum
+    { ccaPrimary   :: ChgAccum conf1
+    , ccaSecondary :: ChgAccum conf2
+    }
+
+instance (Default (ChgAccum conf1), Default (ChgAccum conf2))
+         => Default (CompositeChgAccum conf1 conf2) where
     def = CompositeChgAccum def def
 
 constructCompositeDaa
-    :: forall caPrimary caSecondary components1 components2 m .
+    :: forall conf1 conf2 m components1 components2 .
     ( Monad m
+    , components1 ~ DbComponents conf1
+    , components2 ~ DbComponents conf2
+
     , NotIntersect components1 components2
 
     , HDownCastable (components1 ++ components2) components1
     , HDownCastable (components1 ++ components2) components2
     )
-    => DbAccessActions caPrimary components1 m
-    -> DbAccessActions caSecondary components2 m
-    -> DbAccessActions (CompositeChgAccum caPrimary caSecondary) (components1 ++ components2) m
+    => DbAccessActions conf1 m
+    -> DbAccessActions conf2 m
+    -> DbAccessActions (CompositeConf conf1 conf2) m
 constructCompositeDaa dbaP dbaS = DbAccessActions {
     daaGetter = \(CompositeChgAccum prim sec) reqs ->
           liftA2 happend (daaGetter dbaP prim (hdowncast reqs)) (daaGetter dbaS sec (hdowncast reqs))
@@ -43,16 +69,19 @@ constructCompositeDaa dbaP dbaS = DbAccessActions {
   }
 
 constructCompositeDaaM
-    :: forall caPrimary caSecondary components1 components2 m .
+    :: forall conf1 conf2 m components1 components2 .
     ( Monad m
+    , components1 ~ DbComponents conf1
+    , components2 ~ DbComponents conf2
+
     , NotIntersect components1 components2
 
     , HDownCastable (components1 ++ components2) components1
     , HDownCastable (components1 ++ components2) components2
     )
-    => DbAccessActionsM caPrimary components1 m
-    -> DbAccessActionsM caSecondary components2 m
-    -> DbAccessActionsM (CompositeChgAccum caPrimary caSecondary) (components1 ++ components2) m
+    => DbAccessActionsM conf1 m
+    -> DbAccessActionsM conf2 m
+    -> DbAccessActionsM (CompositeConf conf1 conf2) m
 constructCompositeDaaM dbaP dbaS = DbAccessActionsM {
     daaAccess = constructCompositeDaa (daaAccess dbaP) (daaAccess dbaS)
   , daaModifyAccum = modifyAccum
@@ -66,21 +95,21 @@ constructCompositeDaaM dbaP dbaS = DbAccessActionsM {
         glue (OldestFirst accsP) (OldestFirst accsS) =
             OldestFirst $ uncurry CompositeChgAccum <$> zip accsP accsS
 
--- TODO re-consider how undo is constructed (remove constructUndo/splitUndo)
 constructCompositeDaaU
-  :: forall caPrimary caSecondary undoPrimary undoSecondary undo components1 components2 m .
+    :: forall conf1 conf2 m components1 components2 .
     ( Monad m
+    , components1 ~ DbComponents conf1
+    , components2 ~ DbComponents conf2
+
     , NotIntersect components1 components2
 
     , HDownCastable (components1 ++ components2) components1
     , HDownCastable (components1 ++ components2) components2
     )
-    => DbAccessActionsU caPrimary undoPrimary components1 m
-    -> DbAccessActionsU caSecondary undoSecondary components2 m
-    -> (undoPrimary -> undoSecondary -> undo)
-    -> (undo -> (undoPrimary, undoSecondary))
-    -> DbAccessActionsU (CompositeChgAccum caPrimary caSecondary) undo (components1 ++ components2) m
-constructCompositeDaaU dbaP dbaS constructUndo splitUndo = DbAccessActionsU {
+    => DbAccessActionsU conf1 m
+    -> DbAccessActionsU conf2 m
+    -> DbAccessActionsU (CompositeConf conf1 conf2) m
+constructCompositeDaaU dbaP dbaS = DbAccessActionsU {
     daaAccessM = constructCompositeDaaM (daaAccessM dbaP) (daaAccessM dbaS)
   , daaModifyAccumUndo = modifyAccumU
   , daaComputeUndo = computeUndo
@@ -88,17 +117,44 @@ constructCompositeDaaU dbaP dbaS constructUndo splitUndo = DbAccessActionsU {
   where
 
     modifyAccumU
-      :: CompositeChgAccum caPrimary caSecondary
-      -> NewestFirst [] undo
-      -> m (Either CSMappendException (CompositeChgAccum caPrimary caSecondary))
+      :: CompositeChgAccum conf1 conf2
+      -> NewestFirst [] (CompositeUndo conf1 conf2)
+      -> m (Either CSMappendException (CompositeChgAccum conf1 conf2))
     modifyAccumU (CompositeChgAccum cP cS) (NewestFirst us) =
         liftA2 CompositeChgAccum <$> daaModifyAccumUndo dbaP cP usP <*> daaModifyAccumUndo dbaS cS usS
       where
         (usP, usS) = bimap NewestFirst NewestFirst $ unzip $ splitUndo <$> us
+        splitUndo (CompositeUndo uP uS) = (uP, uS)
 
     computeUndo
-      :: CompositeChgAccum caPrimary caSecondary
-      -> CompositeChgAccum caPrimary caSecondary
-      -> m (Either CSMappendException undo)
+      :: CompositeChgAccum conf1 conf2
+      -> CompositeChgAccum conf1 conf2
+      -> m (Either CSMappendException (CompositeUndo conf1 conf2))
     computeUndo (CompositeChgAccum cP cS) (CompositeChgAccum cP' cS') =
-        liftA2 constructUndo <$> daaComputeUndo dbaP cP cP' <*> daaComputeUndo dbaS cS cS'
+        liftA2 CompositeUndo <$> daaComputeUndo dbaP cP cP' <*> daaComputeUndo dbaS cS cS'
+
+constructCompositeDma
+    :: forall conf1 conf2 m components1 components2 .
+    ( Monad m
+    , components1 ~ DbComponents conf1
+    , components2 ~ DbComponents conf2
+
+    , NotIntersect components1 components2
+
+    , HDownCastable (components1 ++ components2) components1
+    , HDownCastable (components1 ++ components2) components2
+    )
+    => DbModifyActions conf1 m
+    -> DbModifyActions conf2 m
+    -> DbModifyActions (CompositeConf conf1 conf2) m
+constructCompositeDma dbaP dbaS = DbModifyActions {
+    dmaAccess = constructCompositeDaaU (dmaAccess dbaP) (dmaAccess dbaS)
+  , dmaApply = apply
+  }
+  where
+    apply
+      :: CompositeChgAccum conf1 conf2
+      -> m (DbApplyProof conf1, DbApplyProof conf2)
+    apply (CompositeChgAccum cP cS) =
+        liftA2 (,) (dmaApply dbaP cP) (dmaApply dbaS cS)
+

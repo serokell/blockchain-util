@@ -20,6 +20,7 @@ import qualified Data.Map.Strict as M
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 
+import           Snowdrop.Core (ChgAccum, Undo)
 import           Snowdrop.Execution.DbActions.AVLp.Accum (AVLChgAccum (..), AVLChgAccums,
                                                           RootHashes, computeUndo, iter, modAccum,
                                                           modAccumU, query)
@@ -35,34 +36,38 @@ import           Snowdrop.Execution.DbActions.AVLp.State (AMSRequested (..), AVL
                                                           clientModeToTempSt, runAVLCacheT)
 import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessActions (..),
                                                      DbAccessActionsM (..), DbAccessActionsU (..),
-                                                     DbActionsException (..), DbModifyActions (..),
-                                                     RememberForProof (..))
-import           Snowdrop.Util (HKey, HVal, HasPrism, NewestFirst, inj, proj, unHSetEl)
+                                                     DbApplyProof, DbComponents,
+                                                     DbModifyActions (..), RememberForProof (..))
+import           Snowdrop.Util (HKey, HVal, NewestFirst, unHSetEl)
 
 avlClientDbActions
-    :: forall h xs undo m n .
+    :: forall conf h m n xs .
     ( MonadIO m, MonadCatch m, MonadIO n, MonadCatch n
     , AvlHashable h
     , RetrieveImpl (ReaderT (ClientTempState h xs n) m) h
     , AllAvlEntries h xs
-    , HasPrism undo (AvlUndo h xs)
+
+    , Undo conf ~ AvlUndo h xs
+    , ChgAccum conf ~ AVLChgAccums h xs
+    , DbApplyProof conf ~ ()
+    , xs ~ DbComponents conf
     )
     => RetrieveF h n
     -> RootHashes h xs
-    -> n (ClientMode (AvlProofs h xs) -> DbModifyActions (AVLChgAccums h xs) undo xs m ())
+    -> n (ClientMode (AvlProofs h xs) -> DbModifyActions conf m)
 avlClientDbActions retrieveF = fmap mkActions . newTVarIO
   where
     mkActions
         :: TVar (RootHashes h xs)
         -> ClientMode (AvlProofs h xs)
-        -> DbModifyActions (AVLChgAccums h xs) undo xs m ()
+        -> DbModifyActions conf m
     mkActions var ctMode =
         DbModifyActions (mkAccessActions var ctMode) (apply var)
 
     mkAccessActions
         :: TVar (RootHashes h xs)
         -> ClientMode (AvlProofs h xs)
-        -> DbAccessActionsU (AVLChgAccums h xs) undo xs  m
+        -> DbAccessActionsU conf m
     mkAccessActions var ctMode = daaU
       where
         daa =
@@ -75,7 +80,7 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
         daaM = DbAccessActionsM daa (\cA cs -> createState >>= \ctx -> modAccum ctx cA cs)
         daaU = DbAccessActionsU daaM
                   (withProjUndo . modAccumU)
-                  (\cA _cs -> pure . Right . inj . computeUndo cA =<< createState)
+                  (\cA _cs -> pure . Right . computeUndo cA =<< createState)
         createState = clientModeToTempSt retrieveF ctMode =<< atomically (readTVar var)
 
     apply :: AvlHashable h => TVar (RootHashes h xs) -> AVLChgAccums h xs -> m ()
@@ -83,20 +88,24 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
         liftIO $ atomically $ writeTVar var $ rmap (RootHashComp . avlRootHash . acaMap) accums
     apply _ Nothing = pure ()
 
-withProjUndo :: (HasPrism undo undo', MonadThrow m, Applicative f) => (NewestFirst [] undo' -> a) -> NewestFirst [] undo -> m (f a)
-withProjUndo action = maybe (throwM DbUndoProjectionError) (pure . pure . action) . traverse proj
+withProjUndo :: (MonadThrow m, Applicative f) => (NewestFirst [] undo -> a) -> NewestFirst [] undo -> m (f a)
+withProjUndo action = pure . pure . action
 
 avlServerDbActions
-    :: forall xs h m n undo .
+    :: forall conf h m n xs .
     ( MonadIO m, MonadCatch m, AvlHashable h, MonadIO n
     , AllAvlEntries h xs
 
     , AllWholeTree xs
     , Monoid (Rec AMSRequested xs)
-    , HasPrism undo (AvlUndo h xs)
+
+    , Undo conf ~ AvlUndo h xs
+    , ChgAccum conf ~ AVLChgAccums h xs
+    , DbApplyProof conf ~ AvlProofs h xs
+    , xs ~ DbComponents conf
     )
     => AVLServerState h xs
-    -> n ( RememberForProof -> DbModifyActions (AVLChgAccums h xs) undo xs m (AvlProofs h xs)
+    -> n ( RememberForProof -> DbModifyActions conf m
             -- `DbModifyActions` provided by `RememberForProof` object
             -- (`RememberForProof False` for disabling recording for queries performed)
           , RetrieveF h n
@@ -127,7 +136,7 @@ avlServerDbActions = fmap mkActions . newTVarIO
         daaM = DbAccessActionsM daa (\cA cs -> liftIO (atomically (readTVar var)) >>= \ctx -> modAccum ctx cA cs)
         daaU = DbAccessActionsU daaM
                   (withProjUndo . modAccumU)
-                  (\cA _cs -> pure . Right . inj . computeUndo cA =<< atomically (readTVar var))
+                  (\cA _cs -> pure . Right . computeUndo cA =<< atomically (readTVar var))
 
     retrieveAMS
         :: Monoid (Rec AMSRequested xs)

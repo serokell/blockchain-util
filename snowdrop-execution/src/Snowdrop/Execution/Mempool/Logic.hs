@@ -15,9 +15,10 @@ import           Control.Lens ((%=))
 import           Control.Monad.Except (catchError)
 import           Data.Default (Default (..))
 
-import           Snowdrop.Core (ChgAccum, ChgAccumCtx, StatePException, upcastEffERwCompM)
-import           Snowdrop.Execution.Mempool.Core (MempoolConfig (..), MempoolState (..), MempoolTx,
-                                                  RwMempoolAct, StateTxHandler (..), msTxsL)
+import           Snowdrop.Core (BException, ChgAccum, ChgAccumCtx, Ctx, HasBException,
+                                StatePException, upcastEffERwCompM)
+import           Snowdrop.Execution.Mempool.Core (MempoolConfig (..), MempoolTx, RwMempoolAct,
+                                                  StateTxHandler (..), msTxsL)
 import           Snowdrop.Util
 
 ---------------------------
@@ -25,17 +26,18 @@ import           Snowdrop.Util
 ---------------------------
 
 evictMempool
-    :: Default (ChgAccum ctx)
-    => RwMempoolAct e xs ctx rawtx [rawtx]
-evictMempool = gets msTxs <* put def
+    :: Default (ChgAccum conf)
+    => RwMempoolAct conf xs rawtx [rawtx]
+evictMempool = gets (view msTxsL) <* put def
 
 processTxAndInsertToMempool
-    :: ( HasException e StatePException, Show e, Typeable e
-       , HasLens ctx (ChgAccumCtx ctx)
+    :: ( HasBException conf StatePException
+       , Show (BException conf), Typeable (BException conf)
+       , HasLens (Ctx conf) (ChgAccumCtx conf)
        )
-    => MempoolConfig e ctx (Both (MempoolTx txtypes xs) c) rawtx
+    => MempoolConfig conf (Both (MempoolTx txtypes xs) c) rawtx
     -> rawtx
-    -> RwMempoolAct e xs ctx rawtx ()
+    -> RwMempoolAct conf xs rawtx ()
 processTxAndInsertToMempool MempoolConfig{..} rawtx = usingSomeData (mcProcessTx rawtx) $
   \(StateTxHandler handler) -> do
       _tx <- upcastEffERwCompM handler -- expanded tx is not preserved, handler is used only to validate tx
@@ -44,23 +46,24 @@ processTxAndInsertToMempool MempoolConfig{..} rawtx = usingSomeData (mcProcessTx
 newtype Rejected rawtx = Rejected { getRejected :: [rawtx] }
 
 normalizeMempool
-    :: forall e ctx rawtx txtypes xs c .
-       ( HasException e StatePException, Show e, Typeable e
-       , Default (ChgAccum ctx)
-       , HasLens ctx (ChgAccumCtx ctx)
+    :: forall conf rawtx txtypes xs c .
+       ( HasBException conf StatePException
+       , Show (BException conf), Typeable (BException conf)
+       , Default (ChgAccum conf)
+       , HasLens (Ctx conf) (ChgAccumCtx conf)
        )
-    => MempoolConfig e ctx (Both (MempoolTx txtypes xs) c) rawtx
-    -> RwMempoolAct e xs ctx rawtx (Rejected rawtx)
+    => MempoolConfig conf (Both (MempoolTx txtypes xs) c) rawtx
+    -> RwMempoolAct conf xs rawtx (Rejected rawtx)
 normalizeMempool MempoolConfig{..} = do
     txs <- evictMempool
     rejected <- processAll txs
     pure rejected
   where
-    processOne :: rawtx -> RwMempoolAct e xs ctx rawtx ()
+    processOne :: rawtx -> RwMempoolAct conf xs rawtx ()
     processOne rawtx = usingSomeData (mcProcessTx rawtx) $ \(StateTxHandler handler) ->
         void (upcastEffERwCompM handler)
 
-    processAll :: [rawtx] -> RwMempoolAct e xs ctx rawtx (Rejected rawtx)
+    processAll :: [rawtx] -> RwMempoolAct conf xs rawtx (Rejected rawtx)
     processAll txs = fmap (Rejected . fst . partitionEithers) $ do
         forM txs $ \rawtx ->
             (Right <$> processOne rawtx)

@@ -4,9 +4,12 @@
 -- | Basic types for Exceptionable Read-Only Computation.
 
 module Snowdrop.Core.ERoComp.Types
-       ( FoldF (..)
-       , ChgAccum
+       ( ChgAccum
+       , Undo
+       , BException
+       , Ctx
 
+       , FoldF (..)
        , DbAccess (..)
        , ERoComp
 
@@ -31,6 +34,16 @@ import           Snowdrop.Util (HKey, HMap, HSet, HVal, NewestFirst, OldestFirst
 ------------------------
 -- DbAccess
 ------------------------
+
+
+-- | Change Accumulator is in-memory state of snowdrop's functions.
+-- Most likely it should be consisnted with persistent state because it's just
+-- one more layer of state which must be considered during access to state.
+-- Also it has to be possible to apply ChangeSet to this Change Accumulator.
+type family ChgAccum conf :: *
+type family Undo conf :: *
+type family BException conf :: *
+type family Ctx conf :: *
 
 -- | Datatype describing read only interface for access to a state:
 --
@@ -60,10 +73,10 @@ data DbAccess (components :: [*]) (res :: *)
 -- Type variables @id@, @value@ describe types of key and value of key-value storage,
 -- @chgAccum@ is in-memory accumulator of changes.
 -- Variable @res@ denotes result of 'DbAccessM' execution.
-data DbAccessM (chgAccum :: *) (components :: [*]) (res :: *)
+data DbAccessM (conf :: *) (components :: [*]) (res :: *)
     = DbModifyAccum
         (OldestFirst [] (HChangeSet components))
-        (Either CSMappendException (OldestFirst [] chgAccum) -> res)
+        (Either CSMappendException (OldestFirst [] (ChgAccum conf)) -> res)
     -- ^ Operation to construct sequence of @chgAccum@ change accumulators
     -- from a sequence of change sets.
     -- Resulting sequence can later be applied to current state
@@ -93,10 +106,10 @@ data DbAccessM (chgAccum :: *) (components :: [*]) (res :: *)
 -- @chgAccum@ is in-memory accumulator of changes,
 -- @undo@ is an object allowing to revert changes proposed by some @chgAccum@.
 -- Variable @res@ denotes result of 'DbAccessU' execution.
-data DbAccessU (chgAccum :: *) (undo :: *) (components :: [*]) (res :: *)
+data DbAccessU (conf :: *) (components :: [*]) (res :: *)
     = DbModifyAccumUndo
-        (NewestFirst [] undo)
-        (Either CSMappendException chgAccum -> res)
+        (NewestFirst [] (Undo conf))
+        (Either CSMappendException (ChgAccum conf) -> res)
     -- ^ Operation to construct change accumulator @chgAccum@
     -- from a sequence of undo objects.
     -- Resulting change accumulator can later be applied to current state
@@ -114,8 +127,8 @@ data DbAccessU (chgAccum :: *) (undo :: *) (components :: [*]) (res :: *)
     -- 'DbModifyAccumUndo' operation underlying monad is required to read this
     -- internal change accumulator and apply sequence of change sets to it.
     | DbComputeUndo
-        chgAccum
-        (Either CSMappendException undo -> res)
+        (ChgAccum conf)
+        (Either CSMappendException (Undo conf) -> res)
     -- ^ Operation to construct @undo@ object from a given
     -- change accumulator @chgAccum@.
     -- Resulting undo object can later be used to rollback state
@@ -126,13 +139,13 @@ data DbAccessU (chgAccum :: *) (undo :: *) (components :: [*]) (res :: *)
     -- use 'SumChangeSet' as change accumulator).
     -- Some storage types though do require an access to internal state (e.g. AVL+ storage)
     -- due to more complicated structure of their respective change accumulator.
-    | DbAccessM (DbAccessM chgAccum components res)
+    | DbAccessM (DbAccessM conf components res)
     -- ^ Object for simple access to state (query, iteration)
     -- and change accumulator construction.
 
 deriving instance Functor (DbAccess xs)
-deriving instance Functor (DbAccessM chgAccum xs)
-deriving instance Functor (DbAccessU chgAccum undo xs)
+deriving instance Functor (DbAccessM conf xs)
+deriving instance Functor (DbAccessU conf xs)
 
 -- | FoldF holds functions which are intended to accumulate result of iteratio
 -- over entries.
@@ -156,16 +169,10 @@ foldFMappend resMappend (FoldF (e1, f1, applier1)) (FoldF (e2, f2, applier2)) = 
 instance Semigroup res => Semigroup (FoldF a res) where
     f1 <> f2 = foldFMappend (<>) f1 f2
 
--- | Change Accumulator is in-memory state of snowdrop's functions.
--- Most likely it should be consisnted with persistent state because it's just
--- one more layer of state which must be considered during access to state.
--- Also it has to be possible to apply ChangeSet to this Change Accumulator.
-type family ChgAccum ctx :: *
-
 -- | Reader computation which allows you to query for part of bigger state
 -- and build computation considering returned result.
 -- DbAccess is used as an effect of BaseM.
-type ERoComp e xs = BaseM e (DbAccess xs)
+type ERoComp conf xs = BaseM (BException conf) (DbAccess xs) (Ctx conf)
 
-type ERoCompM e xs ctx = BaseM e (DbAccessM (ChgAccum ctx) xs) ctx
-type ERoCompU e xs undo ctx = BaseM e (DbAccessU (ChgAccum ctx) undo xs) ctx
+type ERoCompM conf xs = BaseM (BException conf) (DbAccessM conf xs) (Ctx conf)
+type ERoCompU conf xs = BaseM (BException conf) (DbAccessU conf xs) (Ctx conf)

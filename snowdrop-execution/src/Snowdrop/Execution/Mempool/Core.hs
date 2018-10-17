@@ -4,7 +4,7 @@
 
 module Snowdrop.Execution.Mempool.Core
        ( Mempool
-       , MempoolState (..)
+       , MempoolState
        , StateTxHandler (..)
        , MempoolConfig (..)
        , msTxsL
@@ -23,74 +23,79 @@ import           Universum
 import           Control.Lens (lens)
 import           Data.Default (Default (..))
 
-import           Snowdrop.Core (CSMappendException, ChgAccum, ChgAccumCtx, ConvertEffect, DbAccessM,
-                                ERwComp, ProofNExp, StatePException, StateTx (..), TxComponents,
-                                UpCastableERoM, Validator, convertERwComp, convertEffect,
-                                liftERoComp, modifyAccumOne, runValidator)
+import           Snowdrop.Core (BException, CSMappendException, ChgAccum, ChgAccumCtx,
+                                ConvertEffect, Ctx, DbAccessM, ERwComp, HasBException,
+                                HasBExceptions, ProofNExp, StatePException, StateTx (..),
+                                TxComponents, UpCastableERoM, Validator, convertERwComp,
+                                convertEffect, liftERoComp, modifyAccumOne, runValidator)
 import           Snowdrop.Execution.DbActions (DbActions)
 import           Snowdrop.Execution.Expand (ExpandOneTxMode, expandOneTx)
-import           Snowdrop.Execution.IOExecutor (IOCtx, runERwCompIO)
+import           Snowdrop.Execution.IOExecutor (IOCtx, IOExecEffect, runERwCompIO)
 import           Snowdrop.Util
 
 ---------------------------
 -- Core part
 ---------------------------
 
-type RwMempoolAct e xs ctx rawtx a =
-    ERwComp e (DbAccessM (ChgAccum ctx) xs) ctx (MempoolState (ChgAccum ctx) rawtx) a
+type RwMempoolAct conf xs rawtx a =
+    ERwComp conf (DbAccessM conf xs) (MempoolState conf rawtx) a
 
-newtype StateTxHandler e ctx rawtx txtype = StateTxHandler
-    { getStateTxHandler :: RwMempoolAct e (TxComponents txtype) ctx rawtx (StateTx txtype)
+newtype StateTxHandler conf rawtx txtype = StateTxHandler
+    { getStateTxHandler :: RwMempoolAct conf (TxComponents txtype) rawtx (StateTx txtype)
     }
 
-type SomeStateTxHandler e ctx c rawtx = SomeData (StateTxHandler e ctx rawtx) c
+type SomeStateTxHandler conf c rawtx = SomeData (StateTxHandler conf rawtx) c
 
-newtype MempoolConfig e ctx c rawtx =
-    MempoolConfig { mcProcessTx :: rawtx -> SomeStateTxHandler e ctx c rawtx }
+newtype MempoolConfig conf c rawtx =
+    MempoolConfig { mcProcessTx :: rawtx -> SomeStateTxHandler conf c rawtx }
 
-data MempoolState chgAccum rawtx = MempoolState
+data MempoolState' chgAccum rawtx = MempoolState
     { msTxs      :: [rawtx]
     , msChgAccum :: chgAccum
     }
+
+type MempoolState conf = MempoolState' (ChgAccum conf)
 
 data Versioned t = Versioned
     { vsData    :: t
     , vsVersion :: Int
     }
 
-newtype Mempool chgAccum rawtx
-    = Mempool { mempoolState :: TVar (Versioned (MempoolState chgAccum rawtx)) }
+newtype Mempool conf rawtx
+    = Mempool { mempoolState :: TVar (Versioned (MempoolState conf rawtx)) }
 
-instance HasGetter (MempoolState chgAccum rawtx) chgAccum where
+instance HasGetter (MempoolState' chgAccum rawtx) chgAccum where
     gett = msChgAccum
 
-instance HasLens (MempoolState chgAccum rawtx) chgAccum where
+instance HasLens (MempoolState' chgAccum rawtx) chgAccum where
     sett s x = s {msChgAccum = x}
 
-msTxsL :: Lens' (MempoolState chgAccum rawtx) [rawtx]
+msTxsL :: Lens' (MempoolState' chgAccum rawtx) [rawtx]
 msTxsL = lens msTxs (\s x -> s {msTxs = x})
 
-instance Default chgAccum => Default (MempoolState chgAccum rawtx) where
+instance Default chgAccum => Default (MempoolState' chgAccum rawtx) where
     def = MempoolState def def
 
-instance Default chgAccum => Default (Versioned (MempoolState chgAccum rawtx)) where
+instance Default chgAccum => Default (Versioned (MempoolState' chgAccum rawtx)) where
     def = Versioned def 0
 
 actionWithMempool
-    :: forall da daa xs chgAccum e rawtx a.
-       ( Show e, Typeable e, Default chgAccum
-       , HasException e StatePException
-       , chgAccum ~ ChgAccum (IOCtx da)
-       , DbActions da daa chgAccum ExecM
-       , ConvertEffect e (IOCtx da) (DbAccessM chgAccum xs) da
-       )
-    => Mempool chgAccum rawtx
+    :: forall daa xs conf rawtx a chgAccum .
+      ( Show (BException conf), Typeable (BException conf)
+      , Default chgAccum
+      , HasBException conf StatePException
+      , chgAccum ~ ChgAccum conf
+      , DbActions (IOExecEffect conf) daa chgAccum ExecM
+      , ConvertEffect conf (DbAccessM conf xs) (IOExecEffect conf)
+      , Ctx conf ~ IOCtx conf
+      )
+    => Mempool conf rawtx
     -> daa ExecM
-    -> RwMempoolAct e xs (IOCtx da) rawtx a
+    -> RwMempoolAct conf xs rawtx a
     -> ExecM a
 actionWithMempool mem@Mempool{..} dbActs callback = do
     Versioned{vsVersion=version,..} <- liftIO $ atomically $ readTVar mempoolState
-    (res, newState) <- runERwCompIO dbActs vsData (convertERwComp convertEffect callback)
+    (res, newState) <- runERwCompIO dbActs vsData (convertERwComp (convertEffect @conf) callback)
     modified <- liftIO $ atomically $ do
         stLast <- readTVar mempoolState
         if version == vsVersion stLast then
@@ -101,18 +106,18 @@ actionWithMempool mem@Mempool{..} dbActs callback = do
     then pure res
     else actionWithMempool mem dbActs callback
 
-createMempool :: (Default chgAccum, MonadIO m) => m (Mempool chgAccum rawtx)
+createMempool :: (Default (ChgAccum conf), MonadIO m) => m (Mempool conf rawtx)
 createMempool = Mempool <$> atomically (newTVar def)
 
 getMempoolChgAccum
-    :: (Default chgAccum, MonadIO m)
-    => Mempool chgAccum rawtx
-    -> m chgAccum
+    :: (Default (ChgAccum conf), MonadIO m)
+    => Mempool conf rawtx
+    -> m (ChgAccum conf)
 getMempoolChgAccum Mempool{..} = msChgAccum . vsData <$> atomically (readTVar mempoolState)
 
 getMempoolTxs
-    :: (Default chgAccum, MonadIO m)
-    => Mempool chgAccum rawtx
+    :: (Default (ChgAccum conf), MonadIO m)
+    => Mempool conf rawtx
     -> m [rawtx]
 getMempoolTxs Mempool{..} = msTxs . vsData <$> atomically (readTVar mempoolState)
 
@@ -131,28 +136,28 @@ instance (
       ) => MempoolTx txtypes xs txtype
 
 defaultMempoolConfig
-    :: forall e xs ctx (c :: * -> Constraint) txtypes rawtx .
-    ( HasExceptions e [
+    :: forall conf xs (c :: * -> Constraint) txtypes rawtx .
+    ( HasBExceptions conf [
           StatePException
         , CSMappendException
         ]
-    , HasLens ctx (ChgAccumCtx ctx)
+    , HasLens (Ctx conf) (ChgAccumCtx conf)
     )
-    => (rawtx -> SomeData (ProofNExp e ctx rawtx) (Both (MempoolTx txtypes xs) c))
-    -> Validator e ctx txtypes
-    -> MempoolConfig e ctx (Both (MempoolTx txtypes xs) c) rawtx
+    => (rawtx -> SomeData (ProofNExp conf rawtx) (Both (MempoolTx txtypes xs) c))
+    -> Validator conf txtypes
+    -> MempoolConfig conf (Both (MempoolTx txtypes xs) c) rawtx
 defaultMempoolConfig expander validator = MempoolConfig handler
   where
-    handler :: rawtx -> SomeStateTxHandler e ctx (Both (MempoolTx txtypes xs) c) rawtx
+    handler :: rawtx -> SomeStateTxHandler conf (Both (MempoolTx txtypes xs) c) rawtx
     handler rawtx = usingSomeData (expander rawtx) $ SomeData . StateTxHandler . processTx rawtx
 
     processTx
         :: forall txtype . MempoolTx txtypes xs txtype
         => rawtx
-        -> ProofNExp e ctx rawtx txtype
-        -> RwMempoolAct e (TxComponents txtype) ctx rawtx (StateTx txtype)
+        -> ProofNExp conf rawtx txtype
+        -> RwMempoolAct conf (TxComponents txtype) rawtx (StateTx txtype)
     processTx rawtx prfNexp = do
         tx@StateTx{..} <- liftERoComp (expandOneTx prfNexp rawtx)
         liftERoComp $ runValidator validator tx
-        liftERoComp (modifyAccumOne txBody) >>= modify . flip sett
+        liftERoComp (modifyAccumOne @_ @conf txBody) >>= modify . flip sett
         pure tx

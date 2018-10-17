@@ -36,13 +36,13 @@ import           Snowdrop.Util (RContains, RecAll', RecToList (..))
 -- of appropriate type is supplied.
 -- It's expected to project some id types and validate them alone
 -- without considering other id types.
-newtype PreValidator e ctx txtype
-    = PreValidator {runPrevalidator :: StateTx txtype -> ERoComp e (TxComponents txtype) ctx () }
+newtype PreValidator conf txtype
+    = PreValidator {runPrevalidator :: StateTx txtype -> ERoComp conf (TxComponents txtype) () }
 
 -- | Alias for 'PreValidator' constructor
 mkPreValidator
-    :: (StateTx txtype -> ERoComp e (TxComponents txtype) ctx ())
-    -> PreValidator e ctx txtype
+    :: (StateTx txtype -> ERoComp conf (TxComponents txtype) ())
+    -> PreValidator conf txtype
 mkPreValidator = PreValidator
 
 ------------------------------------------------------
@@ -60,39 +60,39 @@ instance ( UpCastableERo (TxComponents txtype1) (TxComponents txtype2)
       , DownCastableTx txtype2 txtype1)
       => CastableC txtype2 txtype1
 
-type UniteRecToList txtypes e ctx =
-    RecToList (PreValidator e ctx) (ReplicateU (RLength txtypes) txtypes) (PreValidator e ctx (UnitedTxType txtypes))
+type UniteRecToList txtypes conf =
+    RecToList (PreValidator conf) (ReplicateU (RLength txtypes) txtypes) (PreValidator conf (UnitedTxType txtypes))
 
 unitePreValidators
-    :: forall txtypes e ctx .
-    ( UniteRecToList txtypes e ctx
+    :: forall txtypes conf .
+    ( UniteRecToList txtypes conf
     , RecAll' txtypes (CastableC (UnitedTxType txtypes))
     )
-    => Rec (PreValidator e ctx) txtypes
-    -> PreValidator e ctx (UnitedTxType txtypes)
-unitePreValidators = mconcat . recToList @(PreValidator e ctx) . rmapCast
+    => Rec (PreValidator conf) txtypes
+    -> PreValidator conf (UnitedTxType txtypes)
+unitePreValidators = mconcat . recToList @(PreValidator conf) . rmapCast
   where
     rmapCast
         :: ( RecAll' xs (CastableC (UnitedTxType txtypes)))
-        => Rec (PreValidator e ctx) xs -> Rec (PreValidator e ctx) (ReplicateU (RLength xs) txtypes)
+        => Rec (PreValidator conf) xs -> Rec (PreValidator conf) (ReplicateU (RLength xs) txtypes)
     rmapCast RNil           = RNil
     rmapCast (pr :& others) = upcastPreValidator pr :& rmapCast others
 
 upcastPreValidator
-    :: forall txtype1 txtype2 e ctx .
+    :: forall txtype1 txtype2 conf .
     ( UpCastableERo (TxComponents txtype1) (TxComponents txtype2)
     , DownCastableTx txtype2 txtype1
     )
-    => PreValidator e ctx txtype1
-    -> PreValidator e ctx txtype2
-upcastPreValidator prev = PreValidator $ upcastEffERoComp . runPrevalidator prev . downcastStateTx
+    => PreValidator conf txtype1
+    -> PreValidator conf txtype2
+upcastPreValidator prev = PreValidator $ upcastEffERoComp @_ @_ @conf . runPrevalidator prev . downcastStateTx
 
 -- castPreValidator
---     :: forall id value txtype1 txtype2 e ctx .
+--     :: forall id value txtype1 txtype2 conf .
 --        e
 --     -> (TxProof txtype2 -> Maybe (TxProof txtype1))
---     -> PreValidator e id value ctx txtype1
---     -> PreValidator e id value ctx txtype2
+--     -> PreValidator e id valuconf txtype1
+--     -> PreValidator e id valuconf txtype2
 -- castPreValidator err castProof prev = PreValidator $ maybe (throwError err) (runPrevalidator prev) . castStateTx castProof
 
 ------------------------------------------------------
@@ -104,30 +104,30 @@ upcastPreValidator prev = PreValidator $ upcastEffERoComp . runPrevalidator prev
 -- (which may be a concatenation of few other pre-validators).
 -- Each entry in the mapping (a pre-validator) is expected to fully validate
 -- the transaction, consider all id types in particular.
-type Validator e ctx (txtypes :: [*]) = Rec (PreValidator e ctx) txtypes
+type Validator conf (txtypes :: [*]) = Rec (PreValidator conf) txtypes
 
-instance Semigroup (PreValidator e ctx txtype) where
+instance Semigroup (PreValidator conf txtype) where
      PreValidator a <> PreValidator b = PreValidator $ a <> b
 
-instance Monoid (PreValidator e ctx txtype) where
+instance Monoid (PreValidator conf txtype) where
     mempty = PreValidator $ const (pure ())
     mappend = (<>)
 
 -- | Smart constructor for 'Validator' type
-mkValidator :: [PreValidator e ctx txtype] -> Validator e ctx '[txtype]
+mkValidator :: [PreValidator conf txtype] -> Validator conf '[txtype]
 mkValidator ps = mconcat ps :& RNil
 
-fromPreValidator :: PreValidator e ctx txtype -> Validator e ctx '[txtype]
+fromPreValidator :: PreValidator conf txtype -> Validator conf '[txtype]
 fromPreValidator ps = ps :& RNil
 
-getPreValidator :: Validator e ctx '[txtype] -> PreValidator e ctx txtype
+getPreValidator :: Validator conf '[txtype] -> PreValidator conf txtype
 getPreValidator (ps :& RNil) = ps
 
 -- | Execute validator on a given transaction.
 runValidator
-    :: forall e ctx txtype txtypes . (RContains txtypes txtype)
-    => Validator e ctx txtypes
+    :: forall conf txtype txtypes . (RContains txtypes txtype)
+    => Validator conf txtypes
     -> StateTx txtype
-    -> ERoComp e (TxComponents txtype) ctx ()
+    -> ERoComp conf (TxComponents txtype) ()
 runValidator prevalidators statetx =
     runPrevalidator (rget @txtype prevalidators) statetx

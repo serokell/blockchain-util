@@ -20,7 +20,7 @@ import           Data.Vinyl.Core (Rec (..))
 import           Formatting (bprint, build, (%))
 
 import           Snowdrop.Core.ChangeSet (HChangeSet, csNew, csRemove)
-import           Snowdrop.Core.ERoComp (ERoComp, QueryERo, query)
+import           Snowdrop.Core.ERoComp (ERoComp, HasBException, QueryERo, query)
 import           Snowdrop.Core.Transaction (TxComponents, txBody)
 import           Snowdrop.Core.Validator.Types (PreValidator (..))
 import           Snowdrop.Util
@@ -78,49 +78,49 @@ type StructuralC txtype xs = (
   )
 
 csRemoveExist
-    :: forall e ctx txtype .
-    ( HasException e StructuralValidationException
+    :: forall conf txtype .
+    ( HasBException conf StructuralValidationException
     , StructuralC txtype (TxComponents txtype)
     )
-    => PreValidator e ctx txtype
+    => PreValidator conf txtype
 csRemoveExist = PreValidator $ checkBody . txBody
   where
-    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp e (TxComponents txtype) ctx ()
+    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp conf (TxComponents txtype) ()
     checkBody RNil         = pure ()
     checkBody gs'@(_ :& _) = checkBody' gs'
 
-    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp e (TxComponents txtype) ctx ()
+    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp conf (TxComponents txtype) ()
     checkBody' (cs :& gs) = do
         let inRefs = csRemove cs
-        ins <- query @t inRefs
+        ins <- query @t @_ @conf inRefs
         validateAll (inj . DpRemoveDoesntExist) (flip M.member ins) inRefs
         checkBody gs
 
 csNewNotExist
-    :: forall e ctx txtype .
-    ( HasException e StructuralValidationException
+    :: forall conf txtype .
+    ( HasBException conf StructuralValidationException
     , StructuralC txtype (TxComponents txtype)
-    ) => PreValidator e ctx txtype
+    ) => PreValidator conf txtype
 csNewNotExist = PreValidator $ checkBody . txBody
   where
-    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp e (TxComponents txtype) ctx ()
+    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp conf (TxComponents txtype) ()
     checkBody RNil         = pure ()
     checkBody gs'@(_ :& _) = checkBody' gs'
 
-    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp e (TxComponents txtype) ctx ()
+    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp conf (TxComponents txtype) ()
     checkBody' (cs :& gs) = do
         let ks = M.keysSet (csNew cs)
-        mp <- query @t ks
+        mp <- query @t @_ @conf ks
         validateAll (inj . DpAddExist) (not . flip M.member mp) ks
         checkBody gs
 
 -- | Structural validation checks whether the ids which are to be removed
 -- (or to be modified) exist in state and vice versa.
 structuralPreValidator
-    :: forall e ctx txtype .
-    ( HasException e StructuralValidationException
+    :: forall conf txtype .
+    ( HasBException conf StructuralValidationException
     , StructuralC txtype (TxComponents txtype)
-    ) => PreValidator e ctx txtype
+    ) => PreValidator conf txtype
 structuralPreValidator = csRemoveExist <> csNewNotExist
 
 ---------------------------
@@ -136,14 +136,14 @@ structuralPreValidator = csRemoveExist <> csNewNotExist
 --     | InputNotSigned
 
 -- inputsExist
---     :: (Ord id, HasException e StateTxValidationException)
---     => PreValidator e id value ctx txtype
+--     :: (Ord id, HasBException conf StateTxValidationException)
+--     => PreValidator e id valuconf txtype
 -- inputsExist = PreValidator $ \(csRemove . txBody -> inRefs) -> do
 --     ins <- query inRefs
 --     validateIff InputDoesntExist (all (flip M.member ins) inRefs)
 
 -- inputsSigned
---     :: (Ord id, HasException e StateTxValidationException)
+--     :: (Ord id, HasBException conf StateTxValidationException)
 --     => PreValidator e id (TxProof txtype -> Bool, value) ctx txtype
 -- inputsSigned = PreValidator $ \tx -> do
 --     let inRefs = csRemove $ txBody tx

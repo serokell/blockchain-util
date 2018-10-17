@@ -36,8 +36,7 @@ import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashab
                                                         RootHashes, avlRootHash, mkAVL)
 import           Snowdrop.Execution.DbActions.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl,
                                                           reThrowAVLEx, runAVLCacheT)
-import           Snowdrop.Execution.DbActions.Types (DGetter, DIter, DIter', DModify,
-                                                     IterAction (..))
+import           Snowdrop.Execution.DbActions.Types (DGetter', DIter', DModify', IterAction (..))
 import           Snowdrop.Util (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, HasGetter (..),
                                 Head, NewestFirst (..), OldestFirst (..), RecAll')
 
@@ -78,7 +77,8 @@ modAccum
     , AllAvlEntries h xs
     )
     => ctx
-    -> DModify (AVLChgAccums h xs) xs m
+    -> AVLChgAccums h xs
+    -> DModify' (AVLChgAccums h xs) xs m
 modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
     Just acc -> modAccumAll acc cs'
     Nothing  -> modAccumAll (resolveAvlCA ctx acc') cs'
@@ -174,7 +174,7 @@ query
     , MonadIO m, MonadCatch m
     , AllAvlEntries h xs
     )
-    => ctx -> DGetter (AVLChgAccums h xs) xs m
+   => ctx -> AVLChgAccums h xs -> DGetter' xs m
 query ctx (Just ca) hset = queryAll ca hset
   where
     queryAll :: forall rs . RecAll' rs (IsAvlEntry h) => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
@@ -203,7 +203,8 @@ iter
     , AllAvlEntries h xs
     )
     => ctx
-    -> DIter (AVLChgAccums h xs) xs m
+    -> AVLChgAccums h xs
+    -> m (DIter' xs m)
 iter ctx (Just ca) = pure $ iterAll ca
   where
     iterAll :: forall rs . RecAll' rs (IsAvlEntry h) => Rec (AVLChgAccum h) rs -> DIter' rs m

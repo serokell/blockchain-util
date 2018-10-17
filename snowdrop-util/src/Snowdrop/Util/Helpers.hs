@@ -1,3 +1,4 @@
+{-# LANGUAGE Rank2Types #-}
 module Snowdrop.Util.Helpers
        (
          VerRes (..)
@@ -9,6 +10,7 @@ module Snowdrop.Util.Helpers
        , PublicKey
        , Signature
        , Signed (..)
+       , HFunctor (..)
        ) where
 
 import           Universum hiding (head, init, last)
@@ -86,3 +88,7 @@ runExceptTV = fmap eitherToVerRes . runExceptT
 -- | Simple helper which is equivallent to expression @\(fa, b) -> (,b) <$> fa@
 propagateSecondF :: Functor f => (f a, b) -> f (a, b)
 propagateSecondF (fa, b) = (,b) <$> fa
+
+-- | Higher-order version of Functor class.
+class HFunctor t where
+    fmapH :: Functor a => (forall x . a x -> b x) -> t a -> t b

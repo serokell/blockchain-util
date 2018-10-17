@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -19,12 +20,12 @@ import qualified Data.Map.Strict as M
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.TypeLevel (RecAll)
 
-import           Snowdrop.Core (CSMappendException (..), HChangeSet, HChangeSetEl (..),
-                                MappendHChSet, ValueOp (..), csNew, diffChangeSet, hChangeSetToHMap,
-                                hChangeSetToHSet, mappendChangeSet)
-import           Snowdrop.Execution.DbActions.Types (DGetter, DGetter', DIter, DIter',
+import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, HChangeSetEl (..),
+                                MappendHChSet, Undo, ValueOp (..), csNew, diffChangeSet,
+                                hChangeSetToHMap, hChangeSetToHSet, mappendChangeSet)
+import           Snowdrop.Execution.DbActions.Types (DGetter, DGetter', DIter',
                                                      DbAccessActions (..), DbAccessActionsM (..),
-                                                     DbAccessActionsU (..), DbActionsException (..),
+                                                     DbAccessActionsU (..), DbComponents,
                                                      IterAction (..))
 import           Snowdrop.Util
 
@@ -47,7 +48,7 @@ mappendStOrThrow
     :: forall e xs m .
     ( Monad m
     , MonadState (SumChangeSet xs) m
-    , HasException e CSMappendException
+    , HasReview e CSMappendException
     , MappendHChSet xs
     )
     => HChangeSet xs
@@ -67,10 +68,13 @@ querySumChSet (SumChangeSet accum) reqIds = (reqIds', resp)
 
 -- | Compute undo and verify change is valid for being applied to state
 computeHChSetUndo
-  :: ( Monad m
+  :: forall conf m xs.
+     ( Monad m
      , MappendHChSet xs
+     , ChgAccum conf ~ SumChangeSet xs
+     , xs ~ DbComponents conf
      )
-  => DGetter (SumChangeSet xs) xs m
+  => DGetter conf m
   -> SumChangeSet xs
   -> HChangeSet xs
   -> m (Either CSMappendException (HChangeSet xs))
@@ -79,10 +83,10 @@ computeHChSetUndo getter sch chs = do
     pure $ computeHChSetUndo' vals chs
   where
     computeHChSetUndo'
-      :: MappendHChSet xs
-      => HMap xs
-      -> HChangeSet xs
-      -> Either CSMappendException (HChangeSet xs)
+      :: forall xs1 . MappendHChSet xs1
+      => HMap xs1
+      -> HChangeSet xs1
+      -> Either CSMappendException (HChangeSet xs1)
     computeHChSetUndo' RNil RNil        = pure RNil
     computeHChSetUndo' (vals :& valxs) (ch :& ys) =
         case computeUndo vals ch of
@@ -104,29 +108,33 @@ computeHChSetUndo getter sch chs = do
         HChangeSetEl <$> foldM processOne mempty (M.toList cs)
 
 sumChangeSetDaa
-    :: forall xs m .
+    :: forall conf m xs .
        ( Monad m
        , MappendHChSet xs
        , HIntersectable xs xs
        , Semigroup (HMap xs)
        , RecAll HMapEl xs IsEmpty
        , RecAll HSetEl xs IsEmpty
+       , ChgAccum conf ~ SumChangeSet xs
+       , xs ~ DbComponents conf
        )
     => DGetter' xs m
     -> DIter' xs m
-    -> DbAccessActions (SumChangeSet xs) xs m
+    -> DbAccessActions conf m
 sumChangeSetDaa getterImpl iterImpl =
     DbAccessActions (chgAccumGetter getterImpl) (chgAccumIter iterImpl)
 
 sumChangeSetDaaM
-    :: forall xs m .
+    :: forall conf m xs .
        ( Applicative m
        , MappendHChSet xs
        , HIntersectable xs xs
        , Semigroup (HMap xs)
+       , ChgAccum conf ~ SumChangeSet xs
+       , xs ~ DbComponents conf
        )
-    => DbAccessActions  (SumChangeSet xs) xs m
-    -> DbAccessActionsM (SumChangeSet xs) xs m
+    => DbAccessActions  conf m
+    -> DbAccessActionsM conf m
 sumChangeSetDaaM daa = DbAccessActionsM daa (pure ... modifyAccum)
   where
 
@@ -140,56 +148,48 @@ sumChangeSetDaaM daa = DbAccessActionsM daa (pure ... modifyAccum)
         modScs (scs, res) cs = (\scs' -> (scs', scs':res)) <$> scs `modifySumChgSet` cs
 
 sumChangeSetDaaU
-    :: forall xs undo m .
+    :: forall conf m undo xs .
        ( MonadThrow m
        , MappendHChSet xs
        , HIntersectable xs xs
        , Semigroup (HMap xs)
-       , HasPrism undo (HChangeSet xs)
+       , undo ~ Undo conf
+       , undo ~ HChangeSet xs
+       , xs ~ DbComponents conf
+       , ChgAccum conf ~ SumChangeSet xs
        )
-    => DbAccessActions  (SumChangeSet xs) xs m
-    -> DbAccessActionsU (SumChangeSet xs) undo xs m
+    => DbAccessActions  conf m
+    -> DbAccessActionsU conf m
 sumChangeSetDaaU daa = daaU
   where
-    daaU = DbAccessActionsU (sumChangeSetDaaM daa) modifyAccumU computeUndo
+    daaU = DbAccessActionsU (sumChangeSetDaaM daa) (pure ... modifyAccumU) computeUndo
 
     modifyAccumU
       :: SumChangeSet xs
-      -> NewestFirst [] undo
-      -> m (Either CSMappendException (SumChangeSet xs))
-    modifyAccumU scs undos = do
-        undos' <- maybe (throwM DbUndoProjectionError) pure (traverse projUndo undos)
-        pure (modifyAccumU' scs undos')
-
-    projUndo :: undo -> Maybe (HChangeSet xs)
-    projUndo = proj
-
-    modifyAccumU'
-      :: SumChangeSet xs
       -> NewestFirst [] (HChangeSet xs)
       -> Either CSMappendException (SumChangeSet xs)
-    modifyAccumU' scs (NewestFirst css) = foldM modifySumChgSet scs css
+    modifyAccumU scs (NewestFirst css) = foldM modifySumChgSet scs css
 
     computeUndo
         :: SumChangeSet xs
         -> SumChangeSet xs
         -> m (Either CSMappendException undo)
     computeUndo scs@(SumChangeSet scs1) (SumChangeSet scs2) =
-        either (pure . Left) ((fmap $ fmap injUndo) <$> computeUndoDo scs) (scs2 `diffChangeSet` scs1)
-
-    injUndo :: HChangeSet xs -> undo
-    injUndo = inj
+        either (pure . Left) (computeUndoDo scs) (scs2 `diffChangeSet` scs1)
 
     computeUndoDo
         :: SumChangeSet xs
         -> HChangeSet xs
         -> m (Either CSMappendException (HChangeSet xs))
-    computeUndoDo = computeHChSetUndo (daaGetter daa)
+    computeUndoDo = computeHChSetUndo @conf (daaGetter daa)
 
 chgAccumIter
-    :: (Monad m, RecAll' xs OrdHKey)
+    :: ( Monad m
+       , RecAll' xs OrdHKey
+       )
     => DIter' xs m
-    -> DIter (SumChangeSet xs) xs m
+    -> SumChangeSet xs
+    -> m (DIter' xs m)
 chgAccumIter RNil (SumChangeSet RNil) = pure RNil
 chgAccumIter (iter' :& xs) (SumChangeSet (csel' :& ys)) =
     (chgAccumIter' iter' csel' :&) <$> chgAccumIter xs (SumChangeSet ys)
@@ -220,7 +220,8 @@ chgAccumGetter
       , RecAll HMapEl xs IsEmpty
       )
     => DGetter' xs m
-    -> DGetter (SumChangeSet xs) xs m
+    -> SumChangeSet xs
+    -> DGetter' xs m
 chgAccumGetter getter accum reqIds =
     bool (unionStateP resp <$> getter reqIds') (pure resp) (rAllEmpty reqIds')
   where
