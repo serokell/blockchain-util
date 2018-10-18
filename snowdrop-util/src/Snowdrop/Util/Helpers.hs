@@ -2,7 +2,7 @@
 module Snowdrop.Util.Helpers
        (
          VerRes (..)
-       , VerifySign (..)
+       , VerifySigned (..)
        , eitherToVerRes
        , verResToEither
        , runExceptTV
@@ -11,6 +11,10 @@ module Snowdrop.Util.Helpers
        , Signature
        , Signed (..)
        , HFunctor (..)
+       , Sign (..)
+       , SecretKey
+       , SignKeyPair (..)
+       , SecureHash (..)
        ) where
 
 import           Universum hiding (head, init, last)
@@ -22,12 +26,29 @@ import           Formatting (bprint, build, (%))
 data family PublicKey sigScheme :: *
 -- | Data family to specify a signature type for a given signature scheme type
 data family Signature sigScheme a :: *
+-- | Data family to specify a secret key type for a given signature scheme type
+data family SecretKey sigScheme :: *
+
+class SignKeyPair sigScheme where
+    toPublicKey :: SecretKey sigScheme -> PublicKey sigScheme
 
 -- | Type class, providing capability to verify signatures
 -- (made within some public-key signature scheme, represented by type @sigScheme@)
-class VerifySign sigScheme a where
+class SignKeyPair sigScheme => Sign sigScheme a where
+    sign :: SecretKey sigScheme -> a -> Signature sigScheme a
+
+    mkSigned :: SecretKey sigScheme -> a -> Signed sigScheme a
+    mkSigned sk msg = Signed msg (toPublicKey sk) (sign sk msg)
+
+-- | Type class, providing capability to verify signatures
+-- (made within some public-key signature scheme, represented by type @sigScheme@)
+class VerifySigned sigScheme a where
+    -- | Verify signature of the supplied data which is assumed to be made by a given public key
+    verifySigned :: Signed sigScheme a -> Bool
+
     -- | Verify signature of the supplied data which is assumed to be made by a given public key
     verifySignature :: PublicKey sigScheme -> a -> Signature sigScheme a -> Bool
+    verifySignature pk msg = verifySigned . Signed msg pk
 
 -- | Helper data type to hold data along with its signature
 -- and a public key corresponding to the signature.
@@ -92,3 +113,7 @@ propagateSecondF (fa, b) = (,b) <$> fa
 -- | Higher-order version of Functor class.
 class HFunctor t where
     fmapH :: Functor a => (forall x . a x -> b x) -> t a -> t b
+
+class SecureHash hash msg where
+    secureHash :: msg -> hash
+

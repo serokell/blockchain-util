@@ -22,11 +22,12 @@ import           Universum
 
 import           Control.Lens (lens)
 import           Data.Default (Default (..))
+import           Data.Vinyl (Rec, rget)
 
 import           Snowdrop.Core (BException, CSMappendException, ChgAccum, ChgAccumCtx,
                                 ConvertEffect, Ctx, DbAccessM, ERwComp, HasBException,
                                 HasBExceptions, ProofNExp, StatePException, StateTx (..),
-                                TxComponents, UpCastableERoM, Validator, convertERwComp,
+                                TxComponents, TxRaw, UpCastableERoM, Validator, convertERwComp,
                                 convertEffect, liftERoComp, modifyAccumOne, runValidator)
 import           Snowdrop.Execution.DbActions (DbActions)
 import           Snowdrop.Execution.Expand (ExpandOneTxMode, expandOneTx)
@@ -47,7 +48,9 @@ newtype StateTxHandler conf rawtx txtype = StateTxHandler
 type SomeStateTxHandler conf c rawtx = SomeData (StateTxHandler conf rawtx) c
 
 newtype MempoolConfig conf c rawtx =
-    MempoolConfig { mcProcessTx :: rawtx -> SomeStateTxHandler conf c rawtx }
+    MempoolConfig {
+      mcProcessTx :: rawtx -> SomeStateTxHandler conf c rawtx
+    }
 
 data MempoolState' chgAccum rawtx = MempoolState
     { msTxs      :: [rawtx]
@@ -136,27 +139,31 @@ instance (
       ) => MempoolTx txtypes xs txtype
 
 defaultMempoolConfig
-    :: forall conf xs (c :: * -> Constraint) txtypes rawtx .
+    :: forall conf xs (c :: * -> Constraint) txtypes rawtx c'  .
     ( HasBExceptions conf [
           StatePException
         , CSMappendException
         ]
     , HasLens (Ctx conf) (ChgAccumCtx conf)
+    , c' ~ Both (MempoolTx txtypes xs) c
+    , HasGetter rawtx (SomeData TxRaw c')
     )
-    => (rawtx -> SomeData (ProofNExp conf rawtx) (Both (MempoolTx txtypes xs) c))
+    => Rec (ProofNExp conf) txtypes
     -> Validator conf txtypes
-    -> MempoolConfig conf (Both (MempoolTx txtypes xs) c) rawtx
-defaultMempoolConfig expander validator = MempoolConfig handler
+    -> MempoolConfig conf c' rawtx
+defaultMempoolConfig exps validator = MempoolConfig handler
   where
-    handler :: rawtx -> SomeStateTxHandler conf (Both (MempoolTx txtypes xs) c) rawtx
-    handler rawtx = usingSomeData (expander rawtx) $ SomeData . StateTxHandler . processTx rawtx
+    handler :: rawtx -> SomeStateTxHandler conf c' rawtx
+    handler rawtx =
+        usingSomeData (gett @_ @(SomeData TxRaw c') rawtx) $
+            SomeData . StateTxHandler . processTx
 
     processTx
         :: forall txtype . MempoolTx txtypes xs txtype
-        => rawtx
-        -> ProofNExp conf rawtx txtype
+        => TxRaw txtype
         -> RwMempoolAct conf (TxComponents txtype) rawtx (StateTx txtype)
-    processTx rawtx prfNexp = do
+    processTx rawtx = do
+        let prfNexp = rget @txtype exps
         tx@StateTx{..} <- liftERoComp (expandOneTx prfNexp rawtx)
         liftERoComp $ runValidator validator tx
         liftERoComp (modifyAccumOne @_ @conf txBody) >>= modify . flip sett

@@ -5,6 +5,8 @@
 module Snowdrop.Core.Transaction
        ( TxProof
        , TxComponents
+       , TxRaw (..)
+       , TxRawImpl
 
        , StateTx (..)
        , DownCastableTx
@@ -30,6 +32,10 @@ type family TxProof      (txtype :: k) :: *
 
 -- | Determines components of HChangeSet by txtype.
 type family TxComponents (txtype :: k) :: [*]
+
+type family TxRawImpl (txtype :: k) :: *
+
+newtype TxRaw txtype = TxRaw { unTxRaw :: TxRawImpl txtype }
 
 -- | Transaction which modifies state.
 -- There is also RawTx, which is posted on the blockchain.
