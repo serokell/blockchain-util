@@ -22,11 +22,11 @@ import           Data.Vinyl (Rec (..), rget)
 
 import           Snowdrop.Core (BException, CSMappendException (..), ChgAccum, ChgAccumCtx (..),
                                 Ctx, DiffChangeSet (..), ERoCompM, ExpInpComps, ExpOutComps,
-                                ExpRestriction (..), HChangeSet, HUpCastableChSet, HasBException,
-                                MappendHChSet, PreExpander (..), ProofNExp (..), SeqExpander,
-                                SeqExpanderComponents, SomeTx, StateTx (..), TxComponents, TxRaw,
-                                UpCastableERoM, convertEffect, mappendChangeSet, upcastEffERoCompM,
-                                withModifiedAccumCtxOne)
+                                ExpRestriction (..), HChangeSet, HChangeSetEl, HUpCastableChSet,
+                                HasBException, MappendHChSet, PreExpander (..), ProofNExp (..),
+                                SeqExpander, SeqExpanderComponents, SomeTx, StateTx (..),
+                                TxComponents, TxRaw, UpCastableERoM, convertEffect,
+                                mappendChangeSet, upcastEffERoCompM, withModifiedAccumCtxOne)
 import           Snowdrop.Execution.DbActions (SumChangeSet (..), mappendStOrThrow)
 import           Snowdrop.Util
 
@@ -83,17 +83,17 @@ runSeqExpandersSequentially proofNExps allTxs =
         chgAcc <- get
         (stx, txbody) <- lift $
             withModifiedAccumCtxOne (unSumCS chgAcc) $
-              applySomeData constructStateTx rtx
+              applySomeData (fmap (second castStrip) . constructStateTx) rtx
         (stx : res) <$ mappendStOrThrow @(BException conf) txbody
 
     constructStateTx
         :: forall txtype . (ExpandableTx txtypes txtype, c txtype)
         => TxRaw txtype
-        -> ERoCompM conf (UnionSeqExpandersInps txtypes) (SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))
+        -> ERoCompM conf (UnionSeqExpandersInps txtypes) (SomeTx c, HChangeSet (TxComponents txtype))
     constructStateTx tx = do
         let ProofNExp (prf, sexp) = rget @txtype proofNExps
         hcs <- unSumCS <$> runSeqExpanderForTx @txtype tx sexp
-        pure (SomeData (StateTx @txtype (prf tx) hcs), hupcast hcs)
+        pure (SomeData (StateTx @txtype (prf tx) hcs), hcs)
 
 runSeqExpanderForTx
     :: forall txtype components conf .
@@ -156,11 +156,8 @@ type family UnionSeqExpanders (txtypes :: [*]) where
 
 type UnionSeqExpandersInps txtypes = UnionExpandersInps (UnionSeqExpanders txtypes)
 
-class ( HUpCastableChSet (TxComponents txtype) (UnionSeqExpandersInps txtypes)
-      -- TODO This constraint is inaccurate because of dirty code. will be fixed.
-      -- It is caused when we apply expanded diffs to StateT state, however,
-      -- it's not needed @TxComponents txtype@ to be subset of @UnionSeqExpandersInps txtypes@.
-      -- We must just apply presented components in @TxComponents txtype@ to @UnionSeqExpandersInps txtypes@.
+class (
+        HCastable HChangeSetEl (UnionSeqExpandersInps txtypes) (TxComponents txtype)
       , Default (SumChangeSet (TxComponents txtype))
       , MappendHChSet (TxComponents txtype)
       , RestrictTx (UnionSeqExpandersInps txtypes) txtype
@@ -168,7 +165,7 @@ class ( HUpCastableChSet (TxComponents txtype) (UnionSeqExpandersInps txtypes)
       )
       => ExpandableTx (txtypes :: [*]) (txtype :: *)
 instance (
-          HUpCastableChSet (TxComponents txtype) (UnionSeqExpandersInps txtypes)
+          HCastable HChangeSetEl (UnionSeqExpandersInps txtypes) (TxComponents txtype)
         , Default (SumChangeSet (TxComponents txtype))
         , MappendHChSet (TxComponents txtype)
         , RestrictTx (UnionSeqExpandersInps txtypes) txtype
