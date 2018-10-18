@@ -11,12 +11,12 @@ module Snowdrop.Block.Configuration
 import qualified Prelude as P
 import           Universum
 
-import           Snowdrop.Block.Types (Block (..), BlockRef, CurrentBlockRef (..), HasBlock (..),
-                                       PrevBlockRef (..), BlockHeader, OSParams, Payload, RawBlund,
-                                       buBlock)
+import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, Blund (buHeader),
+                                       CurrentBlockRef (..), ExpandedBlk, OSParams,
+                                       PrevBlockRef (..))
 import           Snowdrop.Util
 
-newtype BlockIntegrityVerifier blkType = BIV { unBIV :: Block (BlockHeader blkType) (Payload blkType) -> Bool }
+newtype BlockIntegrityVerifier blkType = BIV { unBIV :: ExpandedBlk blkType -> Bool }
 
 instance Monoid (BlockIntegrityVerifier blkType) where
     mempty = BIV $ const True
@@ -29,12 +29,12 @@ instance Monoid (BlockIntegrityVerifier blkType) where
 -- be performed as part of individual transaction validation (which is encapsulated in `bscApplyPayload`
 -- method of block handling configuration `BlkStateConfiguration`.
 data BlkConfiguration blkType = BlkConfiguration
-    { bcBlockRef     :: BlockHeader blkType -> CurrentBlockRef blkType
+    { bcBlockRef     :: BlockHeader blkType -> CurrentBlockRef (BlockRef blkType)
     -- ^ Get a block reference by given header.
     -- Normally to be represented by function to get header hash
     -- (with header including hashes of data within the block).
 
-    , bcPrevBlockRef :: BlockHeader blkType -> PrevBlockRef blkType
+    , bcPrevBlockRef :: BlockHeader blkType -> PrevBlockRef (BlockRef blkType)
     -- ^ Get reference of the block preceding the block, which header is given.
     -- Returns `Nothing` in case of supplied header referring to the very first
     -- block of blockchain (a la block with difficulty 1).
@@ -90,23 +90,21 @@ data BlkConfiguration blkType = BlkConfiguration
 --      b. sequencing by prevBlock
 -- DOESN'T validate that the last block refers to current tip
 blkSeqIsConsistent
-    :: forall blkType bdata .
-    ( HasBlock (BlockHeader blkType) (Payload blkType) bdata
-    , Eq (BlockRef blkType)
+    :: forall blkType .
+    ( Eq (BlockRef blkType)
     )
     => BlkConfiguration blkType
-    -> OldestFirst [] bdata
+    -> OldestFirst [] (ExpandedBlk blkType)
     -> Bool
 blkSeqIsConsistent _ (OldestFirst []) = True
-blkSeqIsConsistent BlkConfiguration {..} (OldestFirst bdatas) =
+blkSeqIsConsistent BlkConfiguration {..} (OldestFirst blks) =
     and [ doValidate $ OldestFirst $ zip blks prevRefs
         , unBIV bcBlkVerify $ unsafeLast blks -- validate last block
         ]
   where
-    blks = map getBlock bdatas
     prevRefs = unsafeTail (map getPrevRef blks)
 
-    getBlockRef, getPrevRef :: Block (BlockHeader blkType) (Payload blkType) -> Maybe (BlockRef blkType)
+    getBlockRef, getPrevRef :: ExpandedBlk blkType -> Maybe (BlockRef blkType)
     getBlockRef = Just . unCurrentBlockRef . bcBlockRef . blkHeader
     getPrevRef  = unPrevBlockRef . bcPrevBlockRef . blkHeader
 
@@ -120,7 +118,7 @@ blkSeqIsConsistent BlkConfiguration {..} (OldestFirst bdatas) =
     unsafeLast xs = P.last xs
 
     doValidate ::
-        OldestFirst [] (Block (BlockHeader blkType) (Payload blkType) , Maybe (BlockRef blkType))
+        OldestFirst [] (ExpandedBlk blkType, Maybe (BlockRef blkType))
         -> Bool
     doValidate (OldestFirst []) = True
     doValidate (OldestFirst ((b, prevRef):xs)) =
@@ -132,15 +130,15 @@ blkSeqIsConsistent BlkConfiguration {..} (OldestFirst bdatas) =
 getCurrentBlockRef
     :: forall blkType .
        BlkConfiguration blkType
-    -> RawBlund blkType
-    -> CurrentBlockRef blkType
+    -> Blund blkType
+    -> CurrentBlockRef (BlockRef blkType)
 getCurrentBlockRef BlkConfiguration{..} =
-    bcBlockRef . blkHeader . buBlock
+    bcBlockRef . buHeader
 
 getPreviousBlockRef
     :: forall blkType .
        BlkConfiguration blkType
-    -> RawBlund blkType
-    -> PrevBlockRef blkType
+    -> Blund blkType
+    -> PrevBlockRef (BlockRef blkType)
 getPreviousBlockRef BlkConfiguration{..} =
-    bcPrevBlockRef . blkHeader . buBlock
+    bcPrevBlockRef . buHeader
