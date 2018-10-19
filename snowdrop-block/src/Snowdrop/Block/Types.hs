@@ -10,6 +10,8 @@ module Snowdrop.Block.Types
        , BlkStructuralData (..)
        , BlockHeight (..)
        , BlkType (..)
+       , BlkHeaderData
+       , BlockExtraH
        ) where
 
 import           Universum
@@ -21,7 +23,7 @@ import           Snowdrop.Util (HasGetter)
 -------------------------------
 
 -- | Type class which defines a set of type families required for block handling.
-class HasGetter (BlockHeader blkType) (BlkStructuralData (BlockRef blkType)) => BlkType blkType where
+class HasGetter (BlockHeader blkType) (BlkStructuralData (BlockRef blkType) (BlockBodyProof blkType)) => BlkType blkType where
     -- | Block header type, parametrized by unified parameter of block configuration @blkType@
     type family BlockHeader blkType :: *
 
@@ -39,6 +41,9 @@ class HasGetter (BlockHeader blkType) (BlkStructuralData (BlockRef blkType)) => 
 
     -- | OS params type, parametrized by unified parameter of block configuration @blkType@
     type family OSParams blkType :: *
+
+    -- | Proof of block body (data uniquely reffering to body, such as hash of block body or tx merkle tree root)
+    type family BlockBodyProof blkType :: *
 
 -- | Type, representing a block.
 -- Isomorphic to a pair @(header, payload)@.
@@ -82,8 +87,14 @@ newtype BlockHeight = BlockHeight { getBlockHeight :: Word }
   deriving (Num, Integral, Real, Enum, Ord, Eq, Show, Hashable, Buildable)
 
 -- | Data, holding structural data for a block.
-data BlkStructuralData blockRef = BlkStructuralData
-    { blkHeight  :: BlockHeight
-    , blkPrevRef :: Maybe blockRef
+data BlkStructuralData blockRef blkBodyProof = BlkStructuralData
+    { blkHeight    :: BlockHeight
+    , blkPrevRef   :: Maybe blockRef
+    , blkBodyProof :: blkBodyProof
     }
-    deriving (Generic, Show)
+    deriving (Eq, Generic, Show)
+
+-- | Block extra header data, parametrized by unified parameter of block configuration @blkType@
+type family BlockExtraH blkType :: *
+
+type BlkHeaderData blkType = (BlkStructuralData (BlockRef blkType) (BlockBodyProof blkType), BlockExtraH blkType)

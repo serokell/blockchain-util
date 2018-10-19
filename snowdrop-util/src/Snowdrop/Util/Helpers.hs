@@ -15,6 +15,7 @@ module Snowdrop.Util.Helpers
        , SecretKey
        , SignKeyPair (..)
        , SecureHash (..)
+       , SignedNoMessage (..)
        ) where
 
 import           Universum hiding (head, init, last)
@@ -50,6 +51,31 @@ class VerifySigned sigScheme a where
     verifySignature :: PublicKey sigScheme -> a -> Signature sigScheme a -> Bool
     verifySignature pk msg = verifySigned . Signed msg pk
 
+    -- | Verify signature of the supplied data which is assumed to be made by a given public key
+    verifySignedNoMessage :: SignedNoMessage sigScheme a -> a -> Bool
+    verifySignedNoMessage (SignedNoMessage pk sig) msg = verifySignature pk msg sig
+
+-- | Helper data type to hold data along with its signature
+-- and a public key corresponding to the signature.
+data SignedNoMessage sigScheme msg = SignedNoMessage
+    { snPublicKey :: PublicKey sigScheme
+    , snSignature :: Signature sigScheme msg
+    } deriving (Generic)
+
+deriving instance (Show (PublicKey sigScheme),
+                   Show (Signature sigScheme msg)) => Show (SignedNoMessage sigScheme msg)
+deriving instance (Eq (PublicKey sigScheme),
+                   Eq (Signature sigScheme msg)) => Eq (SignedNoMessage sigScheme msg)
+deriving instance (Ord (PublicKey sigScheme),
+                   Ord (Signature sigScheme msg)) => Ord (SignedNoMessage sigScheme msg)
+
+instance (Hashable (PublicKey sigScheme), Hashable (Signature sigScheme msg)) => Hashable (SignedNoMessage sigScheme msg)
+
+instance (Buildable (PublicKey sigScheme),
+          Buildable (Signature sigScheme msg)) => Buildable (SignedNoMessage sigScheme msg) where
+    build (SignedNoMessage pk sig) =
+        bprint ("signature (pubkey="%(build)%", signature="%(build)%", )") pk sig
+
 -- | Helper data type to hold data along with its signature
 -- and a public key corresponding to the signature.
 data Signed sigScheme msg = Signed
@@ -72,11 +98,10 @@ instance (Hashable (PublicKey sigScheme), Hashable (Signature sigScheme msg),
           Hashable msg) => Hashable (Signed sigScheme msg)
 
 instance (Buildable (PublicKey sigScheme),
-          Buildable (Signature sigScheme msg)) => Buildable (Signed sigScheme msg) where
-    build (Signed _ pk sig) =
-        -- We omit 'message' for purpose. Currently 'Signed' is used
-        -- in witnesses, and witness is always coupled with related transaction.
-        bprint ("signature (pubkey="%(build)%", signature="%(build)%")") pk sig
+          Buildable (Signature sigScheme msg),
+          Buildable msg) => Buildable (Signed sigScheme msg) where
+    build (Signed msg pk sig) =
+        bprint ("signature (pubkey="%(build)%", signature="%(build)%", message="%(build)%", )") pk sig msg
 
 -- | Data type, similar to `Either` which provides instances of 'Semigroup' and 'Monoid',
 -- well suited for error handling.

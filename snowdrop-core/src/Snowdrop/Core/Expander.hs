@@ -20,6 +20,7 @@ module Snowdrop.Core.Expander
 
 import           Universum
 
+import           Data.Default (Default)
 import           Data.Kind
 import           Data.Vinyl (Rec (..))
 
@@ -53,6 +54,12 @@ contramapPreExpander f (PreExpander act) = PreExpander $ act . f
 
 -- | DiffChangeSet holds changes which one expander returns
 newtype DiffChangeSet xs = DiffChangeSet {unDiffCS :: HChangeSet xs}
+
+deriving instance Eq (HChangeSet xs) => Eq (DiffChangeSet xs)
+deriving instance Show (HChangeSet xs) => Show (DiffChangeSet xs)
+deriving instance Semigroup (HChangeSet xs) => Semigroup (DiffChangeSet xs)
+deriving instance Monoid (HChangeSet xs) => Monoid (DiffChangeSet xs)
+deriving instance Default (HChangeSet xs) => Default (DiffChangeSet xs)
 
 ------------------------------------------
 -- Restrictions of expanders
