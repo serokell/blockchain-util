@@ -5,10 +5,7 @@ module Snowdrop.Core.Validator.Basic
 
        , StructuralValidationException (..)
        , structuralPreValidator
-
-       -- , inputsExist
-       -- , inputsSigned
-       -- , exampleStateTxValidator
+       , StructuralConstr
        ) where
 
 import           Control.Monad.Except (MonadError (..))
@@ -72,7 +69,7 @@ instance Buildable StructuralValidationException where
             -- this is an error as soon as we have separated 'New' and 'Upd'
             -- 'ValueOp's.
 
-type StructuralC txtype xs = (
+type StructuralConstr txtype xs = (
     RecAll' xs (QueryERo (TxComponents txtype))
   , RecAll' xs ExnHKey
   )
@@ -80,16 +77,16 @@ type StructuralC txtype xs = (
 csRemoveExist
     :: forall conf txtype .
     ( HasBException conf StructuralValidationException
-    , StructuralC txtype (TxComponents txtype)
+    , StructuralConstr txtype (TxComponents txtype)
     )
     => PreValidator conf txtype
 csRemoveExist = PreValidator $ checkBody . txBody
   where
-    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp conf (TxComponents txtype) ()
+    checkBody :: forall xs . StructuralConstr txtype xs => HChangeSet xs -> ERoComp conf (TxComponents txtype) ()
     checkBody RNil         = pure ()
     checkBody gs'@(_ :& _) = checkBody' gs'
 
-    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp conf (TxComponents txtype) ()
+    checkBody' :: forall t xs' . StructuralConstr txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp conf (TxComponents txtype) ()
     checkBody' (cs :& gs) = do
         let inRefs = csRemove cs
         ins <- query @t @_ @conf inRefs
@@ -99,15 +96,15 @@ csRemoveExist = PreValidator $ checkBody . txBody
 csNewNotExist
     :: forall conf txtype .
     ( HasBException conf StructuralValidationException
-    , StructuralC txtype (TxComponents txtype)
+    , StructuralConstr txtype (TxComponents txtype)
     ) => PreValidator conf txtype
 csNewNotExist = PreValidator $ checkBody . txBody
   where
-    checkBody :: forall xs . StructuralC txtype xs => HChangeSet xs -> ERoComp conf (TxComponents txtype) ()
+    checkBody :: forall xs . StructuralConstr txtype xs => HChangeSet xs -> ERoComp conf (TxComponents txtype) ()
     checkBody RNil         = pure ()
     checkBody gs'@(_ :& _) = checkBody' gs'
 
-    checkBody' :: forall t xs' . StructuralC txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp conf (TxComponents txtype) ()
+    checkBody' :: forall t xs' . StructuralConstr txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp conf (TxComponents txtype) ()
     checkBody' (cs :& gs) = do
         let ks = M.keysSet (csNew cs)
         mp <- query @t @_ @conf ks
@@ -119,43 +116,6 @@ csNewNotExist = PreValidator $ checkBody . txBody
 structuralPreValidator
     :: forall conf txtype .
     ( HasBException conf StructuralValidationException
-    , StructuralC txtype (TxComponents txtype)
+    , StructuralConstr txtype (TxComponents txtype)
     ) => PreValidator conf txtype
 structuralPreValidator = csRemoveExist <> csNewNotExist
-
----------------------------
--- Example validators
----------------------------
-
--- data GlobalError = StateTxError StateTxValidationException
-
--- -- instance of HasReview declared at bottom with TH
-
--- data StateTxValidationException
---     = InputDoesntExist
---     | InputNotSigned
-
--- inputsExist
---     :: (Ord id, HasBException conf StateTxValidationException)
---     => PreValidator e id valuconf txtype
--- inputsExist = PreValidator $ \(csRemove . txBody -> inRefs) -> do
---     ins <- query inRefs
---     validateIff InputDoesntExist (all (flip M.member ins) inRefs)
-
--- inputsSigned
---     :: (Ord id, HasBException conf StateTxValidationException)
---     => PreValidator e id (TxProof txtype -> Bool, value) ctx txtype
--- inputsSigned = PreValidator $ \tx -> do
---     let inRefs = csRemove $ txBody tx
---         proof  = txProof tx
---     ins <- query inRefs
---     validateIff InputNotSigned (all (($ proof) . fst) ins)
-
--- exampleStateTxValidator :: Ord id => Validator GlobalError id ((TxProof txtype) -> Bool, value) ctx '[txtype]
--- exampleStateTxValidator = mkValidator [inputsExist, inputsSigned]
-
--- ---------------------------
--- -- HasReview instances
--- ---------------------------
-
--- deriveView withInj ''GlobalError
