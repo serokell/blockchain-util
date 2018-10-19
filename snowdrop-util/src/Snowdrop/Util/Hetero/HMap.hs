@@ -107,7 +107,7 @@ instance (Buildable (f x), Buildable (Rec f xs')) => Buildable (Rec f (x ': xs')
 -- | If @t@ belongs to the list of types @xs@, @hremoveElem@ methods returns pair
 -- from @Just@ with corresponding element and rest of the list.
 -- Otherwise it returns @Nothing@ and unchanged list.
-class HRemoveElem (t :: *) (xs :: [*]) where
+class HRemoveElem (t :: k) (xs :: [k]) where
     hremoveElem :: Rec f xs -> (Maybe (f t), Rec f (RemoveElem t xs))
 
 instance HRemoveElem t '[] where
@@ -120,7 +120,7 @@ instance {-# OVERLAPPABLE #-}
     ( RemoveElem t (x ': xs') ~ (x ': RemoveElem t xs')
     , HRemoveElem t xs')
     => HRemoveElem t (x ': xs') where
-    hremoveElem (x :& xs') = (x :&) <$> hremoveElem @t @xs' xs'
+    hremoveElem (x :& xs') = (x :&) <$> hremoveElem xs'
 
 ------------------------
 -- Castable
@@ -138,12 +138,35 @@ instance ( Default (f t)
          , HRemoveElem t xs
          )
          => HUpCastable f xs (t ': res') where
-    hupcast xs = case hremoveElem @t @xs xs of
+    hupcast xs = case hremoveElem xs of
         (Nothing, rest) -> def :& hupcast @f @(RemoveElem t xs) @res' rest
         (Just rx, rest) -> rx :& hupcast @f @(RemoveElem t xs) @res' rest
 
 type HUpCastableMap = HUpCastable HMapEl
 type HUpCastableSet = HUpCastable HSetEl
+
+class (HRemoveElem t xs, OrdHKey t) => HCast xs t
+instance (HRemoveElem t xs, OrdHKey t) => HCast xs t
+type HCastable f res xs = (RecAll' res (HCast xs), Default (Rec f res))
+
+-- | Takes xs ∩ res components from the passed Rec
+-- and fill res \ xs components by def value.
+-- So xs \ res components are ignored.
+castStrip
+    :: forall xs res f . HCastable f res xs
+    => Rec f xs -> Rec f res
+castStrip = impl def
+  where
+    impl :: forall rs . (RecAll' rs (HCast xs)) => Rec f rs -> Rec f xs -> Rec f rs
+    impl RNil _ = RNil
+    impl rs@(_ :& _) xs = impl1 rs xs
+
+    impl1 :: forall rs r rs' . (rs ~ (r ': rs'), RecAll' rs (HCast xs))
+          => Rec f rs -> Rec f xs -> Rec f rs
+    impl1 (rdef :& rs') xs = case hremoveElem xs of
+        (Just rx, _) -> rx :& impl @rs' rs' xs
+        (Nothing, _) -> rdef :& impl @rs' rs' xs
+
 
 -- @xs@ must be superset of @res@, i.e. xs ⊇ res
 type HDownCastable xs res = RSubset res xs (RImage res xs)
