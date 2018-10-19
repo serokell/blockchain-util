@@ -149,6 +149,9 @@ class (HRemoveElem t xs, OrdHKey t) => HCast xs t
 instance (HRemoveElem t xs, OrdHKey t) => HCast xs t
 type HCastable f res xs = (RecAll' res (HCast xs), Default (Rec f res))
 
+-- | Takes xs ∩ res components from the passed Rec
+-- and fill res \ xs components by def value.
+-- So xs \ res components are ignored.
 castStrip
     :: forall xs res f . HCastable f res xs
     => Rec f xs -> Rec f res
