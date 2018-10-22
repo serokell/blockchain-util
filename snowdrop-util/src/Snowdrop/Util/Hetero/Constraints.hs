@@ -4,18 +4,27 @@
 
 module Snowdrop.Util.Hetero.Constraints where
 
-import           Universum hiding (Const (..), show)
+import           Universum hiding (Compose (..), Const (..), show)
 
+import           Data.Hashable (Hashable (..))
 import           Data.Kind
-import           Data.Union (Union, absurdUnion, union)
+import           Data.Union (USubset, Union, absurdUnion, ulift, union, urelax)
 import           Data.Vinyl (Rec (..))
+import           Data.Vinyl.Functor (Compose (..), Lift (..))
 import           Data.Vinyl.Lens (RElem)
-import           Data.Vinyl.TypeLevel (AllConstrained, RIndex, RecAll)
+import           Data.Vinyl.TypeLevel (AllConstrained, RImage, RIndex, RecAll)
 
 import           GHC.TypeLits (ErrorMessage (..), TypeError)
 
 import           Snowdrop.Util.Containers (IsEmpty (..))
 import           Snowdrop.Util.Lens (HasGetter (..))
+
+
+instance Hashable (Rec f '[]) where
+    hashWithSalt i RNil = i
+
+instance (Hashable (Rec f xs), Hashable (f x)) => Hashable (Rec f (x ': xs)) where
+    hashWithSalt i (f :& fs) = hashWithSalt (hashWithSalt i f) fs
 
 -- Aux type level fuctions and constraints
 
@@ -98,3 +107,45 @@ instance RElem r rs (RIndex r rs) => RContains rs r
 rAllEmpty :: RecAll f rs IsEmpty => Rec f rs -> Bool
 rAllEmpty RNil      = True
 rAllEmpty (x :& xs) = isEmpty x && rAllEmpty xs
+
+-- | A record of components @f r -> g r@ may be applied to a union of @f@ to
+-- get a union of @g@.
+class UApply rs where
+    uapply
+      :: Rec (Lift (->) f g) rs
+      -> Union f rs
+      -> Union g rs
+
+instance UApply '[] where
+    uapply RNil = absurdUnion
+    {-# INLINE uapply #-}
+
+instance (UApply xs, USubset xs (x ': xs) (RImage xs (x ': xs))) => UApply (x ': xs) where
+    uapply (Lift f :& fs) = union (urelax . uapply fs) (ulift . f)
+    {-# INLINE uapply #-}
+
+type UHandler f g h = Lift (->) f (Compose h g)
+
+toUHandler
+  :: forall t f g h .
+     (f t -> h (g t))
+  -> UHandler f g h t
+toUHandler f = Lift (Compose . f)
+
+-- | A record of components @f r -> h (g r)@ may be applied to a union of @f@ to
+-- get a union of @g@.
+class UTraverse rs where
+    utraverse
+      :: Functor h
+      => Rec (UHandler f g h) rs
+      -> Union f rs
+      -> h (Union g rs)
+
+instance UTraverse '[] where
+    utraverse RNil = absurdUnion
+    {-# INLINE utraverse #-}
+
+instance (UTraverse xs, USubset xs (x ': xs) (RImage xs (x ': xs))) => UTraverse (x ': xs) where
+    utraverse (Lift f :& fs) = union (fmap urelax . utraverse fs) (fmap ulift . getCompose . f)
+    {-# INLINE utraverse #-}
+

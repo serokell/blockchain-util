@@ -14,6 +14,8 @@ module Snowdrop.Block.State
        , BlkProcConstr
        , OpenBlockRawTxType
        , CloseBlockRawTxType
+
+       , MempoolReasonableTx
        ) where
 
 import           Universum
@@ -38,8 +40,9 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (
                                 convertEffect, getCAOrDefault, hChangeSetFromMap, liftERoComp,
                                 modifyAccum, modifyAccumOne, modifyAccumUndo, queryOne,
                                 queryOneExists, runValidator, upcastEffERoComp, upcastEffERoCompM)
-import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
-                                     UnionSeqExpandersInps, runSeqExpandersSequentially)
+import           Snowdrop.Execution (DbComponents, ExpandRawTxsMode, ExpandableTx, MempoolTx,
+                                     ProofNExp (..), UnionSeqExpandersInps,
+                                     runSeqExpandersSequentially)
 import           Snowdrop.Util
 
 data OpenBlockRawTxType header
@@ -55,6 +58,12 @@ instance UElem (CloseBlockRawTxType header) ts (RIndex (CloseBlockRawTxType head
 
 type instance TxRawImpl (OpenBlockRawTxType header) = OpenBlockRawTx header
 type instance TxRawImpl (CloseBlockRawTxType header) = CloseBlockRawTx header
+
+type MempoolReasonableTx txtypes conf =
+    CList '[ MempoolTx txtypes (DbComponents conf)
+           , BlkProcConstr txtypes (DbComponents conf)
+           , ExpandableTx txtypes
+           ]
 
 data TipComponent blkType
 data BlundComponent blkType
