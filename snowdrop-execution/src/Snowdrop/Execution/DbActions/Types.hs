@@ -7,6 +7,7 @@ module Snowdrop.Execution.DbActions.Types
        (
          DbComponents
        , DbApplyProof
+       , DbApplyProofWrapper (..)
        , DbAccessActions (..)
        , DbAccessActionsM (..)
        , DbAccessActionsU (..)
@@ -26,7 +27,7 @@ module Snowdrop.Execution.DbActions.Types
 
 import           Universum
 
-import qualified Data.Text.Buildable
+import qualified Data.Text.Buildable as Buildable
 import           Data.Vinyl.Core (Rec)
 import           Data.Vinyl.Recursive (rmap)
 import           Formatting (bprint, build, (%))
@@ -37,6 +38,15 @@ import           Snowdrop.Util (HFunctor (..), HKey, HMap, HSet, HVal, NewestFir
 
 type family DbComponents conf :: [*]
 type family DbApplyProof conf :: *
+
+-- | Wrapper for buildable instances
+newtype DbApplyProofWrapper proof = DbApplyProofWrapper proof
+
+instance Buildable (DbApplyProofWrapper ()) where
+    build _ = "( no proof )"
+
+instance Buildable (DbApplyProofWrapper proof) => Buildable (DbApplyProofWrapper ((), proof)) where
+    build (DbApplyProofWrapper (_, proof)) = Buildable.build $ DbApplyProofWrapper proof
 
 type DGetter' xs m = HSet xs -> m (HMap xs)
 type DGetter conf m = ChgAccum conf -> DGetter' (DbComponents conf) m

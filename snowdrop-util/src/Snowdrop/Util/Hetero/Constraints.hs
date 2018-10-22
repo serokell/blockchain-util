@@ -7,13 +7,15 @@ module Snowdrop.Util.Hetero.Constraints where
 import           Universum hiding (Const (..), show)
 
 import           Data.Kind
+import           Data.Union (Union, absurdUnion, union)
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Lens (RElem)
-import           Data.Vinyl.TypeLevel (RIndex, RecAll)
+import           Data.Vinyl.TypeLevel (AllConstrained, RIndex, RecAll)
 
 import           GHC.TypeLits (ErrorMessage (..), TypeError)
 
 import           Snowdrop.Util.Containers (IsEmpty (..))
+import           Snowdrop.Util.Lens (HasGetter (..))
 
 -- Aux type level fuctions and constraints
 
@@ -72,6 +74,13 @@ applySomeData f (SomeData x) = f x
 
 usingSomeData :: SomeData d c -> (forall txtype . c txtype => d txtype -> a) -> a
 usingSomeData sd f = applySomeData f sd
+
+instance HasGetter (Union f '[]) a where
+    gett = absurdUnion
+
+instance (HasGetter (Union f xs) (SomeData f c), AllConstrained c (x : xs))
+    => HasGetter (Union f (x : xs)) (SomeData f c) where
+    gett = union gett SomeData
 
 class (c1 x, c2 x) => Both c1 c2 x
 instance (c1 x, c2 x) => Both c1 c2 x

@@ -7,8 +7,10 @@ module Snowdrop.Execution.DbActions.Composite
        , CompositeChgAccum (..)
        , CompositeUndo (..)
        , CompositeConf
-       , Conf1
-       , Conf2
+       , ConfPrimary
+       , ConfSecondary
+       , UndoPrimary (..)
+       , UndoSecondary (..)
        ) where
 
 import           Universum
@@ -18,8 +20,8 @@ import           Data.Vinyl.TypeLevel (type (++))
 
 import           Snowdrop.Core (CSMappendException, ChgAccum, Undo)
 import           Snowdrop.Execution.DbActions.Types
-import           Snowdrop.Util (HDownCastable, NewestFirst (..), NotIntersect, OldestFirst (..),
-                                happend, hdowncast)
+import           Snowdrop.Util (HDownCastable, HasGetter (..), HasReview (..), NewestFirst (..),
+                                NotIntersect, OldestFirst (..), happend, hdowncast)
 
 data CompositeConf conf1 conf2
 
@@ -28,11 +30,26 @@ type instance ChgAccum (CompositeConf conf1 conf2) = CompositeChgAccum conf1 con
 type instance DbComponents (CompositeConf conf1 conf2) = DbComponents conf1 ++ DbComponents conf2
 type instance DbApplyProof (CompositeConf conf1 conf2) = (DbApplyProof conf1, DbApplyProof conf2)
 
-type family Conf1 a where
-    Conf1 (CompositeConf conf1 conf2) = conf1
+type family ConfPrimary a where
+    ConfPrimary (CompositeConf conf1 conf2) = conf1
 
-type family Conf2 a where
-    Conf2 (CompositeConf conf1 conf2) = conf2
+type family ConfSecondary a where
+    ConfSecondary (CompositeConf conf1 conf2) = conf2
+
+newtype UndoPrimary conf1 = UndoPrimary { unUndoPrimary :: Undo conf1 }
+newtype UndoSecondary conf2 = UndoSecondary { unUndoSecondary :: Undo conf2 }
+
+instance Default (Undo conf2) => HasReview (CompositeUndo conf1 conf2) (UndoPrimary conf1) where
+    inj = flip CompositeUndo def . unUndoPrimary
+
+instance Default (Undo conf1) => HasReview (CompositeUndo conf1 conf2) (UndoSecondary conf2) where
+    inj = CompositeUndo def . unUndoSecondary
+
+instance HasGetter (CompositeUndo conf1 conf2) (UndoPrimary conf1) where
+    gett = UndoPrimary . cuPrimary
+
+instance HasGetter (CompositeUndo conf1 conf2) (UndoSecondary conf2) where
+    gett = UndoSecondary . cuSecondary
 
 data CompositeUndo conf1 conf2 = CompositeUndo
     { cuPrimary   :: Undo conf1

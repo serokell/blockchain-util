@@ -65,6 +65,15 @@ applyBlock = expandAndApplyBlock True
 newtype OpenBlockRawTx header  = OpenBlockRawTx  { unOpenBlockRawTx :: header }
 newtype CloseBlockRawTx header = CloseBlockRawTx { unCloseBlockRawTx :: header }
 
+
+instance Buildable (CloseBlockRawTx h) where
+    build _ = "Block close tx"
+instance DBuildable (CloseBlockRawTx h)
+
+instance Buildable (OpenBlockRawTx h) where
+    build _ = "Block open tx"
+instance DBuildable (OpenBlockRawTx h)
+
 expandAndApplyBlock
     :: forall blkType e m
     . ( MonadError e m

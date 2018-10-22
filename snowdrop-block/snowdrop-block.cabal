@@ -32,6 +32,7 @@ library
     , hashable-time
     , text-format
     , vinyl
+    , union
     , universum >= 1.1.0
   build-tool-depends:
       autoexporter:autoexporter

@@ -32,8 +32,10 @@ import           Universum hiding (head, init, last)
 
 import           Control.Lens (makeLenses, (+~))
 import           Data.Default (Default (..))
-import qualified Data.Text.Buildable
+import qualified Data.Text.Buildable as Buildable
 import           Data.Text.Lazy.Builder (Builder)
+import           Data.Union (Union, absurdUnion, union)
+import           Data.Vinyl.TypeLevel (RecAll)
 import           Fmt (format)
 import           Formatting (Format, bprint, build, later, now, sformat, (%))
 import           Formatting.Internal (Format (..))
@@ -211,3 +213,25 @@ printDoc x = putDoc $ \dp -> sformat (docF dp) x
 -- | Ability to use a logger.
 logDoc :: (LogEvent -> ExecM ()) -> DText -> ExecM ()
 logDoc logger doc = logger $ format "{}" (doc printParams)
+
+deriving instance Buildable x => Buildable (Identity x)
+
+instance Buildable (Union f '[]) where
+    build = absurdUnion
+
+instance (RecAll f  (x ': xs) Buildable, Buildable (Union f xs)) => Buildable (Union f (x ': xs)) where
+    build = union Buildable.build Buildable.build
+
+instance DBuildable (Union f '[]) where
+    dbuild val _ = absurdUnion val
+
+instance (RecAll f  (x ': xs) DBuildable, DBuildable (Union f xs)) => DBuildable (Union f (x ': xs)) where
+    dbuild val dp = union (flip dbuild dp) (flip dbuild dp) val
+
+instance (DBuildable x) => DBuildable [x] where
+    dbuild ls dp =
+        bprint
+          (bareListF ""
+              (newlineF dp%"* "%dlater dbuild (indented dp)))
+          ls
+

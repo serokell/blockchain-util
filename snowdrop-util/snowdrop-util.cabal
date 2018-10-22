@@ -37,6 +37,7 @@ library
     , template-haskell
     , transformers
     , transformers-base
+    , union
     , universum >= 1.1.0
     , unordered-containers
     , vinyl

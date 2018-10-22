@@ -16,7 +16,9 @@ module Snowdrop.Block.Types
 
 import           Universum
 
-import           Snowdrop.Util (HasGetter)
+import           Formatting (bprint, (%))
+
+import           Snowdrop.Util (DBuildable (..), HasGetter, docF, indented, newlineF)
 
 -------------------------------
 -- Block storage
@@ -52,6 +54,11 @@ data Block header tx = Block
     , blkPayload :: [tx]
     }
     deriving (Eq, Show, Generic)
+
+instance (DBuildable header, DBuildable rawTx) => DBuildable (Block header rawTx) where
+    dbuild (Block h p) dp =
+        bprint ("Block header: "%docF (indented dp)%newlineF dp%
+                "Block content: "%docF (indented dp)) h p
 
 -- | Raw block type
 type RawBlk blkType = Block (BlockHeader blkType) (BlockRawTx blkType)

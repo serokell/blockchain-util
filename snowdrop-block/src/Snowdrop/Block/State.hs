@@ -21,7 +21,9 @@ import           Universum
 import           Data.Default (Default)
 import qualified Data.Map as M
 import qualified Data.Text.Buildable
+import           Data.Union (UElem, Union)
 import           Data.Vinyl (Rec)
+import           Data.Vinyl.TypeLevel (RIndex)
 
 import           Snowdrop.Block.Application (CloseBlockRawTx, OpenBlockRawTx)
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
@@ -31,17 +33,25 @@ import           Snowdrop.Block.Types (BlockExpandedTx, BlockRawTx, BlockRef, Bl
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
                                 ERoComp, ERwComp, HChangeSet, HUpCastableChSet, HasBExceptions,
                                 MappendHChSet, QueryERo, SomeTx, StatePException (..), StateTx (..),
-                                TxComponents, TxRaw, TxRawImpl, Undo, UnitedTxType, UpCastableERoM,
-                                Validator, ValueOp (..), applySomeTx, computeUndo, convertEffect,
-                                getCAOrDefault, hChangeSetFromMap, liftERoComp, modifyAccum,
-                                modifyAccumOne, modifyAccumUndo, queryOne, queryOneExists,
-                                runValidator, upcastEffERoComp, upcastEffERoCompM)
+                                TxComponents, TxRaw (..), TxRawImpl, Undo, UnitedTxType,
+                                UpCastableERoM, Validator, ValueOp (..), applySomeTx, computeUndo,
+                                convertEffect, getCAOrDefault, hChangeSetFromMap, liftERoComp,
+                                modifyAccum, modifyAccumOne, modifyAccumUndo, queryOne,
+                                queryOneExists, runValidator, upcastEffERoComp, upcastEffERoCompM)
 import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
                                      UnionSeqExpandersInps, runSeqExpandersSequentially)
 import           Snowdrop.Util
 
 data OpenBlockRawTxType header
 data CloseBlockRawTxType header
+
+instance UElem (OpenBlockRawTxType header) ts (RIndex (OpenBlockRawTxType header) ts)
+  => HasReview (Union TxRaw ts) (OpenBlockRawTx header) where
+    inj = inj . TxRaw @(OpenBlockRawTxType header)
+
+instance UElem (CloseBlockRawTxType header) ts (RIndex (CloseBlockRawTxType header) ts)
+  => HasReview (Union TxRaw ts) (CloseBlockRawTx header) where
+    inj = inj . TxRaw @(CloseBlockRawTxType header)
 
 type instance TxRawImpl (OpenBlockRawTxType header) = OpenBlockRawTx header
 type instance TxRawImpl (CloseBlockRawTxType header) = CloseBlockRawTx header

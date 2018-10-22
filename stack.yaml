@@ -29,7 +29,8 @@ extra-deps:
 # Forced by lootbox #
 - base-noprelude-4.10.1.0
 - serialise-0.2.0.0
-- vinyl-0.10.0
+- vinyl-0.9.3
+- union-0.1.2
 
 - git: https://github.com/int-index/caps
   commit: 2f46fc6d5480bdef0a17f64359ad6eb29510dba4
