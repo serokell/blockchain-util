@@ -116,7 +116,7 @@ class DbActions effect actions param m where
     executeEffect :: effect r -> actions m -> param -> m r
 
 instance (chgAccum ~ ChgAccum conf, Monad m, xs ~ DbComponents conf) =>
-    DbActions (DbAccess xs) (DbAccessActions conf) chgAccum m where
+    DbActions (DbAccess conf xs) (DbAccessActions conf) chgAccum m where
 
     executeEffect (DbQuery req cont) daa conf =
         cont <$> daaGetter daa conf req

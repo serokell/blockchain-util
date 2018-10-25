@@ -39,7 +39,7 @@ instance Default (HChangeSet xs) => Default (SumChangeSet xs) where
 simpleStateAccessor
     :: HIntersectable xs xs
     => HMap xs
-    -> DbAccess xs res
+    -> DbAccess conf xs res
     -> res
 simpleStateAccessor st (DbQuery q cont) = cont (st `hintersect` q)
 simpleStateAccessor st (DbIterator getComp (FoldF (e, foldf, applier))) = applier $
@@ -115,7 +115,7 @@ instance ( MonadReader (HMap xs) m
          , AllConstrained ExnHKey xs
          , ChgAccum conf ~ SumChangeSet xs
          ) =>
-    Effectful (DbAccess xs) (TestExecutorT e conf m) where
+   Effectful (DbAccess conf xs) (TestExecutorT e conf m) where
         effect dbAccess = do
             SumChangeSet acc <- getCAOrDefault . tctxChgAccum <$> ask
             storage <- TestExecutorT $ lift $ lift ask

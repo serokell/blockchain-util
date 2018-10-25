@@ -28,7 +28,7 @@ class HasGetter s a => HasLens s a where
 instance HasGetter (NonEmpty a) a where
     gett (x :| _) = x
 
-instance HasGetter a a where
+instance {-# OVERLAPPABLE #-} HasGetter a a where
     gett = id
 
 instance HasLens a a where

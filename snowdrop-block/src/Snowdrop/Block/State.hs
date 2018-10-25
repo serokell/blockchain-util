@@ -23,15 +23,15 @@ import           Universum
 import           Data.Default (Default)
 import qualified Data.Map as M
 import qualified Data.Text.Buildable
-import           Data.Union (UElem, Union)
+import           Data.Union (UElem, USubset, Union, absurdUnion, ulift, union, urelax)
 import           Data.Vinyl (Rec)
-import           Data.Vinyl.TypeLevel (RIndex)
+import           Data.Vinyl.TypeLevel (RImage, RIndex)
 
-import           Snowdrop.Block.Application (CloseBlockRawTx, OpenBlockRawTx)
+import           Snowdrop.Block.Application (CloseBlockRawTx (..), OpenBlockRawTx (..))
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (BlockExpandedTx, BlockRawTx, BlockRef, BlockUndo, Blund (..),
-                                       CurrentBlockRef (..))
+import           Snowdrop.Block.Types (BlockExpandedTx, BlockHeader, BlockRawTx, BlockRef,
+                                       BlockUndo, Blund (..), CurrentBlockRef (..))
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
                                 ERoComp, ERwComp, HChangeSet, HUpCastableChSet, HasBExceptions,
                                 MappendHChSet, QueryERo, SomeTx, StatePException (..), StateTx (..),
@@ -45,19 +45,38 @@ import           Snowdrop.Execution (DbComponents, ExpandRawTxsMode, ExpandableT
                                      runSeqExpandersSequentially)
 import           Snowdrop.Util
 
-data OpenBlockRawTxType header
-data CloseBlockRawTxType header
+data OpenBlockRawTxType blkType
+data CloseBlockRawTxType blkType
 
-instance UElem (OpenBlockRawTxType header) ts (RIndex (OpenBlockRawTxType header) ts)
-  => HasReview (Union TxRaw ts) (OpenBlockRawTx header) where
-    inj = inj . TxRaw @(OpenBlockRawTxType header)
+instance UElem (OpenBlockRawTxType blkType) ts (RIndex (OpenBlockRawTxType blkType) ts)
+  => HasReview (Union TxRaw ts) (OpenBlockRawTx blkType) where
+    inj = inj . TxRaw @(OpenBlockRawTxType blkType)
 
-instance UElem (CloseBlockRawTxType header) ts (RIndex (CloseBlockRawTxType header) ts)
-  => HasReview (Union TxRaw ts) (CloseBlockRawTx header) where
-    inj = inj . TxRaw @(CloseBlockRawTxType header)
+instance UElem (CloseBlockRawTxType blkType) ts (RIndex (CloseBlockRawTxType blkType) ts)
+  => HasReview (Union TxRaw ts) (CloseBlockRawTx blkType) where
+    inj = inj . TxRaw @(CloseBlockRawTxType blkType)
 
-type instance TxRawImpl (OpenBlockRawTxType header) = OpenBlockRawTx header
-type instance TxRawImpl (CloseBlockRawTxType header) = CloseBlockRawTx header
+type instance TxRawImpl (OpenBlockRawTxType blkType) = OpenBlockRawTx blkType
+type instance TxRawImpl (CloseBlockRawTxType blkType) = CloseBlockRawTx blkType
+
+type BlockRawTxs blkType = '[OpenBlockRawTxType blkType, CloseBlockRawTxType blkType]
+
+instance
+  BlockHeader blkType1 ~ BlockHeader blkType2
+  => HasGetter (Union TxRaw ( BlockRawTxs blkType1 )) (Union TxRaw ( BlockRawTxs blkType2 )) where
+    gett =
+      union (union absurdUnion
+        (ulift . TxRaw @(CloseBlockRawTxType blkType2) . CloseBlockRawTx . unCloseBlockRawTx . unTxRaw) )
+      (ulift . TxRaw @(OpenBlockRawTxType blkType2) . OpenBlockRawTx . unOpenBlockRawTx . unTxRaw)
+
+instance
+  ( HasGetter (Union TxRaw (t2 : t3 : t4)) (Union TxRaw (t2' : t3' : t4'))
+  , UElem t2' (t1 : t2' : t3' : t4') (RIndex t2' (t1 : t2' : t3' : t4'))
+  , UElem t3' (t1 : t2' : t3' : t4') (RIndex t3' (t1 : t2' : t3' : t4'))
+  , USubset t4' (t1 : t2' : t3' : t4') (RImage t4' (t1 : t2' : t3' : t4'))
+  )
+  => HasGetter (Union TxRaw (t1 : t2 : t3 : t4)) (Union TxRaw (t1 : t2' : t3' : t4')) where
+    gett = union (urelax . gett @_ @(Union TxRaw (t2' : t3' : t4'))) ulift
 
 type MempoolReasonableTx txtypes conf =
     CList '[ MempoolTx txtypes (DbComponents conf)
@@ -146,7 +165,7 @@ inmemoryBlkStateConfiguration cfg validator exps = fix $ \this ->
     BlkStateConfiguration {
       bscConfig = cfg
     , bscExpand = liftERoComp . upcastEffERoCompM @_ @xs . runSeqExpandersSequentially exps . map gett
-    , bscApplyPayload = \(gett @_ @[SomeTx (BlkProcConstr txtypes xs)] -> txs) -> do
+    , bscApplyPayload = \txs -> do
           (newSt, undo) <- liftERoComp $ do
               curAcc <- asks (getCAOrDefault @conf . gett)
               OldestFirst accs <-

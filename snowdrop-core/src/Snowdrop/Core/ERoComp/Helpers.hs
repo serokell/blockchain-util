@@ -72,7 +72,7 @@ query
 query req = do
     let hreq :: HSet '[t]
         hreq = hsetFromSet req
-    effect $
+    effect @(DbAccess conf xs) $
         DbQuery
             (hupcast @_ @_ @xs hreq)
             (hmapToMap . flip (hintersect @xs @'[t]) hreq)
@@ -83,7 +83,7 @@ iterator
     => b
     -> (b -> (HKey t, HVal t) -> b)
     -> ERoComp conf xs b
-iterator e foldf = effect $ DbIterator @xs @b @t rget (FoldF (e, foldf, id))
+iterator e foldf = effect $ DbIterator @conf @xs @b @t rget (FoldF (e, foldf, id))
 
 -- | Creates a DbComputeUndo operation.
 computeUndo
@@ -204,9 +204,9 @@ upcastDbAccessM (DbAccess da)            = DbAccess (upcastDbAccess da)
 upcastDbAccessM (DbModifyAccum css cont) = DbModifyAccum (hupcast <$> css) cont
 
 upcastDbAccess
-    :: forall xs supxs a . UpCastableERo xs supxs
-    => DbAccess xs a
-    -> DbAccess supxs a
+    :: forall xs supxs conf a . UpCastableERo xs supxs
+    => DbAccess conf xs a
+    -> DbAccess conf supxs a
 upcastDbAccess (DbQuery s cont) =
     DbQuery (hupcast @_ @xs @supxs s) (\resp -> cont (hintersect @supxs @xs resp s))
 upcastDbAccess (DbIterator pr foldf) = DbIterator (pr . hdowncast) foldf
@@ -233,14 +233,14 @@ newtype DbAccessT (eff1 :: [*] -> * -> *) (eff2 :: [*] -> * -> *) m a = DbAccess
              , MonadReader ctx, Log.MonadLogging, Log.ModifyLogName)
 
 instance (Effectful (DbAccessM conf xs) m)
-    => Effectful (DbAccess xs)
-                 (DbAccessT DbAccess (DbAccessM conf) m) where
+    => Effectful (DbAccess conf xs)
+                 (DbAccessT (DbAccess conf) (DbAccessM conf) m) where
     effect da = DbAccessT $ effect (DbAccess @conf da)
 
 
 instance (Effectful (DbAccessU conf xs) m)
-    => Effectful (DbAccess xs)
-                 (DbAccessT DbAccess (DbAccessU conf) m) where
+    => Effectful (DbAccess conf xs)
+                 (DbAccessT (DbAccess conf) (DbAccessU conf) m) where
     effect da = DbAccessT $ effect (DbAccessM @conf $ DbAccess da)
 
 instance (Effectful (DbAccessU conf xs) m)
@@ -248,14 +248,14 @@ instance (Effectful (DbAccessU conf xs) m)
                  (DbAccessT (DbAccessM conf) (DbAccessU conf) m) where
     effect da = DbAccessT $ effect (DbAccessM @conf da)
 
-instance ConvertEffect conf (DbAccess xs) (DbAccessM conf xs) where
-    convertEffect (BaseM action) = BaseM ( runDbAccessT @DbAccess @(DbAccessM conf) action )
+instance ConvertEffect conf (DbAccess conf xs) (DbAccessM conf xs) where
+    convertEffect (BaseM action) = BaseM ( runDbAccessT @(DbAccess conf) @(DbAccessM conf) action )
 
 instance ConvertEffect conf (DbAccessM conf xs) (DbAccessU conf xs) where
     convertEffect (BaseM action) = BaseM ( runDbAccessT @(DbAccessM conf) @(DbAccessU conf) action )
 
-instance ConvertEffect conf (DbAccess xs) (DbAccessU conf xs) where
-    convertEffect (BaseM action) = BaseM ( runDbAccessT @DbAccess @(DbAccessU conf) action )
+instance ConvertEffect conf (DbAccess conf xs) (DbAccessU conf xs) where
+    convertEffect (BaseM action) = BaseM ( runDbAccessT @(DbAccess conf) @(DbAccessU conf) action )
 
 instance ConvertEffect conf (DbAccessU conf xs) (DbAccessU conf xs) where
     convertEffect = id
@@ -263,5 +263,5 @@ instance ConvertEffect conf (DbAccessU conf xs) (DbAccessU conf xs) where
 instance ConvertEffect conf (DbAccessM conf xs) (DbAccessM conf xs) where
     convertEffect = id
 
-instance ConvertEffect conf (DbAccess xs) (DbAccess xs) where
+instance ConvertEffect conf (DbAccess conf xs) (DbAccess conf xs) where
     convertEffect = id

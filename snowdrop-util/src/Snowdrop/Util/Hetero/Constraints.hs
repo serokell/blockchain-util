@@ -1,4 +1,6 @@
+{-# LANGUAGE AllowAmbiguousTypes     #-}
 {-# LANGUAGE Rank2Types              #-}
+{-# LANGUAGE ScopedTypeVariables     #-}
 {-# LANGUAGE TypeInType              #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
@@ -9,7 +11,7 @@ import           Universum hiding (Compose (..), Const (..), show)
 import           Data.Hashable (Hashable (..))
 import           Data.Kind
 import           Data.Union (USubset, Union, absurdUnion, ulift, union, urelax)
-import           Data.Vinyl (Rec (..))
+import           Data.Vinyl (RPureConstrained (..), Rec (..))
 import           Data.Vinyl.Functor (Compose (..), Lift (..))
 import           Data.Vinyl.Lens (RElem)
 import           Data.Vinyl.TypeLevel (AllConstrained, RImage, RIndex, RecAll)
@@ -148,4 +150,18 @@ instance UTraverse '[] where
 instance (UTraverse xs, USubset xs (x ': xs) (RImage xs (x ': xs))) => UTraverse (x ': xs) where
     utraverse (Lift f :& fs) = union (fmap urelax . utraverse fs) (fmap ulift . getCompose . f)
     {-# INLINE utraverse #-}
+
+rliftA2
+  :: forall c f g h ts .
+    RPureConstrained c ts
+  => (forall t . c t => f t -> g t -> h t)
+  -> Rec (Lift (->) f (Lift (->) g h)) ts
+rliftA2 f = rpureConstrained @c (Lift $ Lift . f)
+
+rliftA
+  :: forall c f g ts .
+    RPureConstrained c ts
+  => (forall t . c t => f t -> g t)
+  -> Rec (Lift (->) f g) ts
+rliftA f = rpureConstrained @c (Lift f)
 

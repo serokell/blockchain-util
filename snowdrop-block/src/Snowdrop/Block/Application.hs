@@ -52,8 +52,8 @@ applyBlock
     . ( MonadError e m
       , Eq (BlockRef blkType)
       , HasReview e (BlockApplicationException (BlockRef blkType))
-      , HasReview (BlockRawTx blkType) (OpenBlockRawTx (BlockHeader blkType))
-      , HasReview (BlockRawTx blkType) (CloseBlockRawTx (BlockHeader blkType))
+      , HasReview (BlockRawTx blkType) (OpenBlockRawTx blkType)
+      , HasReview (BlockRawTx blkType) (CloseBlockRawTx blkType)
       )
     => OSParams blkType
     -> BlkStateConfiguration blkType m
@@ -62,9 +62,8 @@ applyBlock
 -- TODO: compare old chain with new one via `bcIsBetterThan`
 applyBlock = expandAndApplyBlock True
 
-newtype OpenBlockRawTx header  = OpenBlockRawTx  { unOpenBlockRawTx :: header }
-newtype CloseBlockRawTx header = CloseBlockRawTx { unCloseBlockRawTx :: header }
-
+newtype OpenBlockRawTx blkType  = OpenBlockRawTx  { unOpenBlockRawTx :: BlockHeader blkType }
+newtype CloseBlockRawTx blkType = CloseBlockRawTx { unCloseBlockRawTx :: BlockHeader blkType }
 
 instance Buildable (CloseBlockRawTx h) where
     build _ = "Block close tx"
@@ -79,8 +78,8 @@ expandAndApplyBlock
     . ( MonadError e m
       , Eq (BlockRef blkType)
       , HasReview e (BlockApplicationException (BlockRef blkType))
-      , HasReview (BlockRawTx blkType) (OpenBlockRawTx (BlockHeader blkType))
-      , HasReview (BlockRawTx blkType) (CloseBlockRawTx (BlockHeader blkType))
+      , HasReview (BlockRawTx blkType) (OpenBlockRawTx blkType)
+      , HasReview (BlockRawTx blkType) (CloseBlockRawTx blkType)
       )
     => Bool
     -> OSParams blkType
@@ -90,9 +89,9 @@ expandAndApplyBlock
 expandAndApplyBlock checkBIV osParams bsc Block {..} = do
     expandedTxs <-
         bscExpand bsc
-          ( [inj $ OpenBlockRawTx @(BlockHeader blkType) blkHeader]
+          ( [inj $ OpenBlockRawTx @blkType blkHeader]
               ++ blkPayload
-              ++ [inj $ CloseBlockRawTx @(BlockHeader blkType) blkHeader]
+              ++ [inj $ CloseBlockRawTx @blkType blkHeader]
           )
     applyBlockImpl checkBIV osParams bsc blkPayload (Block blkHeader expandedTxs)
 
@@ -146,8 +145,8 @@ tryApplyFork
                      , BlockApplicationException (BlockRef blkType)
                      ]
       , MonadError e m
-      , HasReview (BlockRawTx blkType) (OpenBlockRawTx (BlockHeader blkType))
-      , HasReview (BlockRawTx blkType) (CloseBlockRawTx (BlockHeader blkType))
+      , HasReview (BlockRawTx blkType) (OpenBlockRawTx blkType)
+      , HasReview (BlockRawTx blkType) (CloseBlockRawTx blkType)
       )
     => BlkStateConfiguration blkType m
     -> OSParams blkType

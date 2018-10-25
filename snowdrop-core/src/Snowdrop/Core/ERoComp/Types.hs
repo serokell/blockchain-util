@@ -51,7 +51,7 @@ type family Ctx conf :: *
 --
 -- Type variables @id@, @value@ describe types of key and value of key-value storage.
 -- Variable @res@ denotes result of 'DbAccess' execution.
-data DbAccess (components :: [*]) (res :: *)
+data DbAccess conf (components :: [*]) (res :: *)
     = DbQuery (HSet components) (HMap components -> res)
     -- ^ Request to state.
     -- The first field is request set of keys which are requested from state.
@@ -92,7 +92,7 @@ data DbAccessM (conf :: *) (components :: [*]) (res :: *)
     -- change accumulator which modifies the actual state. To perform the
     -- 'DbModifyAccum' operation underlying monad is required to read this
     -- internal change accumulator and apply sequence of change sets to it.
-    | DbAccess (DbAccess components res)
+    | DbAccess (DbAccess conf components res)
     -- ^ Object for simple access to state (query, iteration).
 
 -- | Datatype describing read only interface for access to a state:
@@ -143,7 +143,7 @@ data DbAccessU (conf :: *) (components :: [*]) (res :: *)
     -- ^ Object for simple access to state (query, iteration)
     -- and change accumulator construction.
 
-deriving instance Functor (DbAccess xs)
+deriving instance Functor (DbAccess conf xs)
 deriving instance Functor (DbAccessM conf xs)
 deriving instance Functor (DbAccessU conf xs)
 
@@ -172,7 +172,7 @@ instance Semigroup res => Semigroup (FoldF a res) where
 -- | Reader computation which allows you to query for part of bigger state
 -- and build computation considering returned result.
 -- DbAccess is used as an effect of BaseM.
-type ERoComp conf xs = BaseM (BException conf) (DbAccess xs) (Ctx conf)
+type ERoComp conf xs = BaseM (BException conf) (DbAccess conf xs) (Ctx conf)
 
 type ERoCompM conf xs = BaseM (BException conf) (DbAccessM conf xs) (Ctx conf)
 type ERoCompU conf xs = BaseM (BException conf) (DbAccessU conf xs) (Ctx conf)
