@@ -13,10 +13,10 @@ import qualified Data.Set as S
 import qualified Data.Text.Buildable
 import           Data.Vinyl (Rec (..), rappend, rcast)
 import           Data.Vinyl.Lens (RElem, RSubset)
-import           Data.Vinyl.TypeLevel (type (++), Fst, RImage, RIndex, Snd)
+import           Data.Vinyl.TypeLevel (type (++), AllConstrained, Fst, RImage, RIndex, Snd)
 import           Formatting (bprint, build, (%))
 import           Snowdrop.Util.Containers (IsEmpty (..), toDummyMap)
-import           Snowdrop.Util.Hetero.Constraints (NotIntersect, RecAll', RemoveElem, UnionTypes)
+import           Snowdrop.Util.Hetero.Constraints (NotIntersect, RemoveElem, UnionTypes)
 
 ------------------------
 -- HMap and HSet
@@ -147,7 +147,7 @@ type HUpCastableSet = HUpCastable HSetEl
 
 class (HRemoveElem t xs, OrdHKey t) => HCast xs t
 instance (HRemoveElem t xs, OrdHKey t) => HCast xs t
-type HCastable f res xs = (RecAll' res (HCast xs), Default (Rec f res))
+type HCastable f res xs = (AllConstrained (HCast xs) res, Default (Rec f res))
 
 -- | Takes xs ∩ res components from the passed Rec
 -- and fill res \ xs components by def value.
@@ -157,11 +157,11 @@ castStrip
     => Rec f xs -> Rec f res
 castStrip = impl def
   where
-    impl :: forall rs . (RecAll' rs (HCast xs)) => Rec f rs -> Rec f xs -> Rec f rs
-    impl RNil _ = RNil
+    impl :: forall rs . (AllConstrained (HCast xs) rs) => Rec f rs -> Rec f xs -> Rec f rs
+    impl RNil _         = RNil
     impl rs@(_ :& _) xs = impl1 rs xs
 
-    impl1 :: forall rs r rs' . (rs ~ (r ': rs'), RecAll' rs (HCast xs))
+    impl1 :: forall rs r rs' . (rs ~ (r ': rs'), AllConstrained (HCast xs) rs)
           => Rec f rs -> Rec f xs -> Rec f rs
     impl1 (rdef :& rs') xs = case hremoveElem xs of
         (Just rx, _) -> rx :& impl @rs' rs' xs
@@ -192,14 +192,14 @@ instance IntersectionF HMapEl HSetEl where
 instance IntersectionF HSetEl HMapEl where
     intersectf (HSetEl a) (HMapEl b) = HSetEl $ a `S.intersection` (M.keysSet b)
 
-type HIntersectable xs res = (HDownCastable xs res, RecAll' res OrdHKey)
+type HIntersectable xs res = (HDownCastable xs res, AllConstrained OrdHKey res)
 
 hintersect
     :: forall xs res f g . (IntersectionF f g, HIntersectable xs res)
     => Rec f xs -> Rec g res -> Rec f res
 hintersect a b = hdowncast a `hintersect'` b
   where
-    hintersect' :: RecAll' res1 OrdHKey => Rec f res1 -> Rec g res1 -> Rec f res1
+    hintersect' :: AllConstrained OrdHKey res1 => Rec f res1 -> Rec g res1 -> Rec f res1
     hintersect' RNil RNil           = RNil
     hintersect' (x :& xs) (y :& ys) = (x `intersectf` y) :& (xs `hintersect'` ys)
 
@@ -210,14 +210,14 @@ class DifferenceF f g where
 instance DifferenceF HSetEl HMapEl where
     differencef (HSetEl a) (HMapEl b) = HSetEl $ a `S.difference` (M.keysSet b)
 
-type HDifference xs res = (HDownCastable xs res, RecAll' res OrdHKey)
+type HDifference xs res = (HDownCastable xs res, AllConstrained OrdHKey res)
 
 hdifference
     :: forall xs res f g . (DifferenceF f g, HIntersectable xs res)
     => Rec f xs -> Rec g res -> Rec f res
 hdifference a b = hdowncast a `hdiff` b
   where
-    hdiff :: RecAll' res1 OrdHKey => Rec f res1 -> Rec g res1 -> Rec f res1
+    hdiff :: AllConstrained OrdHKey res1 => Rec f res1 -> Rec g res1 -> Rec f res1
     hdiff RNil RNil           = RNil
     hdiff (x :& xs) (y :& ys) = (x `differencef` y) :& (xs `hdiff` ys)
 

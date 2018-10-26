@@ -18,6 +18,7 @@ import           Control.Monad.Except (MonadError)
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import           Data.Vinyl.Core (Rec (..))
+import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Loot.Log (NameSelector (..))
 import           Snowdrop.Core (BException, CSMappendException (..), ChgAccum, ChgAccumCtx (..),
@@ -83,14 +84,14 @@ applyDiff
     :: forall e m xs .
     ( HasReview e CSMappendException
     , MonadError e m
-    , RecAll' xs ExnHKey
+    , AllConstrained ExnHKey xs
     )
     => HChangeSet xs
     -> HMap xs
     -> m (HMap xs)
 applyDiff = applyDiffDo
   where
-    applyDiffDo :: RecAll' rs ExnHKey => HChangeSet rs  -> HMap rs -> m (HMap rs)
+    applyDiffDo :: AllConstrained ExnHKey rs => HChangeSet rs  -> HMap rs -> m (HMap rs)
     applyDiffDo RNil RNil                = pure RNil
     applyDiffDo (cs :& xs) (initM :& ys) = (:&) <$> applyDiffF cs initM <*> applyDiffDo xs ys
 
@@ -111,7 +112,7 @@ instance ( MonadReader (HMap xs) m
          , Default (HChangeSet xs)
          , HasReview e CSMappendException
          , HIntersectable xs xs
-         , RecAll' xs ExnHKey
+         , AllConstrained ExnHKey xs
          , ChgAccum conf ~ SumChangeSet xs
          ) =>
     Effectful (DbAccess xs) (TestExecutorT e conf m) where
@@ -137,7 +138,7 @@ countERoComp
        , HasReview e CSMappendException
        , Default (HChangeSet xs)
        , HIntersectable xs xs
-       , RecAll' xs ExnHKey
+       , AllConstrained ExnHKey xs
        )
     => ERoComp (TestConf e xs) xs a
     -> m (Either e Counter)
@@ -151,7 +152,7 @@ runERoComp
        , HasReview e CSMappendException
        , Default (HChangeSet xs)
        , HIntersectable xs xs
-       , RecAll' xs ExnHKey
+       , AllConstrained ExnHKey xs
        )
     => ERoComp (TestConf e xs) xs a
     -> m (Either e a)

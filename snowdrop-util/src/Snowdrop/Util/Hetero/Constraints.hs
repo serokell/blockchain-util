@@ -50,10 +50,6 @@ type family RemoveElem (t :: k) (xs :: [k]) where
     RemoveElem t (t:xs') = xs'
     RemoveElem t (x:xs') = x ': RemoveElem t xs'
 
-type family RecAll' (rs :: [u]) (c :: u -> Constraint) :: Constraint where
-    RecAll' '[] c = ()
-    RecAll' (r ': rs) c = (c r, RecAll' rs c)
-
 -- xs ++ ys \ xs
 type family UnionTypes xs ys :: [k] where
     UnionTypes '[] ys = ys

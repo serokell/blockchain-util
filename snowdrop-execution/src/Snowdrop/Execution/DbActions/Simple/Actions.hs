@@ -13,7 +13,7 @@ import           Control.Concurrent.STM.TVar (modifyTVar)
 import           Control.Lens (at)
 import qualified Data.Map as M
 import           Data.Vinyl.Core (Rec (..))
-import           Data.Vinyl.TypeLevel (RecAll)
+import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
 import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), Undo, ValueOp (..))
 import           Snowdrop.Execution.DbActions.Simple.SumChangeSet (SumChangeSet (..),
@@ -30,8 +30,8 @@ simpleDbActions
       , DbApplyProof conf ~ ()
       , ChgAccum conf ~ SumChangeSet xs
       , Undo conf ~ HChangeSet xs
-      , RecAll' xs ExnHKey
-      , RecAll' xs OrdHKey
+      , AllConstrained ExnHKey xs
+      , AllConstrained OrdHKey xs
       , Semigroup (HMap xs)
       , RecAll HMapEl xs IsEmpty
       , RecAll HSetEl xs IsEmpty
@@ -50,7 +50,7 @@ simpleDbActions initSt lenses =
     -- Queries
     queryImpl
       :: forall xs'.
-        ( RecAll' xs' ExnHKey
+        ( AllConstrained ExnHKey xs'
         )
        =>  TVar st -> Rec (HMapLensEl st) xs' -> HSet xs' -> STM (HMap xs')
     queryImpl _ RNil RNil = pure RNil
@@ -62,7 +62,7 @@ simpleDbActions initSt lenses =
 
     iterImpl
       :: forall xs'.
-        ( RecAll' xs' ExnHKey
+        ( AllConstrained ExnHKey xs'
         )
        => TVar st -> Rec (HMapLensEl st) xs' -> DIter' xs' STM
     iterImpl _ RNil                        = RNil
@@ -71,7 +71,7 @@ simpleDbActions initSt lenses =
     -- Modifies
     applyImpl
       :: forall xs'.
-        ( RecAll' xs' ExnHKey
+        ( AllConstrained ExnHKey xs'
         )
        => TVar st -> Rec (HMapLensEl st) xs' -> SumChangeSet xs' -> STM ()
     applyImpl _ RNil (SumChangeSet RNil) = pure ()

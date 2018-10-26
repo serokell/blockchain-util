@@ -28,11 +28,12 @@ import           Control.Monad.Free (Free (Free))
 import           Data.Tree.AVL (MapLayer (..), Serialisable (..))
 import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
+import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Data.Default (Default (def))
 import qualified Data.Text.Buildable as Buildable
 import           Snowdrop.Execution.DbActions.Types (DbActionsException (..))
-import           Snowdrop.Util (HKey, HVal, RecAll')
+import           Snowdrop.Util (HKey, HVal)
 
 
 type AvlHashable h = (Ord h, Show h, Typeable h, Serialisable h)
@@ -60,7 +61,7 @@ instance ( KVConstraint (HKey t) (HVal t)
       , Serialisable (MapLayer h (HKey t) (HVal t) h)
       , AVL.Hash h (HKey t) (HVal t)
       ) => IsAvlEntry h t
-type AllAvlEntries h xs = RecAll' xs (IsAvlEntry h)
+type AllAvlEntries h xs = AllConstrained (IsAvlEntry h) xs
 
 type AvlUndo h = RootHashes h
 

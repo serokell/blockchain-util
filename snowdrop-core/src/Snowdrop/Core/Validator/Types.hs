@@ -19,13 +19,13 @@ module Snowdrop.Core.Validator.Types
 import           Universum hiding (Nat)
 
 import           Data.Vinyl
-import           Data.Vinyl.TypeLevel (Nat (..), RLength)
+import           Data.Vinyl.TypeLevel (AllConstrained, Nat (..), RLength)
 
 import           Snowdrop.Core.ERoComp (ERoComp, UpCastableERo, upcastEffERoComp)
 import           Snowdrop.Core.Stuff (UnitedTxType)
 import           Snowdrop.Core.Transaction (DownCastableTx, StateTx, TxComponents, downcastStateTx)
 
-import           Snowdrop.Util (RContains, RecAll', RecToList (..))
+import           Snowdrop.Util (RContains, RecToList (..))
 
 ------------------------------------------------------
 -- PreValidator
@@ -66,14 +66,14 @@ type UniteRecToList txtypes conf =
 unitePreValidators
     :: forall txtypes conf .
     ( UniteRecToList txtypes conf
-    , RecAll' txtypes (CastableC (UnitedTxType txtypes))
+    , AllConstrained (CastableC (UnitedTxType txtypes)) txtypes
     )
     => Rec (PreValidator conf) txtypes
     -> PreValidator conf (UnitedTxType txtypes)
 unitePreValidators = mconcat . recToList @(PreValidator conf) . rmapCast
   where
     rmapCast
-        :: ( RecAll' xs (CastableC (UnitedTxType txtypes)))
+        :: ( AllConstrained (CastableC (UnitedTxType txtypes)) xs)
         => Rec (PreValidator conf) xs -> Rec (PreValidator conf) (ReplicateU (RLength xs) txtypes)
     rmapCast RNil           = RNil
     rmapCast (pr :& others) = upcastPreValidator pr :& rmapCast others

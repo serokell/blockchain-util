@@ -31,6 +31,7 @@ import qualified Data.Text.Buildable as Buildable
 import           Data.Typeable (cast)
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
+import           Data.Vinyl.TypeLevel (AllConstrained)
 import           Formatting (bprint, shown, (%))
 
 import qualified Data.Map.Strict as M
@@ -122,7 +123,7 @@ instance Buildable CSMappendException where
     build (CSMappendException i) =
         bprint ("Failed to mappend ChangeSets due to conflict for key "%shown) i
 
-type MappendHChSet xs = RecAll' xs ExnHKey
+type MappendHChSet xs = AllConstrained ExnHKey xs
 
 -- | Combine @ValueOp@s corresponding the same keys.
 -- @CSMappendException@ will be returned if after an aplication of

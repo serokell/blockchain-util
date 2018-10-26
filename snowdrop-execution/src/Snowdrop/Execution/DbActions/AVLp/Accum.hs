@@ -27,6 +27,7 @@ import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
+import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Snowdrop.Core (CSMappendException (..), HChangeSet, HChangeSetEl, ValueOp (..),
                                 hChangeSetElToList)
@@ -38,7 +39,7 @@ import           Snowdrop.Execution.DbActions.AVLp.State (AVLCache, AVLCacheT, R
                                                           reThrowAVLEx, runAVLCacheT)
 import           Snowdrop.Execution.DbActions.Types (DGetter', DIter', DModify', IterAction (..))
 import           Snowdrop.Util (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, HasGetter (..),
-                                Head, NewestFirst (..), OldestFirst (..), RecAll')
+                                Head, NewestFirst (..), OldestFirst (..))
 
 -- | Change accumulator type for AVL tree.
 data AVLChgAccum h t = AVLChgAccum
@@ -84,7 +85,7 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
     Nothing  -> modAccumAll (resolveAvlCA ctx acc') cs'
   where
     modAccumAll
-        :: RecAll' rs (IsAvlEntry h)
+        :: AllConstrained (IsAvlEntry h) rs
         => Rec (AVLChgAccum h) rs
         -> OldestFirst [] (HChangeSet rs)
         -> m (Either CSMappendException (OldestFirst [] (Rec (AVLChgAccum h) rs)))
@@ -95,7 +96,7 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
         foldHandler (curAcc, resAccs) hcs = (\acc -> (acc, acc : resAccs)) <$> modAccumOne curAcc hcs
 
     modAccumOne
-        :: RecAll' rs (IsAvlEntry h)
+        :: AllConstrained (IsAvlEntry h) rs
         => Rec (AVLChgAccum h) rs
         -> HChangeSet rs
         -> m (Rec (AVLChgAccum h) rs)
@@ -177,12 +178,12 @@ query
    => ctx -> AVLChgAccums h xs -> DGetter' xs m
 query ctx (Just ca) hset = queryAll ca hset
   where
-    queryAll :: forall rs . RecAll' rs (IsAvlEntry h) => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
+    queryAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
     queryAll RNil RNil                       = pure RNil
     queryAll accums'@(_ :& _) reqs'@(_ :& _) = query' accums' reqs'
 
     query'
-        :: forall r rs rs' . (rs ~ (r ': rs'), RecAll' rs (IsAvlEntry h))
+        :: forall r rs rs' . (rs ~ (r ': rs'), AllConstrained (IsAvlEntry h) rs)
         => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
     query' (AVLChgAccum initAvl initAcc _ :& accums) (HSetEl req :& reqs) = reThrowAVLEx @(HKey r) @h $ do
         let queryDo = fst <$> foldM queryDoOne (mempty, initAvl) req
@@ -207,7 +208,7 @@ iter
     -> m (DIter' xs m)
 iter ctx (Just ca) = pure $ iterAll ca
   where
-    iterAll :: forall rs . RecAll' rs (IsAvlEntry h) => Rec (AVLChgAccum h) rs -> DIter' rs m
+    iterAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> DIter' rs m
     iterAll RNil = RNil
     iterAll (AVLChgAccum initAvl initAcc _ :& accums) =
         IterAction
