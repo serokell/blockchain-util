@@ -14,7 +14,7 @@ import qualified Hedgehog.Range as Range
 import           Test.Tasty (TestTree)
 import           Test.Tasty.Hedgehog (testProperty)
 
-import           Snowdrop.Core (HChangeSet (..), HChangeSetEl (..), ValueOp (..), ValueOpEx (..),
+import           Snowdrop.Core (HChangeSet, HChangeSetEl (..), ValueOp (..), ValueOpEx (..),
                                 mappendChangeSet)
 import           Snowdrop.Util
 

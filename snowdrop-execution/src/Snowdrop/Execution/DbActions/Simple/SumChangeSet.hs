@@ -18,7 +18,7 @@ import           Control.Monad.Except (throwError)
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import           Data.Vinyl (Rec (..))
-import           Data.Vinyl.TypeLevel (RecAll)
+import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, HChangeSetEl (..),
                                 MappendHChSet, Undo, ValueOp (..), csNew, diffChangeSet,
@@ -38,7 +38,7 @@ instance Default (HChangeSet xs) => Default (SumChangeSet xs) where
     def = SumChangeSet def
 
 modifySumChgSet
-    :: RecAll' xs ExnHKey
+    :: AllConstrained ExnHKey xs
     => SumChangeSet xs
     -> HChangeSet xs
     -> Either CSMappendException (SumChangeSet xs)
@@ -185,7 +185,7 @@ sumChangeSetDaaU daa = daaU
 
 chgAccumIter
     :: ( Monad m
-       , RecAll' xs OrdHKey
+       , AllConstrained OrdHKey xs
        )
     => DIter' xs m
     -> SumChangeSet xs

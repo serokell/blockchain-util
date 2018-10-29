@@ -14,6 +14,7 @@ import           Universum
 import qualified Data.Map.Strict as M
 import qualified Data.Text.Buildable
 import           Data.Vinyl.Core (Rec (..))
+import           Data.Vinyl.TypeLevel (AllConstrained)
 import           Formatting (bprint, build, (%))
 
 import           Snowdrop.Core.ChangeSet (HChangeSet, csNew, csRemove)
@@ -70,8 +71,8 @@ instance Buildable StructuralValidationException where
             -- 'ValueOp's.
 
 type StructuralConstr txtype xs = (
-    RecAll' xs (QueryERo (TxComponents txtype))
-  , RecAll' xs ExnHKey
+    AllConstrained (QueryERo (TxComponents txtype)) xs
+  , AllConstrained ExnHKey xs
   )
 
 csRemoveExist

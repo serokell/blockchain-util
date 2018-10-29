@@ -19,6 +19,7 @@ import           Universum
 
 import           Data.Default (Default (def))
 import           Data.Vinyl (Rec (..), rget)
+import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Snowdrop.Core (BException, CSMappendException (..), ChgAccum, ChgAccumCtx (..),
                                 Ctx, DiffChangeSet (..), ERoCompM, ExpInpComps, ExpOutComps,
@@ -109,7 +110,7 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
   where
     runSeqExpanderForTxAll
         :: forall (rs :: [ExpRestriction [*] [*]]) .
-           ( RecAll' rs (RestrictIo components txtype)
+           ( AllConstrained (RestrictIo components txtype) rs
            , MappendHChSet (TxComponents txtype)
            )
         => Rec (PreExpander conf (TxRaw txtype)) rs
@@ -120,7 +121,7 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
     runSeqExpanderForTx'
         :: forall (rs :: [ExpRestriction [*] [*]]) r rs'.
         ( rs ~ (r ': rs')
-        , RecAll' rs (RestrictIo components txtype)
+        , AllConstrained (RestrictIo components txtype) rs
         , MappendHChSet (TxComponents txtype)
         )
         => Rec (PreExpander conf (TxRaw txtype))  rs
@@ -173,7 +174,7 @@ instance (
         )
         => ExpandableTx (txtypes :: [*]) (txtype :: *)
 
-type RestrictTx xs txtype = RecAll' (SeqExpanderComponents txtype) (RestrictIo xs txtype)
+type RestrictTx xs txtype = AllConstrained (RestrictIo xs txtype) (SeqExpanderComponents txtype)
 
 class ( HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
       , UpCastableERoM (ExpInpComps ioRestr) xs
