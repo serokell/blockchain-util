@@ -138,12 +138,15 @@ queryOneExists k = isJust <$> queryOne @t @_ @conf k
 ------------------------
 
 -- | Possible errors throwing from basic functions in ERoComp.
-data StatePException = ChgAccumCtxUnexpectedlyInitialized
+data StatePException
+  = ChgAccumCtxUnexpectedlyInitialized
+  | BlockRefNotFound
     deriving (Show, Eq)
 
 instance Buildable StatePException where
     build = \case
         ChgAccumCtxUnexpectedlyInitialized -> "Change accum context is unexpectedly initialized"
+        BlockRefNotFound -> "BlockRef doesn't exists"
 
 deriveIdView withInj ''StatePException
 

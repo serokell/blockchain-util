@@ -12,8 +12,13 @@ module Snowdrop.Block.Types
        , BlkType (..)
        , BlkHeaderData
        , BlockExtraH
+       , RawBlund
+       , RawPayload
+       , Tx
+       , OSParams
        ) where
 
+import           Snowdrop.Util (OldestFirst)
 import           Universum
 
 import           Formatting (bprint, (%))
@@ -23,6 +28,9 @@ import           Snowdrop.Util (DBuildable (..), HasGetter, docF, indented, newl
 -------------------------------
 -- Block storage
 -------------------------------
+
+-- | Block payload type, parametrized by unified parameter of block configuration @blkType@
+type Payload blkType = OldestFirst [] (Tx blkType)
 
 -- | Type class which defines a set of type families required for block handling.
 class HasGetter (BlockHeader blkType) (BlkStructuralData (BlockRef blkType) (BlockBodyProof blkType)) => BlkType blkType where
@@ -46,6 +54,9 @@ class HasGetter (BlockHeader blkType) (BlkStructuralData (BlockRef blkType) (Blo
 
     -- | Proof of block body (data uniquely reffering to body, such as hash of block body or tx merkle tree root)
     type family BlockBodyProof blkType :: *
+
+-- | Transaction type, parametrized by unified parameter of block configuration @blkType@
+type family Tx blkType :: *
 
 -- | Type, representing a block.
 -- Isomorphic to a pair @(header, payload)@.

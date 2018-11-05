@@ -21,8 +21,8 @@ import           Formatting (bprint)
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (BlockHeader, BlockRef, Blund (..), CurrentBlockRef (..),
-                                       OSParams, PrevBlockRef (..))
+import           Snowdrop.Block.Types (BlockHeader, BlockRef, CurrentBlockRef (..), OSParams,
+                                       PrevBlockRef (..))
 import           Snowdrop.Util (HasReview, NewestFirst (..), OldestFirst (..),
                                 newestFirstFContainer, oldestFirstFContainer, throwLocalError,
                                 toOldestFirst)
@@ -30,14 +30,6 @@ import           Snowdrop.Util (HasReview, NewestFirst (..), OldestFirst (..),
 -- | Result of fork verification.
 data ForkVerResult blkType
     = ApplyFork
-      { fvrToApply    :: OldestFirst NonEmpty (BlockHeader blkType)
-      -- ^ Headers of blocks to apply.
-      , fvrToRollback :: NewestFirst [] (Blund blkType)
-      -- ^ Blocks to rollback.
-      , fvrLCA        :: Maybe (BlockRef blkType)
-      -- ^ Last block to be remained after rollback and predecessor of first block to apply.
-      -- Value @Nothing@ is returned in case of whole blockchain is rolled back.
-      }
     -- ^ Fork verification decision is to apply given fork.
     | RejectFork
     -- ^ Fork verification decision is to reject given fork.
@@ -75,18 +67,18 @@ instance Buildable (ForkVerificationException blockRef) where
 --  5. evaluates `bcIsBetterThan` for loaded part of currently adopted "best" chain and fork,
 --  returns `ApplyFork` iff evaluation results in `True`.
 verifyFork
-    :: forall blkType e m .
+    :: forall blkType chgAccum e m .
        ( MonadError e m
        , Eq (BlockRef blkType)
        , HasReview e (ForkVerificationException (BlockRef blkType))
        )
-    => BlkStateConfiguration blkType m
+    => BlkStateConfiguration chgAccum blkType m
     -> OSParams blkType
     -> OldestFirst NonEmpty (BlockHeader blkType)
     -> m (ForkVerResult blkType)
 verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
-    let lcaRefMb = unPrevBlockRef $ bcPrevBlockRef bscConfig $ head altHeaders
-    let firstBlockRef = unCurrentBlockRef $ bcBlockRef bscConfig $ head altHeaders
+    let lcaRefMb = unPrevBlockRef $ bcPrevBlockRef bscVerifyConfig $ head altHeaders
+    let firstBlockRef = unCurrentBlockRef $ bcBlockRef bscVerifyConfig $ head altHeaders
 
     -- At the beginning lcaRef doesn't exists since blockchain is empty
     case lcaRefMb of
@@ -96,28 +88,28 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
     whenM (bscBlockExists firstBlockRef) $
         throwLocalError @(ForkVerificationException (BlockRef blkType)) InvalidForkOrigin
     tip <- bscGetTip
-    curChain <- loadBlocksFromTo (bcMaxForkDepth bscConfig) lcaRefMb tip
+    curChain <- loadBlocksFromTo (bcMaxForkDepth bscVerifyConfig) lcaRefMb tip
     let altHeaders' :: OldestFirst [] (BlockHeader blkType)
         altHeaders' = oldestFirstFContainer NE.toList fork
-    let curHeaders  = fmap buHeader (toOldestFirst curChain)
+    let curHeaders  = toOldestFirst curChain
     pure $
-      if bcIsBetterThan bscConfig altHeaders' curHeaders &&
-         bcValidateFork bscConfig osParams altHeaders'
-      then ApplyFork fork curChain lcaRefMb
+      if bcIsBetterThan bscVerifyConfig altHeaders' curHeaders &&
+         bcValidateFork bscVerifyConfig osParams altHeaders'
+      then ApplyFork
       else RejectFork
   where
     loadBlocksFromTo
         :: Int -> Maybe (BlockRef blkType) -> Maybe (BlockRef blkType)
-        -> m (NewestFirst [] (Blund blkType))
+        -> m (NewestFirst [] (BlockHeader blkType))
     loadBlocksFromTo maxForkDepth toMb fromMb
         | toMb == fromMb        = pure $ NewestFirst []
         | maxForkDepth <= 0 = throwLocalError @(ForkVerificationException (BlockRef blkType)) TooDeepFork
-        | Just from <- fromMb = bscGetBlund from >>= \case
+        | Just from <- fromMb = bscGetHeader from >>= \case
             Just b  ->
                 newestFirstFContainer (b:) <$>
                     loadBlocksFromTo
                       (maxForkDepth - 1)
                       toMb
-                      (unPrevBlockRef $ bcPrevBlockRef bscConfig (buHeader b))
+                      (unPrevBlockRef $ bcPrevBlockRef bscVerifyConfig b)
             Nothing -> throwLocalError $ BlockDoesntExistInChain from
         | otherwise = throwLocalError @(ForkVerificationException (BlockRef blkType)) OriginOfBlockchainReached

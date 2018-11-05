@@ -12,6 +12,8 @@ module Snowdrop.Core.Expand.Sequential
        , ProofNExp (..)
        , ExpandableTx
        , UnionSeqExpandersInps
+       , UnionExpandersInps
+       , UnionSeqExpanders
        ) where
 
 import           Universum
@@ -25,13 +27,13 @@ import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, H
                                           mappendChangeSet, mappendStOrThrow)
 import           Snowdrop.Core.ERoComp (BException, ChgAccum, ChgAccumCtx (..), Ctx, ERoCompM,
                                         HasBException, UpCastableERoM, convertEffect,
-                                        withModifiedAccumCtxOne, upcastEffERoCompM)
+                                        upcastEffERoCompM, withModifiedAccumCtxOne)
 import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, ExpOutComps,
                                             ExpRestriction (..), PreExpander (..), ProofNExp (..),
                                             SeqExpander, SeqExpanderComponents)
 import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw)
-import           Snowdrop.Hetero (Both, HCastable, HElem, UnionTypes, SomeData (..),
-                                  applySomeData, castStrip, hupcast)
+import           Snowdrop.Hetero (Both, HCastable, HElem, SomeData (..), UnionTypes, applySomeData,
+                                  castStrip, hupcast)
 import           Snowdrop.Util (HasLens (..), throwLocalError)
 
 type ExpandRawTxsMode conf txtypes =
@@ -74,21 +76,21 @@ runSeqExpandersSequentially
     )
     => Rec (ProofNExp conf) txtypes
     -> [SomeData TxRaw (Both (ExpandableTx txtypes) c)]
-    -> ERoCompM conf (UnionSeqExpandersInps txtypes) [SomeTx c]
-runSeqExpandersSequentially proofNExps allTxs =
-    reverse <$> evalStateT (foldM runExps [] allTxs) def
+    -> ERoCompM conf (UnionSeqExpandersInps txtypes) (OldestFirst [] (SomeTx c, ChgAccum conf))
+runSeqExpandersSequentially proofNExps allTxs =  do
+      someTxs :: [(SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))] <- foldM runExps [] allTxs
+      let (fch, hch) = unzip someTxs
+      modAccums :: OldestFirst [] (ChgAccum conf) <- modifyAccum (OldestFirst hch)
+      pure $ OldestFirst (zip fch (unOldestFirst modAccums))
+
   where
     runExps
-        :: [SomeTx c]
+        :: [(SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))]
         -> SomeData TxRaw (Both (ExpandableTx txtypes) c)
-        -> StateT (SumChangeSet (UnionSeqExpandersInps txtypes))
-              (ERoCompM conf (UnionSeqExpandersInps txtypes)) [SomeTx c]
+        -> ERoCompM conf (UnionSeqExpandersInps txtypes) [(SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))]
     runExps res rtx = do
-        chgAcc <- get
-        (stx, txbody) <- lift $
-            withModifiedAccumCtxOne (unSumCS chgAcc) $
-              applySomeData (fmap (second castStrip) . constructStateTx) rtx
-        (stx : res) <$ mappendStOrThrow @(BException conf) txbody
+        someTxAndChs <- applySomeData (fmap (second castStrip) . constructStateTx) rtx
+        pure (someTxAndChs : res)
 
     constructStateTx
         :: forall txtype . (ExpandableTx txtypes txtype, c txtype)
