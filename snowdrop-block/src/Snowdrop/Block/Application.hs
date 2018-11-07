@@ -25,7 +25,8 @@ import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRawTx, BlockRef, Blund (..),
                                        CurrentBlockRef (..), ExpandedBlk, OSParams,
                                        PrevBlockRef (..), RawBlk)
-import           Snowdrop.Util
+import           Snowdrop.Util (DBuildable, HasReview (inj), HasReviews, NewestFirst (..),
+                                OldestFirst (..), maybeF, throwLocalError)
 
 -- | Exception type for block application.
 data BlockApplicationException blockRef
