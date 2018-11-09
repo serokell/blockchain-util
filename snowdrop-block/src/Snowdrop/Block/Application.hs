@@ -369,13 +369,13 @@ processFork bcs@(BlkStateConfiguration {..}) osParams fork chgAccum = do
 
   (rollbackTo, acc0) <- findLCA depth (gett <$> headers) tipHeader chgAccum
 
-  -- | 4. Expand raw block bodies of fork, get sequence of transactions tx1, tx2, ..., tx_k.
+  -- 4. Expand raw block bodies of fork, get sequence of transactions tx1, tx2, ..., tx_k.
   txsWithChgAccum <- bscExpandPayloads acc0 forkList
 
-  -- | 5. Compute series of accumulators acc1, .., acc_{k-1}: acc_i := applyChangeSet acc_{i-1} (changeSet tx_i).
+  -- 5. Compute series of accumulators acc1, .., acc_{k-1}: acc_i := applyChangeSet acc_{i-1} (changeSet tx_i).
   -- Step 5 done as part of runSeqExpandersSequentially
 
-  -- | 6. Perform validation of tx_i using acc_{i-1} for all i: 1..k.
+  -- 6. Perform validation of tx_i using acc_{i-1} for all i: 1..k.
   void $ getCompose <$> traverse (uncurry bscValidateTx . swap) (Compose txsWithChgAccum)
 
   let headerAndPayloads = zip (unOldestFirst headers) (unOldestFirst txsWithChgAccum)
