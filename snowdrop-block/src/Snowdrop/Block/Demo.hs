@@ -10,8 +10,8 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..), getCurrent
                                                getPreviousBlockRef)
 import           Snowdrop.Block.Fork (ForkVerificationException (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (BlockRef, CurrentBlockRef (..), PrevBlockRef (..), RawBlk,
-                                       RawBlund)
+import           Snowdrop.Block.Types (Block (..), BlockRef, Blund (buHeader, buPayload),
+                                       CurrentBlockRef (..), PrevBlockRef (..), RawBlk)
 import           Snowdrop.Core (ChgAccum, DbAccessU, ERwComp, HasBException)
 import           Snowdrop.Util
 
@@ -23,7 +23,6 @@ blockSync
   :: forall blkType conf xs blockChgAccum erwcomp.
     ( Default blockChgAccum
     , HasBException conf (ForkVerificationException (BlockRef blkType))
-    , HasGetter (RawBlund blkType) (RawBlk blkType)
     , Eq (BlockRef blkType)
     , ChgAccum conf ~ blockChgAccum
     , erwcomp ~ ERwComp conf (DbAccessU conf xs) blockChgAccum
@@ -60,7 +59,7 @@ blockSync config hashes = do
       -- LCA.
       findLCA
           :: Int
-          -> RawBlund blkType
+          -> Blund blkType
           -> OldestFirst [] (RawBlk blkType)
           -> erwcomp (OldestFirst [] (RawBlk blkType))
       findLCA depth sBlund acc =
@@ -76,4 +75,4 @@ blockSync config hashes = do
           PrevBlockRef prev   =
               getPreviousBlockRef (bscConfig config) sBlund
           nextAcc =
-              (gett @(RawBlund blkType) @(RawBlk blkType)) sBlund : unOldestFirst acc
+              Block (buHeader sBlund) (buPayload sBlund) : unOldestFirst acc

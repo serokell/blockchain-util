@@ -31,6 +31,7 @@ module Snowdrop.Util.Text
 import           Universum hiding (head, init, last)
 
 import           Control.Lens (makeLenses, (+~))
+import           Data.Default (Default (..))
 import qualified Data.Text.Buildable
 import           Data.Text.Lazy.Builder (Builder)
 import           Fmt (format)
@@ -121,6 +122,9 @@ data DocParams = DocParams
     { _dpIndent :: Int
       -- ^ Current indentation (in number of spaces).
     }
+
+instance Default DocParams where
+    def = DocParams 0
 
 makeLenses ''DocParams
 

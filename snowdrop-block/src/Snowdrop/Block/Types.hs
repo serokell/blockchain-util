@@ -2,83 +2,99 @@
 
 module Snowdrop.Block.Types
        ( Block (..)
-       , HasBlock (..)
        , Blund (..)
        , CurrentBlockRef (..)
        , PrevBlockRef (..)
-       , BlockRef
-       , Payload
-       , BlockHeader
-       , BlockUndo
        , RawBlk
-       , RawBlund
-       , RawPayload
-       , OSParams
+       , ExpandedBlk
+       , BlkStructuralData (..)
+       , BlockHeight (..)
+       , BlkType (..)
+       , BlkHeaderData
+       , BlockExtraH
        ) where
 
 import           Universum
+
+import           Snowdrop.Util (HasGetter)
 
 -------------------------------
 -- Block storage
 -------------------------------
 
--- | Block reference type, parametrized by unified parameter of block configuration @blkType@
-type family BlockRef blkType :: *
+-- | Type class which defines a set of type families required for block handling.
+class HasGetter (BlockHeader blkType) (BlkStructuralData (BlockRef blkType) (BlockBodyProof blkType)) => BlkType blkType where
+    -- | Block header type, parametrized by unified parameter of block configuration @blkType@
+    type family BlockHeader blkType :: *
 
--- | Block payload type, parametrized by unified parameter of block configuration @blkType@
-type family Payload blkType :: *
+    -- | Block reference type, parametrized by unified parameter of block configuration @blkType@
+    type family BlockRef blkType :: *
 
--- | Block header type, parametrized by unified parameter of block configuration @blkType@
-type family BlockHeader blkType :: *
+    -- | Block raw tx type, parametrized by unified parameter of block configuration @blkType@
+    type family BlockRawTx blkType :: *
 
--- | Block undo type, parametrized by unified parameter of block configuration @blkType@
-type family BlockUndo blkType :: *
+    -- | Block expanded tx type, parametrized by unified parameter of block configuration @blkType@
+    type family BlockExpandedTx blkType :: *
 
--- | OS params type, parametrized by unified parameter of block configuration @blkType@
-type family OSParams blkType :: *
+    -- | Block undo type, parametrized by unified parameter of block configuration @blkType@
+    type family BlockUndo blkType :: *
 
--- | Raw block type, parametrized by unified parameter of block configuration @blkType@
-type family RawBlk blkType :: *
+    -- | OS params type, parametrized by unified parameter of block configuration @blkType@
+    type family OSParams blkType :: *
 
--- | Raw block's payload type, parametrized by unified parameter of block configuration @blkType@
-type family RawPayload blkType :: *
+    -- | Proof of block body (data uniquely reffering to body, such as hash of block body or tx merkle tree root)
+    type family BlockBodyProof blkType :: *
 
 -- | Type, representing a block.
 -- Isomorphic to a pair @(header, payload)@.
-data Block header payload = Block
+data Block header tx = Block
     { blkHeader  :: header
-    , blkPayload :: payload
-    } deriving (Show, Eq, Ord, Generic)
+    , blkPayload :: [tx]
+    }
+    deriving (Eq, Show, Generic)
 
--- TODO consider removing HasBlock type class and using 'HasGetter' in its stead
+-- | Raw block type
+type RawBlk blkType = Block (BlockHeader blkType) (BlockRawTx blkType)
 
--- | Getter type class for a block
-class HasBlock header payload b where
-    getBlock :: b -> Block header payload
+-- | Expanded block type
+type ExpandedBlk blkType = Block (BlockHeader blkType) (BlockExpandedTx blkType)
 
-instance HasBlock header payload (Block header payload) where
-    getBlock = identity
+-- | Type for a block header with respective undo object.
+-- Isomorphic to a tuple @(header, undo)@.
+-- Note, payload is not stored as for the block handling it's of no interest.
+data Blund blkType = Blund
+    { buHeader  :: BlockHeader blkType
+    , buPayload :: [BlockRawTx blkType]
+    , buUndo    :: BlockUndo blkType
+    }
+    deriving Generic
 
--- | Type for a block with respective undo object.
--- Isomorphic to a tuple @(header, payload, undo)@.
-data Blund header payload undo = Blund
-    { buBlock :: Block header payload
-    , buUndo  :: undo
-    } deriving (Eq, Ord, Show, Generic)
-
--- | 'Blund' type, parametrized with raw payload.
-type RawBlund blkType =
-    (Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))
-
-instance HasBlock header payload (Blund header payload undo) where
-    getBlock = getBlock . buBlock
+deriving instance (Eq (BlockHeader blkType), Eq (BlockRawTx blkType), Eq (BlockUndo blkType)) => Eq (Blund blkType)
+deriving instance (Show (BlockHeader blkType), Show (BlockRawTx blkType), Show (BlockUndo blkType)) => Show (Blund blkType)
 
 -- | Wrapper type for reference of itself for some block.
-newtype CurrentBlockRef blkType = CurrentBlockRef
-    { unCurrentBlockRef :: BlockRef blkType
+newtype CurrentBlockRef blkRef = CurrentBlockRef
+    { unCurrentBlockRef :: blkRef
     }
 
 -- | Wrapper type for reference of previous block for some block.
-newtype PrevBlockRef blkType = PrevBlockRef
-    { unPrevBlockRef :: (Maybe (BlockRef blkType))
+newtype PrevBlockRef blkRef = PrevBlockRef
+    { unPrevBlockRef :: (Maybe blkRef)
     }
+
+-- | Data type for block height
+newtype BlockHeight = BlockHeight { getBlockHeight :: Word }
+  deriving (Num, Integral, Real, Enum, Ord, Eq, Show, Hashable, Buildable)
+
+-- | Data, holding structural data for a block.
+data BlkStructuralData blockRef blkBodyProof = BlkStructuralData
+    { blkHeight    :: BlockHeight
+    , blkPrevRef   :: Maybe blockRef
+    , blkBodyProof :: blkBodyProof
+    }
+    deriving (Eq, Generic, Show)
+
+-- | Block extra header data, parametrized by unified parameter of block configuration @blkType@
+type family BlockExtraH blkType :: *
+
+type BlkHeaderData blkType = (BlkStructuralData (BlockRef blkType) (BlockBodyProof blkType), BlockExtraH blkType)

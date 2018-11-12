@@ -21,8 +21,8 @@ import           Formatting (bprint)
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, Blund (..),
-                                       CurrentBlockRef (..), OSParams, PrevBlockRef (..), RawBlund)
+import           Snowdrop.Block.Types (BlockHeader, BlockRef, Blund (..), CurrentBlockRef (..),
+                                       OSParams, PrevBlockRef (..))
 import           Snowdrop.Util
 
 -- | Result of fork verification.
@@ -30,7 +30,7 @@ data ForkVerResult blkType
     = ApplyFork
       { fvrToApply    :: OldestFirst NonEmpty (BlockHeader blkType)
       -- ^ Headers of blocks to apply.
-      , fvrToRollback :: NewestFirst [] (RawBlund blkType)
+      , fvrToRollback :: NewestFirst [] (Blund blkType)
       -- ^ Blocks to rollback.
       , fvrLCA        :: Maybe (BlockRef blkType)
       -- ^ Last block to be remained after rollback and predecessor of first block to apply.
@@ -97,7 +97,7 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
     curChain <- loadBlocksFromTo (bcMaxForkDepth bscConfig) lcaRefMb tip
     let altHeaders' :: OldestFirst [] (BlockHeader blkType)
         altHeaders' = oldestFirstFContainer NE.toList fork
-    let curHeaders  = fmap (blkHeader . buBlock) (toOldestFirst curChain)
+    let curHeaders  = fmap buHeader (toOldestFirst curChain)
     pure $
       if bcIsBetterThan bscConfig altHeaders' curHeaders &&
          bcValidateFork bscConfig osParams altHeaders'
@@ -106,7 +106,7 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
   where
     loadBlocksFromTo
         :: Int -> Maybe (BlockRef blkType) -> Maybe (BlockRef blkType)
-        -> m (NewestFirst [] (RawBlund blkType))
+        -> m (NewestFirst [] (Blund blkType))
     loadBlocksFromTo maxForkDepth toMb fromMb
         | toMb == fromMb        = pure $ NewestFirst []
         | maxForkDepth <= 0 = throwLocalError @(ForkVerificationException (BlockRef blkType)) TooDeepFork
@@ -116,6 +116,6 @@ verifyFork BlkStateConfiguration{..} osParams fork@(OldestFirst altHeaders) = do
                     loadBlocksFromTo
                       (maxForkDepth - 1)
                       toMb
-                      (unPrevBlockRef $ bcPrevBlockRef bscConfig (blkHeader $ buBlock b))
+                      (unPrevBlockRef $ bcPrevBlockRef bscConfig (buHeader b))
             Nothing -> throwLocalError $ BlockDoesntExistInChain from
         | otherwise = throwLocalError @(ForkVerificationException (BlockRef blkType)) OriginOfBlockchainReached
