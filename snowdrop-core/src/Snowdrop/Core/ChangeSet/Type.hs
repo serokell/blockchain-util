@@ -42,6 +42,7 @@ import           Snowdrop.Util
 newtype HChangeSetEl t = HChangeSetEl {unHChangeSetEl :: Map (HKey t) (ValueOp (HVal t)) }
     deriving (Generic)
 
+instance (Hashable (HKey t), Hashable (HVal t)) => Hashable (HChangeSetEl t)
 deriving instance (Show (HKey t), Show (ValueOp (HVal t))) => Show (HChangeSetEl t)
 deriving instance (Eq (HKey t), Eq (ValueOp (HVal t))) => Eq (HChangeSetEl t)
 

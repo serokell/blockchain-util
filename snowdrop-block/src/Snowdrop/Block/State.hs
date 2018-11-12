@@ -53,13 +53,17 @@ type instance HKeyVal (BlundComponent blkType)  =
       '(BlockRef blkType, Blund blkType)
 
 data TipKey = TipKey
-  deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Show, Generic)
+
+instance Hashable TipKey
 
 instance Buildable TipKey where
     build TipKey = "tip"
 
 data TipValue blockRef = TipValue {unTipValue :: blockRef}
     deriving (Eq, Ord, Show, Generic)
+
+instance Hashable bRef => Hashable (TipValue bRef)
 
 class ( RContains txtypes txtype
       , HUpCastableChSet (TxComponents txtype) xs

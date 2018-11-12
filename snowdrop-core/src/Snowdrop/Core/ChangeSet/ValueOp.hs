@@ -41,6 +41,8 @@ data ValueOp v
     -- However, if invariant isn't hold an exception will be caused.
     deriving (Functor, Foldable, Traversable, Show, Eq, Ord, Generic)
 
+instance Hashable v => Hashable (ValueOp v)
+
 instance HasReview v v1 => HasReview (ValueOp v) (ValueOp v1) where
     inj = fmap inj
 
