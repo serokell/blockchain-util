@@ -144,6 +144,7 @@ defaultMempoolConfig
         , CSMappendException
         ]
     , HasLens (Ctx conf) (ChgAccumCtx conf)
+    , Default (ChgAccum conf)
     , c' ~ Both (MempoolTx txtypes xs) c
     , HasGetter rawtx (SomeData TxRaw c')
     )

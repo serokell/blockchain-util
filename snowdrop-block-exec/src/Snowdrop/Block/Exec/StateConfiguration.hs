@@ -69,6 +69,7 @@ inmemoryBlkStateConfiguration
         ]
     , Default (ChgAccum conf)
     , Default (SumChangeSet (UnionSeqExpandersInps txtypes))
+    , Default (HChangeSet (UnionSeqExpandersInps txtypes))
     , HasGetter (BlockUndo blkType) (HChangeSet xs)
     , HasGetter (RawBlk blkType) (BlockHeader blkType)
     , HasGetter (RawBlk blkType) [SomeData TxRaw (Both (ExpandableTx txtypes) c)]

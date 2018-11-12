@@ -22,16 +22,15 @@ import           Data.Default (Default (def))
 import           Data.Vinyl (Rec (..), rget)
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HChangeSetEl,
-                                          HUpCastableChSet, MappendHChSet, SumChangeSet (..),
-                                          mappendChangeSet, mappendStOrThrow)
-import           Snowdrop.Core.ERoComp (BException, ChgAccum, ChgAccumCtx (..), Ctx, ERoCompM,
-                                        HasBException, UpCastableERoM, convertEffect,
-                                        upcastEffERoCompM, withModifiedAccumCtxOne)
-import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, ExpOutComps,
-                                            ExpRestriction (..), PreExpander (..), ProofNExp (..),
-                                            SeqExpander, SeqExpanderComponents)
-import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw)
+import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx,
+                                DiffChangeSet (..), ERoCompM, ExpInpComps, ExpOutComps,
+                                ExpRestriction (..), HChangeSet, HChangeSetEl, HUpCastableChSet,
+                                HasBException, MappendHChSet, PreExpander (..), ProofNExp (..),
+                                SeqExpander, SeqExpanderComponents, SomeTx, StateTx (..),
+                                TxComponents, TxRaw, UpCastableERoM, convertEffect,
+                                mappendChangeSet, modifyAccum, upcastEffERoCompM,
+                                withModifiedAccumCtxOne)
+import           Snowdrop.Execution.DbActions (SumChangeSet (..))
 import           Snowdrop.Hetero (Both, HCastable, HElem, SomeData (..), UnionTypes, applySomeData,
                                   castStrip, hupcast)
 import           Snowdrop.Util (HasLens (..), throwLocalError)
@@ -56,6 +55,8 @@ expandOneTx
     :: forall txtype conf .
     ( HasBException conf CSMappendException
     , ExpandOneTxMode txtype
+    , HasLens (Ctx conf) (ChgAccumCtx conf)
+    , Default (ChgAccum conf)
     )
     => ProofNExp conf txtype
     -> TxRaw txtype
@@ -70,27 +71,26 @@ runSeqExpandersSequentially
     ( HasBException conf CSMappendException
     , HasLens (Ctx conf) (ChgAccumCtx conf)
     , MappendHChSet (UnionSeqExpandersInps txtypes)
-
     , Default (ChgAccum conf)
-    , Default (SumChangeSet (UnionSeqExpandersInps txtypes))
+    , Default (HChangeSet (UnionSeqExpandersInps txtypes))
     )
     => Rec (ProofNExp conf) txtypes
     -> [SomeData TxRaw (Both (ExpandableTx txtypes) c)]
     -> ERoCompM conf (UnionSeqExpandersInps txtypes) (OldestFirst [] (SomeTx c, ChgAccum conf))
 runSeqExpandersSequentially proofNExps allTxs =  do
-      someTxs :: [(SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))] <- foldM runExps [] allTxs
+      (someTxs, _) <- foldM runExps ([], def) allTxs
       let (fch, hch) = unzip someTxs
       modAccums :: OldestFirst [] (ChgAccum conf) <- modifyAccum (OldestFirst hch)
       pure $ OldestFirst (zip fch (unOldestFirst modAccums))
 
   where
     runExps
-        :: [(SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))]
+        :: ([(SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))], HChangeSet (UnionSeqExpandersInps txtypes))
         -> SomeData TxRaw (Both (ExpandableTx txtypes) c)
-        -> ERoCompM conf (UnionSeqExpandersInps txtypes) [(SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))]
-    runExps res rtx = do
-        someTxAndChs <- applySomeData (fmap (second castStrip) . constructStateTx) rtx
-        pure (someTxAndChs : res)
+        -> ERoCompM conf (UnionSeqExpandersInps txtypes) ([(SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))], HChangeSet (UnionSeqExpandersInps txtypes))
+    runExps (res, currentHcs) rtx = do
+        (someTxAndChs, nextHcs) <- withModifiedAccumCtxOne currentHcs (applySomeData (fmap (second castStrip) . constructStateTx) rtx)
+        pure (((someTxAndChs, nextHcs): res), nextHcs)
 
     constructStateTx
         :: forall txtype . (ExpandableTx txtypes txtype, c txtype)
@@ -107,6 +107,7 @@ runSeqExpanderForTx
     , Default (SumChangeSet (TxComponents txtype))
     , MappendHChSet (TxComponents txtype)
     , RestrictTx components txtype
+    , HasLens (Ctx conf) (ChgAccumCtx conf)
     )
     => TxRaw txtype
     -> SeqExpander conf txtype
@@ -129,7 +130,7 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
         , AllConstrained (RestrictIo components txtype) rs
         , MappendHChSet (TxComponents txtype)
         )
-        => Rec (PreExpander conf (TxRaw txtype))  rs
+        => Rec (PreExpander conf (TxRaw txtype)) rs
         -> ERoCompM conf components (SumChangeSet (TxComponents txtype))
     runSeqExpanderForTx' (ex :& rest) = do
         sm <- runSeqExpanderForTxAll rest
