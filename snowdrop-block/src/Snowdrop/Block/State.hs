@@ -12,6 +12,8 @@ module Snowdrop.Block.State
        , inmemoryBlkStateConfiguration
 
        , BlkProcConstr
+       , OpenBlockRawTxType
+       , CloseBlockRawTxType
        ) where
 
 import           Universum
@@ -21,27 +23,35 @@ import qualified Data.Map as M
 import qualified Data.Text.Buildable
 import           Data.Vinyl (Rec)
 
+import           Snowdrop.Block.Application (CloseBlockRawTx, OpenBlockRawTx)
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
-                                       CurrentBlockRef (..), Payload, RawBlk, RawPayload)
+import           Snowdrop.Block.Types (BlockExpandedTx, BlockRawTx, BlockRef, BlockUndo, Blund (..),
+                                       CurrentBlockRef (..))
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
-                                ERoComp, ERwComp, HChangeSet, HUpCastableChSet, HasBExceptions,
-                                MappendHChSet, QueryERo, SomeTx, StatePException (..), StateTx (..),
-                                TxComponents, TxRaw, Undo, UnitedTxType, UpCastableERoM, Validator,
-                                ValueOp (..), applySomeTx, computeUndo, convertEffect,
+                                ERoComp, ERwComp, ExpandRawTxsMode, ExpandableTx,
+                                HChangeSet, HUpCastableChSet, HasBExceptions,
+                                MappendHChSet, ProofNExp (..), QueryERo, SomeTx, StatePException (..),
+                                StateTx (..), TxComponents, TxRaw, TxRawImpl, Undo, UnitedTxType,
+                                UpCastableERoM, Validator, ValueOp (..), UnionSeqExpandersInps,
+                                applySomeTx, computeUndo, convertEffect,
                                 getCAOrDefault, hChangeSetFromMap, liftERoComp, modifyAccum,
                                 modifyAccumOne, modifyAccumUndo, queryOne, queryOneExists,
-                                runValidator, upcastEffERoComp, upcastEffERoCompM)
-import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
-                                     UnionSeqExpandersInps, runSeqExpandersSequentially)
+                                runValidator, runSeqExpandersSequentially, upcastEffERoComp,
+                                upcastEffERoCompM)
 import           Snowdrop.Util
+
+data OpenBlockRawTxType header
+data CloseBlockRawTxType header
+
+type instance TxRawImpl (OpenBlockRawTxType header) = OpenBlockRawTx header
+type instance TxRawImpl (CloseBlockRawTxType header) = CloseBlockRawTx header
 
 data TipComponent blkType
 data BlundComponent blkType
 type instance HKeyVal (TipComponent blkType) = '(TipKey, TipValue (BlockRef blkType))
 type instance HKeyVal (BlundComponent blkType)  =
-      '(BlockRef blkType, Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))
+      '(BlockRef blkType, Blund blkType)
 
 data TipKey = TipKey
   deriving (Eq, Ord, Show, Generic)
@@ -94,15 +104,13 @@ inmemoryBlkStateConfiguration
         [ StatePException
         , CSMappendException
         ]
-    , Payload blkType ~ [SomeTx c]
+    , BlockExpandedTx blkType ~ SomeTx c
     , HasLens (ChgAccum conf) (ChgAccum conf)
     , HasLens (Ctx conf) (ChgAccumCtx conf)
-    , HasGetter (RawBlk blkType) [SomeData TxRaw (Both (ExpandableTx txtypes) c)]
-    , HasGetter (Payload blkType) [SomeTx c]
+    , HasGetter (BlockRawTx blkType) (SomeData TxRaw (Both (ExpandableTx txtypes) c))
     , Default (ChgAccum conf)
     , ExpandRawTxsMode conf txtypes
     , MappendHChSet xs
-
     , QueryERo xs (TipComponent blkType)
     , QueryERo xs (BlundComponent blkType)
     , HUpCastableChSet '[TipComponent blkType] xs
@@ -115,16 +123,11 @@ inmemoryBlkStateConfiguration
     => BlkConfiguration blkType
     -> Validator conf txtypes
     -> Rec (ProofNExp conf) txtypes
-    -> (RawBlk blkType -> [SomeTx c] -> Block (BlockHeader blkType) [SomeTx c])
     -> BlkStateConfiguration blkType m
-inmemoryBlkStateConfiguration cfg validator exps mkBlock = fix $ \this ->
+inmemoryBlkStateConfiguration cfg validator exps = fix $ \this ->
     BlkStateConfiguration {
       bscConfig = cfg
-    , bscExpand = \rawBlock -> do
-          blkPayload <-
-              liftERoComp $ upcastEffERoCompM @_ @xs $
-                  runSeqExpandersSequentially exps (gett rawBlock)
-          pure (mkBlock rawBlock blkPayload)
+    , bscExpand = liftERoComp . upcastEffERoCompM @_ @xs . runSeqExpandersSequentially exps . map gett
     , bscApplyPayload = \(gett @_ @[SomeTx (BlkProcConstr txtypes xs)] -> txs) -> do
           (newSt, undo) <- liftERoComp $ do
               curAcc <- asks (getCAOrDefault @conf . gett)
@@ -137,7 +140,7 @@ inmemoryBlkStateConfiguration cfg validator exps mkBlock = fix $ \this ->
           undo <$ modify (flip sett newSt)
      , bscApplyUndo = liftERoComp . modifyAccumUndo @xs @conf . pure . inj >=> modify . flip sett
      , bscStoreBlund = \blund -> do
-           let blockRef = unCurrentBlockRef $ bcBlockRef cfg (blkHeader $ buBlock blund)
+           let blockRef = unCurrentBlockRef $ bcBlockRef cfg (buHeader blund)
            let chg = hChangeSetFromMap @(BlundComponent blkType) $ M.singleton blockRef (New blund)
            applyBlkChg chg
      , bscRemoveBlund = \blockRef -> do

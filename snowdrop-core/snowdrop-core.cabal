@@ -63,10 +63,12 @@ library
       Snowdrop.Core.ChangeSet
       Snowdrop.Core.ChangeSet.Type
       Snowdrop.Core.ChangeSet.ValueOp
+      Snowdrop.Core.ChangeSet.SumChangeSet
       Snowdrop.Core.ERoComp
       Snowdrop.Core.ERoComp.Helpers
       Snowdrop.Core.ERoComp.Types
       Snowdrop.Core.ERwComp
+      Snowdrop.Core.Expand          
       Snowdrop.Core.Expander
       Snowdrop.Core.Stuff
       Snowdrop.Core.Transaction

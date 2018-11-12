@@ -6,6 +6,8 @@ module Snowdrop.Block.Application
        , tryApplyFork
        , rollback
        , BlockApplicationException (..)
+       , OpenBlockRawTx (..)
+       , CloseBlockRawTx (..)
        ) where
 
 import           Universum
@@ -20,9 +22,9 @@ import           Snowdrop.Block.Chain (nDepthChainNE)
 import           Snowdrop.Block.Configuration (BlkConfiguration (..), getPreviousBlockRef, unBIV)
 import           Snowdrop.Block.Fork (ForkVerResult (..), ForkVerificationException, verifyFork)
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
-                                       CurrentBlockRef (..), OSParams, Payload, PrevBlockRef (..),
-                                       RawBlk, RawPayload)
+import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRawTx, BlockRef, Blund (..),
+                                       CurrentBlockRef (..), ExpandedBlk, OSParams,
+                                       PrevBlockRef (..), RawBlk)
 import           Snowdrop.Util
 
 -- | Exception type for block application.
@@ -50,7 +52,8 @@ applyBlock
     . ( MonadError e m
       , Eq (BlockRef blkType)
       , HasReview e (BlockApplicationException (BlockRef blkType))
-      , HasGetter (RawBlk blkType) (RawPayload blkType)
+      , HasReview (BlockRawTx blkType) (OpenBlockRawTx (BlockHeader blkType))
+      , HasReview (BlockRawTx blkType) (CloseBlockRawTx (BlockHeader blkType))
       )
     => OSParams blkType
     -> BlkStateConfiguration blkType m
@@ -59,21 +62,30 @@ applyBlock
 -- TODO: compare old chain with new one via `bcIsBetterThan`
 applyBlock = expandAndApplyBlock True
 
+newtype OpenBlockRawTx header  = OpenBlockRawTx  { unOpenBlockRawTx :: header }
+newtype CloseBlockRawTx header = CloseBlockRawTx { unCloseBlockRawTx :: header }
+
 expandAndApplyBlock
     :: forall blkType e m
     . ( MonadError e m
       , Eq (BlockRef blkType)
       , HasReview e (BlockApplicationException (BlockRef blkType))
-      , HasGetter (RawBlk blkType) (RawPayload blkType)
+      , HasReview (BlockRawTx blkType) (OpenBlockRawTx (BlockHeader blkType))
+      , HasReview (BlockRawTx blkType) (CloseBlockRawTx (BlockHeader blkType))
       )
     => Bool
     -> OSParams blkType
     -> BlkStateConfiguration blkType m
     -> RawBlk blkType
     -> m ()
-expandAndApplyBlock checkBIV osParams bsc rawBlk = do
-    blk <- bscExpand bsc rawBlk
-    applyBlockImpl checkBIV osParams bsc (gett rawBlk) blk
+expandAndApplyBlock checkBIV osParams bsc Block {..} = do
+    expandedTxs <-
+        bscExpand bsc
+          ( [inj $ OpenBlockRawTx @(BlockHeader blkType) blkHeader]
+              ++ blkPayload
+              ++ [inj $ CloseBlockRawTx @(BlockHeader blkType) blkHeader]
+          )
+    applyBlockImpl checkBIV osParams bsc blkPayload (Block blkHeader expandedTxs)
 
 applyBlockImpl
     :: forall blkType e m
@@ -84,10 +96,10 @@ applyBlockImpl
     => Bool
     -> OSParams blkType
     -> BlkStateConfiguration blkType m
-    -> RawPayload blkType
-    -> Block (BlockHeader blkType) (Payload blkType)
+    -> [BlockRawTx blkType]
+    -> ExpandedBlk blkType
     -> m ()
-applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawPayload blk@Block{..} = do
+applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawTxs blk@Block{..} = do
     tip <- bscGetTip
     when (checkBIV && any not [ unBIV (bcBlkVerify bscConfig) blk
                               , bcValidateFork bscConfig osParams (OldestFirst [blkHeader])]) $
@@ -95,7 +107,7 @@ applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawPayload blk@Blo
     let prev = unPrevBlockRef $ bcPrevBlockRef bscConfig blkHeader
     if prev == tip then do
         undo <- bscApplyPayload blkPayload
-        bscStoreBlund $ Blund (Block blkHeader rawPayload) undo
+        bscStoreBlund $ Blund blkHeader rawTxs undo
         bscSetTip $ Just . unCurrentBlockRef $ bcBlockRef bscConfig blkHeader
     else
         throwLocalError $ TipMismatched prev tip
@@ -112,7 +124,7 @@ applyBlockImpl checkBIV osParams (BlkStateConfiguration {..}) rawPayload blk@Blo
 tryApplyFork
     -- TODO `undo` is not Monoid, even for ChangeSet
     :: forall blkType e m
-    . ( HasGetter (RawBlk blkType) (BlockHeader blkType)
+    . (
       -- pva701: TODO ^ this constraint should be eliminated and
       -- either expanding of headers should be made separately from blocks
       -- or fork should be verified using scheme:
@@ -120,11 +132,13 @@ tryApplyFork
       -- 2. expand alt chain
       -- 3. compare chains
       -- 4. apply appropriate chain
-      , HasGetter (RawBlk blkType) (RawPayload blkType)
-      , Eq (BlockRef blkType)
+        Eq (BlockRef blkType)
       , HasReviews e [ ForkVerificationException (BlockRef blkType)
-                        , BlockApplicationException (BlockRef blkType)]
+                     , BlockApplicationException (BlockRef blkType)
+                     ]
       , MonadError e m
+      , HasReview (BlockRawTx blkType) (OpenBlockRawTx (BlockHeader blkType))
+      , HasReview (BlockRawTx blkType) (CloseBlockRawTx (BlockHeader blkType))
       )
     => BlkStateConfiguration blkType m
     -> OSParams blkType
@@ -132,13 +146,13 @@ tryApplyFork
     -> m Bool
 tryApplyFork bcs@(BlkStateConfiguration {..}) osParams (OldestFirst rawBlocks) = do
     -- fork <- traverse toFork (unOldestFirst rawBlocks)
-    verifyFork bcs osParams (OldestFirst $ NE.map gett rawBlocks) >>= \case
+    verifyFork bcs osParams (OldestFirst $ NE.map blkHeader rawBlocks) >>= \case
         RejectFork     -> pure False
         ApplyFork{..} -> do
             forM_ (unNewestFirst fvrToRollback) $ \blund -> do
                 bscApplyUndo (buUndo blund)
                 bscRemoveBlund $ unCurrentBlockRef $
-                    bcBlockRef bscConfig (blkHeader $ buBlock blund)
+                    bcBlockRef bscConfig (buHeader blund)
             bscSetTip fvrLCA
             mapM_ (applyBlock osParams bcs) $ NE.toList rawBlocks
             pure True
@@ -147,7 +161,7 @@ rollback
     :: Monad m
     => Int
     -> BlkStateConfiguration blkType m
-    -> m (OldestFirst [] (Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType)))
+    -> m (OldestFirst [] (Blund blkType))
 rollback rollbackBy bsConf = do
     toRoll <- nDepthChainNE bsConf rollbackBy
     case toRoll of
@@ -156,5 +170,5 @@ rollback rollbackBy bsConf = do
           bscSetTip bsConf $ unPrevBlockRef $ getPreviousBlockRef (bscConfig bsConf) $ head (unOldestFirst blundsNE)
           forM_ (reverse $ toList $ unOldestFirst blundsNE) $ \blund -> do
               bscApplyUndo bsConf (buUndo blund)
-              bscRemoveBlund bsConf $ unCurrentBlockRef $ bcBlockRef (bscConfig bsConf) (blkHeader $ buBlock blund)
+              bscRemoveBlund bsConf $ unCurrentBlockRef $ bcBlockRef (bscConfig bsConf) (buHeader blund)
           pure $ OldestFirst $ toList $ unOldestFirst blundsNE
