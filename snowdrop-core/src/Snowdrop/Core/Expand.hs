@@ -4,13 +4,12 @@
 {-# LANGUAGE ScopedTypeVariables     #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-module Snowdrop.Execution.Expand
+module Snowdrop.Core.Expand
        ( ExpandRawTxsMode
        , ExpandOneTxMode
        , expandOneTx
        , runSeqExpandersSequentially
        , ProofNExp (..)
-
        , ExpandableTx
        , UnionSeqExpandersInps
        ) where
@@ -21,14 +20,16 @@ import           Data.Default (Default (def))
 import           Data.Vinyl (Rec (..), rget)
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
-import           Snowdrop.Core (BException, CSMappendException (..), ChgAccum, ChgAccumCtx (..),
-                                Ctx, DiffChangeSet (..), ERoCompM, ExpInpComps, ExpOutComps,
-                                ExpRestriction (..), HChangeSet, HChangeSetEl, HUpCastableChSet,
-                                HasBException, MappendHChSet, PreExpander (..), ProofNExp (..),
-                                SeqExpander, SeqExpanderComponents, SomeTx, StateTx (..),
-                                TxComponents, TxRaw, UpCastableERoM, convertEffect,
-                                mappendChangeSet, upcastEffERoCompM, withModifiedAccumCtxOne)
-import           Snowdrop.Execution.DbActions (SumChangeSet (..), mappendStOrThrow)
+import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HChangeSetEl,
+                                          HUpCastableChSet, MappendHChSet, SumChangeSet (..),
+                                          mappendChangeSet, mappendStOrThrow)
+import           Snowdrop.Core.ERoComp (BException, ChgAccum, ChgAccumCtx (..), Ctx, ERoCompM,
+                                        HasBException, UpCastableERoM, convertEffect,
+                                        withModifiedAccumCtxOne, upcastEffERoCompM)
+import           Snowdrop.Core.Expander (DiffChangeSet (..), ExpInpComps, ExpOutComps,
+                                         ExpRestriction (..), PreExpander (..), ProofNExp (..),
+                                         SeqExpander, SeqExpanderComponents)
+import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw)
 import           Snowdrop.Util
 
 type ExpandRawTxsMode conf txtypes =

@@ -15,9 +15,9 @@ import qualified Data.Map as M
 import           Data.Vinyl.Core (Rec (..))
 import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
-import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), Undo, ValueOp (..))
-import           Snowdrop.Execution.DbActions.Simple.SumChangeSet (SumChangeSet (..),
-                                                                   sumChangeSetDaa,
+import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), SumChangeSet (..),
+                                Undo, ValueOp (..))
+import           Snowdrop.Execution.DbActions.Simple.SumChangeSet (sumChangeSetDaa,
                                                                    sumChangeSetDaaU)
 import           Snowdrop.Execution.DbActions.Types (DIter', DbActionsException (..), DbApplyProof,
                                                      DbComponents, DbModifyActions (..),

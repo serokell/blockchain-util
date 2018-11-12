@@ -29,15 +29,15 @@ import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (BlockExpandedTx, BlockRawTx, BlockRef, BlockUndo, Blund (..),
                                        CurrentBlockRef (..))
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
-                                ERoComp, ERwComp, HChangeSet, HUpCastableChSet, HasBExceptions,
-                                MappendHChSet, QueryERo, SomeTx, StatePException (..), StateTx (..),
-                                TxComponents, TxRaw, TxRawImpl, Undo, UnitedTxType, UpCastableERoM,
-                                Validator, ValueOp (..), applySomeTx, computeUndo, convertEffect,
+                                ERoComp, ERwComp, ExpandRawTxsMode, ExpandableTx, HChangeSet,
+                                HUpCastableChSet, HasBExceptions,
+                                MappendHChSet, ProofNExp (..), QueryERo, SomeTx, StatePException (..),
+                                StateTx (..), TxComponents, TxRaw, TxRawImpl, Undo, UnionSeqExpandersInps, UnitedTxType,
+                                UpCastableERoM, Validator, ValueOp (..), applySomeTx, computeUndo, convertEffect,
                                 getCAOrDefault, hChangeSetFromMap, liftERoComp, modifyAccum,
                                 modifyAccumOne, modifyAccumUndo, queryOne, queryOneExists,
-                                runValidator, upcastEffERoComp, upcastEffERoCompM)
-import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
-                                     UnionSeqExpandersInps, runSeqExpandersSequentially)
+                                runValidator, runSeqExpandersSequentially, upcastEffERoComp,
+                                upcastEffERoCompM)
 import           Snowdrop.Util
 
 data OpenBlockRawTxType header
