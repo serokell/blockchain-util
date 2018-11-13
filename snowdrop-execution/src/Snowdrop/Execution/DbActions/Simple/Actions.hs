@@ -15,7 +15,7 @@ import           Control.Lens (at, iso)
 import qualified Data.Map as M
 import           Data.Vinyl (RApply (..), RMap (..), RPureConstrained (..), Rec (..), rlens,
                              rtraverse, (<<*>>))
-import           Data.Vinyl.TypeLevel (RecAll)
+import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
 import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), Undo, ValueOp (..))
 import           Snowdrop.Execution.DbActions.Simple.SumChangeSet (SumChangeSet (..),
@@ -39,7 +39,7 @@ type SimpleDbActionsConstr conf xs =
       , RPureConstrained OrdHKey xs
       , RPureConstrained ExnHKey xs
       , RApply xs
-      , RecAll' xs ExnHKey
+      , AllConstrained ExnHKey xs
       )
 
 simpleDbActions'

@@ -11,7 +11,7 @@ import           Data.Tree.AVL (Serialisable (..))
 
 import qualified Data.Map.Strict as M
 import           Data.Vinyl (Rec (..))
-import           Data.Vinyl.TypeLevel (type (++))
+import           Data.Vinyl.TypeLevel (type (++), AllConstrained)
 import           Fmt (format)
 
 import           Snowdrop.Block (BlockRef)
@@ -26,7 +26,7 @@ import           Snowdrop.Execution.DbActions (AMSRequested, AllWholeTree, AvlCl
                                                avlClientDbActions, avlServerDbActions,
                                                constructCompositeDma, initAVLPureStorage,
                                                unAVLPureStorage)
-import           Snowdrop.Util (ExecM, HDownCastable, HMap, NotIntersect, RecAll', fmapH, logInfo)
+import           Snowdrop.Util (ExecM, HDownCastable, HMap, NotIntersect, fmapH, logInfo)
 
 
 type ServerDma conf = RememberForProof -> DbModifyActions conf ExecM
@@ -48,7 +48,7 @@ createAVLActionsPair
        , HDownCastable (DbComponents confC) xs
        , NotIntersect (DbComponents blkConfS) xs
        , NotIntersect (DbComponents blkConfC) xs
-       , RecAll' xs (IsAvlEntry avlHash)
+       , AllConstrained (IsAvlEntry avlHash) xs
        , Ord avlHash
        , Show avlHash
        , Typeable avlHash
