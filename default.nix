@@ -1,12 +1,17 @@
-{ pkgs ? import ./nixpkgs.nix }:
+{ pkgs ? import ./closure.nix, shell ? false }: with pkgs;
 
-let
-  stack4nix = fetchGit {
-    url = https://github.com/serokell/stack4nix;
-    rev = "dee5f58317a0f067c6adfceed4d710e53d56cac5";
-  };
-
-  buildStackProject = import stack4nix { inherit pkgs; };
-in
-
-buildStackProject ./.
+stackToNix {
+  root = constGitIgnore "blockchain-util-src" ./. [
+    "*.nix"
+    "/.buildkite"
+    "/config.yaml"
+    "/demo.sh"
+    "/docs"
+    "/paper"
+    "/readme.md"
+    "Makefile"
+    "start.sh"
+    "test-cases"
+  ];
+  inherit shell;
+}
