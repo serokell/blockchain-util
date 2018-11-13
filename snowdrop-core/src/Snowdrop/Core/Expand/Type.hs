@@ -50,6 +50,10 @@ newtype PreExpander conf rawTx ioRestr = PreExpander
                   -> ERoComp conf (ExpInpComps ioRestr) (DiffChangeSet (ExpOutComps ioRestr))
     }
 
+instance Semigroup (DiffChangeSet (ExpOutComps ioRestr)) =>
+    Semigroup (PreExpander conf rawTx ioRestr) where
+    PreExpander a <> PreExpander b = PreExpander $ a <> b
+
 contramapPreExpander :: (a -> b) -> PreExpander conf b ioRestr -> PreExpander conf a ioRestr
 contramapPreExpander f (PreExpander act) = PreExpander $ act . f
 
