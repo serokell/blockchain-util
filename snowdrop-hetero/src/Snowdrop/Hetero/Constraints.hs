@@ -2,7 +2,7 @@
 {-# LANGUAGE TypeInType              #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-module Snowdrop.Util.Hetero.Constraints where
+module Snowdrop.Hetero.Constraints where
 
 import           Universum hiding (Const (..), show)
 
@@ -13,7 +13,7 @@ import           Data.Vinyl.TypeLevel (RIndex, RecAll)
 
 import           GHC.TypeLits (ErrorMessage (..), TypeError)
 
-import           Snowdrop.Util.Containers (IsEmpty (..))
+import           Snowdrop.Util (IsEmpty (..))
 
 -- Aux type level fuctions and constraints
 

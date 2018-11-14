@@ -35,7 +35,8 @@ import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashab
                                                         RootHashComp (..), RootHashes, deserialiseM,
                                                         materialize, mkAVL, saveAVL)
 import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbActionsException (..))
-import           Snowdrop.Util
+import           Snowdrop.Hetero (HKey, HMap, HVal, unHMapEl)
+import           Snowdrop.Util (HasGetter (..))
 
 ----------------------------------------------------------------------------
 -- Server state

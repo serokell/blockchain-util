@@ -13,7 +13,7 @@ module Snowdrop.Core.ChangeSet.ValueOp
 
 import           Universum hiding (head, init, last)
 
-import           Snowdrop.Util
+import           Snowdrop.Util (HasPrism (..), HasReview (..))
 
 -- | ValueOp datatype is an action which should be performed over an entry
 -- stored in a key-value storage. Intended to be used in @ChangeSet@,

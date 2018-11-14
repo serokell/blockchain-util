@@ -27,7 +27,9 @@ import           Snowdrop.Execution.DbActions.Types (DGetter, DGetter', DIter',
                                                      DbAccessActions (..), DbAccessActionsM (..),
                                                      DbAccessActionsU (..), DbComponents,
                                                      IterAction (..))
-import           Snowdrop.Util
+import           Snowdrop.Hetero (ExnHKey, HIntersectable, HMap, HSet, HMapEl (..), HSetEl,
+                                  OrdHKey, hdifference, hintersect, rAllEmpty)
+import           Snowdrop.Util (IsEmpty (..), HasReview (..), NewestFirst (..), OldestFirst (..))
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
 newtype SumChangeSet xs = SumChangeSet {unSumCS :: HChangeSet xs}

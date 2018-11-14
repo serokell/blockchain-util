@@ -16,7 +16,8 @@ import           Test.Tasty.Hedgehog (testProperty)
 
 import           Snowdrop.Core (HChangeSet, HChangeSetEl (..), ValueOp (..), ValueOpEx (..),
                                 mappendChangeSet)
-import           Snowdrop.Util
+import           Snowdrop.Hetero (HKeyVal, rone)
+import           Snowdrop.Util (VerRes (..))
 
 --  'Int' is used in types for simplicity.
 
