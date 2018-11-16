@@ -29,7 +29,7 @@ import           Snowdrop.Core.ERoComp (BException, ChgAccum, ChgAccumCtx (..), 
 import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, ExpOutComps,
                                             ExpRestriction (..), PreExpander (..), ProofNExp (..),
                                             SeqExpander, SeqExpanderComponents)
-import           Snowdrop.Execution.DbActions (SumChangeSet (..), mappendStOrThrow)
+import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw)
 import           Snowdrop.Hetero (Both, HCastable, HElem, UnionTypes, SomeData (..),
                                   applySomeData, castStrip, hupcast)
 import           Snowdrop.Util (HasLens (..), throwLocalError)

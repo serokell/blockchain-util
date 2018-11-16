@@ -25,7 +25,7 @@ import           Snowdrop.Execution.DbActions.Types (DGetter, DGetter', DIter',
                                                      IterAction (..))
 import           Snowdrop.Hetero (ExnHKey, HIntersectable, HMap, HSet, HMapEl (..), HSetEl,
                                   OrdHKey, hdifference, hintersect, rAllEmpty)
-import           Snowdrop.Util (IsEmpty (..), HasReview (..), NewestFirst (..), OldestFirst (..))
+import           Snowdrop.Util (IsEmpty (..), NewestFirst (..), OldestFirst (..))
 
 querySumChSet :: HIntersectable xs xs => SumChangeSet xs -> HSet xs -> (HSet xs, HMap xs)
 querySumChSet (SumChangeSet accum) reqIds = (reqIds', resp)

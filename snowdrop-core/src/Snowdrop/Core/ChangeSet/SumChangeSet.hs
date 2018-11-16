@@ -12,7 +12,8 @@ import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Snowdrop.Core.ChangeSet.Type (HChangeSet, CSMappendException, MappendHChSet,
                                                mappendChangeSet)
-import           Snowdrop.Util (ExnHKey, HasReview (..))
+import           Snowdrop.Hetero (ExnHKey)                                               
+import           Snowdrop.Util (HasReview (..))
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
 newtype SumChangeSet xs = SumChangeSet {unSumCS :: HChangeSet xs}
