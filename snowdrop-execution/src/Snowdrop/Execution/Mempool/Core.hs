@@ -31,7 +31,8 @@ import           Snowdrop.Core (BException, CSMappendException, ChgAccum, ChgAcc
                                 convertEffect, expandOneTx, liftERoComp, modifyAccumOne, runValidator)
 import           Snowdrop.Execution.DbActions (DbActions)
 import           Snowdrop.Execution.IOExecutor (IOCtx, IOExecEffect, runERwCompIO)
-import           Snowdrop.Util
+import           Snowdrop.Hetero (Both, RContains, SomeData (..), usingSomeData)
+import           Snowdrop.Util (ExecM, HasGetter (..), HasLens (..))
 
 ---------------------------
 -- Core part

@@ -18,7 +18,7 @@ import           Snowdrop.Core.BaseM (BaseM)
 import           Snowdrop.Core.ERoComp (BException, ChgAccum, ChgAccumCtx (..), ConvertEffect (..),
                                         Ctx, DbAccessM, HasBException, StatePException (..),
                                         UpCastableERoM, initAccumCtx, upcastEffERoCompM)
-import           Snowdrop.Util
+import           Snowdrop.Util (HasGetter (..), HasLens (..), throwLocalError)
 
 -- | StateT over ERoComp.
 -- ERoComp can be lifted to ERwComp with regarding a current state.

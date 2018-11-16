@@ -40,6 +40,7 @@ library
     , mtl
     , random
     , reflection
+    , snowdrop-hetero          
     , snowdrop-util
     , stm
     , text
@@ -132,6 +133,7 @@ test-suite snowdrop-core-test
     , universum
     , vinyl
     , snowdrop-core
+    , snowdrop-hetero          
     , snowdrop-util
   build-tool-depends:
       hspec-discover:hspec-discover

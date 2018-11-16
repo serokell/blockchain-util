@@ -21,7 +21,8 @@ module Snowdrop.Core.Transaction
 import           Universum
 
 import           Snowdrop.Core.ChangeSet (HChangeSet)
-import           Snowdrop.Util (HDownCastable, HasGetter (..), SomeData (..), hdowncast)
+import           Snowdrop.Hetero (HDownCastable, SomeData (..), hdowncast)
+import           Snowdrop.Util (HasGetter (..))
 
 ------------------------------------------
 -- Basic storage: model

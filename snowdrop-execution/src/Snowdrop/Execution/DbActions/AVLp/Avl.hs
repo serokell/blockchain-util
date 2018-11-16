@@ -33,7 +33,7 @@ import           Data.Vinyl.TypeLevel (AllConstrained)
 import           Data.Default (Default (def))
 import qualified Data.Text.Buildable as Buildable
 import           Snowdrop.Execution.DbActions.Types (DbActionsException (..))
-import           Snowdrop.Util (HKey, HVal)
+import           Snowdrop.Hetero (HKey, HVal)
 
 
 type AvlHashable h = (Ord h, Show h, Typeable h, Serialisable h)

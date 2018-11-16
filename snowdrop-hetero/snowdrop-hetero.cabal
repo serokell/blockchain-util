@@ -1,0 +1,57 @@
+name:           snowdrop-hetero
+version:        0.1.0.0
+description:    Please see the README on Github at <https://github.com/githubuser/blockchain-util#readme>
+homepage:       https://github.com/githubuser/blockchain-util#readme
+bug-reports:    https://github.com/githubuser/blockchain-util/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+build-type:     Simple
+cabal-version:  >= 1.10
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/blockchain-util
+                     
+library
+  hs-source-dirs:
+      src
+  build-depends:
+      base >=4.7 && <5
+    , containers            
+    , data-default
+    , formatting < 6.3
+    , fmt          
+    , snowdrop-util
+    , text
+    , text-format          
+    , vinyl          
+    , universum
+  build-tool-depends:
+      autoexporter:autoexporter
+                                         
+  exposed-modules:
+      Snowdrop.Hetero
+                  
+  other-modules:
+      Snowdrop.Hetero.Constraints
+      Snowdrop.Hetero.HMap
+
+  default-language: Haskell2010
+  ghc-options:         -Wall
+                       -fno-warn-orphans
+  default-extensions:   NoImplicitPrelude
+                        ExplicitNamespaces
+                        TypeOperators
+                        TypeFamilies
+                        UndecidableInstances
+                        MultiParamTypeClasses
+                        FlexibleInstances
+                        ConstraintKinds
+                        ExistentialQuantification
+                        FlexibleContexts
+                        DefaultSignatures
+                        TypeApplications
+                        ScopedTypeVariables
+                        OverloadedStrings

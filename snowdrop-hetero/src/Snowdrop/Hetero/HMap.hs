@@ -2,7 +2,7 @@
 {-# LANGUAGE TypeInType              #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-module Snowdrop.Util.Hetero.HMap where
+module Snowdrop.Hetero.HMap where
 
 import           Universum hiding (show)
 
@@ -15,8 +15,8 @@ import           Data.Vinyl (Rec (..), rappend, rcast)
 import           Data.Vinyl.Lens (RElem, RSubset)
 import           Data.Vinyl.TypeLevel (type (++), AllConstrained, Fst, RImage, RIndex, Snd)
 import           Formatting (bprint, build, (%))
-import           Snowdrop.Util.Containers (IsEmpty (..), toDummyMap)
-import           Snowdrop.Util.Hetero.Constraints (NotIntersect, RemoveElem, UnionTypes)
+import           Snowdrop.Util (IsEmpty (..), toDummyMap)
+import           Snowdrop.Hetero.Constraints (NotIntersect, RemoveElem, UnionTypes)
 
 ------------------------
 -- HMap and HSet

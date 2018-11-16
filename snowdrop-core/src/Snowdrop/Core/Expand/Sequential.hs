@@ -29,8 +29,10 @@ import           Snowdrop.Core.ERoComp (BException, ChgAccum, ChgAccumCtx (..), 
 import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, ExpOutComps,
                                             ExpRestriction (..), PreExpander (..), ProofNExp (..),
                                             SeqExpander, SeqExpanderComponents)
-import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw)
-import           Snowdrop.Util
+import           Snowdrop.Execution.DbActions (SumChangeSet (..), mappendStOrThrow)
+import           Snowdrop.Hetero (Both, HCastable, HElem, UnionTypes, SomeData (..),
+                                  applySomeData, castStrip, hupcast)
+import           Snowdrop.Util (HasLens (..), throwLocalError)
 
 type ExpandRawTxsMode conf txtypes =
     ( HasBException conf CSMappendException

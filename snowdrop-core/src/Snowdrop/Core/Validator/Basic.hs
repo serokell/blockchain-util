@@ -21,7 +21,8 @@ import           Snowdrop.Core.ChangeSet (HChangeSet, csNew, csRemove)
 import           Snowdrop.Core.ERoComp (ERoComp, HasBException, QueryERo, query)
 import           Snowdrop.Core.Transaction (TxComponents, txBody)
 import           Snowdrop.Core.Validator.Types (PreValidator (..))
-import           Snowdrop.Util
+import           Snowdrop.Hetero (ExnHKey)
+import           Snowdrop.Util (HasReview (..), throwLocalError)
 
 ---------------------------
 -- Helpers for validation

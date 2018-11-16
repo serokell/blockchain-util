@@ -36,9 +36,11 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (
                                 UpCastableERoM, Validator, ValueOp (..), applySomeTx, computeUndo, convertEffect,
                                 getCAOrDefault, hChangeSetFromMap, liftERoComp, modifyAccum,
                                 modifyAccumOne, modifyAccumUndo, queryOne, queryOneExists,
-                                runValidator, runSeqExpandersSequentially, upcastEffERoComp,
-                                upcastEffERoCompM)
-import           Snowdrop.Util
+                                runValidator, upcastEffERoComp, upcastEffERoCompM)
+import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
+                                     UnionSeqExpandersInps, runSeqExpandersSequentially)
+import           Snowdrop.Hetero (Both, HKeyVal, RContains, SomeData, UnionTypes, hupcast)
+import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), OldestFirst (..))
 
 data OpenBlockRawTxType header
 data CloseBlockRawTxType header
