@@ -13,8 +13,7 @@ import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockRef, Blund (buHeader, buPayload),
                                        CurrentBlockRef (..), PrevBlockRef (..), RawBlk)
 import           Snowdrop.Core (ChgAccum, DbAccessU, ERwComp, HasBException)
-import           Snowdrop.Util
-
+import           Snowdrop.Util (OldestFirst (..), throwLocalError)
 
 -- | 'blockSync' contains the logic of fork resolution on client.
 -- Client calls 'blockSync' on list of hashes of blocks to check

@@ -52,7 +52,12 @@ import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, H
 import           Snowdrop.Core.ERoComp.Types (BException, ChgAccum, Ctx, DbAccess (..),
                                               DbAccessM (..), DbAccessU (..), ERoComp, ERoCompM,
                                               ERoCompU, FoldF (..), Undo)
-import           Snowdrop.Util
+import           Snowdrop.Hetero (HIntersectable, HElem, HKey, HSet, HVal,
+                                  HUpCastableSet, hintersect, hdowncast, hmapToMap,
+                                  hsetFromSet, hupcast)
+import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), HasReviews,
+                                NewestFirst (..), OldestFirst (..), deriveIdView, throwLocalError,
+                                unOldestFirst, withInj)
 import qualified Snowdrop.Util as Log
 
 type HasBException conf e1 = HasReview (BException conf) e1

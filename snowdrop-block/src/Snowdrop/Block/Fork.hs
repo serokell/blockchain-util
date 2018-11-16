@@ -23,7 +23,9 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (BlockHeader, BlockRef, Blund (..), CurrentBlockRef (..),
                                        OSParams, PrevBlockRef (..))
-import           Snowdrop.Util
+import           Snowdrop.Util (HasReview (..), NewestFirst (..), OldestFirst (..),
+                                newestFirstFContainer, oldestFirstFContainer, toOldestFirst,
+                                throwLocalError)
 
 -- | Result of fork verification.
 data ForkVerResult blkType

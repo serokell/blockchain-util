@@ -14,7 +14,7 @@ import           Universum
 import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, Blund (buHeader),
                                        CurrentBlockRef (..), ExpandedBlk, OSParams,
                                        PrevBlockRef (..))
-import           Snowdrop.Util
+import           Snowdrop.Util (OldestFirst (..))
 
 newtype BlockIntegrityVerifier blkType = BIV { unBIV :: ExpandedBlk blkType -> Bool }
 

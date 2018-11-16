@@ -26,6 +26,7 @@ library
     , formatting < 6.3
     , mtl
     , snowdrop-core
+    , snowdrop-hetero
     , snowdrop-util
     , snowdrop-execution
     , time

@@ -38,7 +38,8 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (
                                 runValidator, upcastEffERoComp, upcastEffERoCompM)
 import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
                                      UnionSeqExpandersInps, runSeqExpandersSequentially)
-import           Snowdrop.Util
+import           Snowdrop.Hetero (Both, HKeyVal, RContains, SomeData, UnionTypes, hupcast)
+import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), OldestFirst (..))
 
 data OpenBlockRawTxType header
 data CloseBlockRawTxType header

@@ -29,7 +29,9 @@ import           Snowdrop.Core (BException, CSMappendException (..), ChgAccum, C
                                 TxComponents, TxRaw, UpCastableERoM, convertEffect,
                                 mappendChangeSet, upcastEffERoCompM, withModifiedAccumCtxOne)
 import           Snowdrop.Execution.DbActions (SumChangeSet (..), mappendStOrThrow)
-import           Snowdrop.Util
+import           Snowdrop.Hetero (Both, HCastable, HElem, UnionTypes, SomeData (..),
+                                  applySomeData, castStrip, hupcast)
+import           Snowdrop.Util (HasLens (..), throwLocalError)
 
 type ExpandRawTxsMode conf txtypes =
     ( HasBException conf CSMappendException

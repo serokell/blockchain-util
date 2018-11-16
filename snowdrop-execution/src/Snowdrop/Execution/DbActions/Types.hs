@@ -33,7 +33,8 @@ import           Formatting (bprint, build, (%))
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, DbAccess (..), DbAccessM (..),
                                 DbAccessU (..), FoldF (..), HChangeSet, Undo)
-import           Snowdrop.Util (HFunctor (..), HKey, HMap, HSet, HVal, NewestFirst, OldestFirst)
+import           Snowdrop.Hetero (HKey, HMap, HSet, HVal)
+import           Snowdrop.Util (HFunctor (..), NewestFirst, OldestFirst)
 
 type family DbComponents conf :: [*]
 type family DbApplyProof conf :: *

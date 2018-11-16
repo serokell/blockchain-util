@@ -38,8 +38,8 @@ import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashab
 import           Snowdrop.Execution.DbActions.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl,
                                                           reThrowAVLEx, runAVLCacheT)
 import           Snowdrop.Execution.DbActions.Types (DGetter', DIter', DModify', IterAction (..))
-import           Snowdrop.Util (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, HasGetter (..),
-                                Head, NewestFirst (..), OldestFirst (..))
+import           Snowdrop.Hetero (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, Head)
+import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..))
 
 -- | Change accumulator type for AVL tree.
 data AVLChgAccum h t = AVLChgAccum

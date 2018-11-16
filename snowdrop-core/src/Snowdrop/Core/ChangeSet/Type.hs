@@ -37,7 +37,10 @@ import           Formatting (bprint, shown, (%))
 import qualified Data.Map.Strict as M
 
 import           Snowdrop.Core.ChangeSet.ValueOp (ValueOp (..), ValueOpEx (..), (<->))
-import           Snowdrop.Util
+import           Snowdrop.Hetero (ExnHKey, DifferenceF (..), HKey, HMap, HMapEl (..),
+                                  HSetEl (..), HSet, HVal, HUpCastable (..),
+                                  IntersectionF (..))
+import           Snowdrop.Util (toDummyMap)
 
 newtype HChangeSetEl t = HChangeSetEl {unHChangeSetEl :: Map (HKey t) (ValueOp (HVal t)) }
     deriving (Generic)

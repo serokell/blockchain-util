@@ -22,7 +22,9 @@ import           Snowdrop.Execution.DbActions.Simple.SumChangeSet (SumChangeSet 
 import           Snowdrop.Execution.DbActions.Types (DIter', DbActionsException (..), DbApplyProof,
                                                      DbComponents, DbModifyActions (..),
                                                      IterAction (..))
-import           Snowdrop.Util
+import           Snowdrop.Hetero (ExnHKey, HIntersectable, HKey, HMap, HMapEl (..),
+                                  HSet, HSetEl (..), HVal, OrdHKey)
+import           Snowdrop.Util (IsEmpty (..), toDummyMap)
 
 simpleDbActions
     :: forall st conf xs.

@@ -36,6 +36,7 @@ library
     , mtl
     , reflection
     , snowdrop-core
+    , snowdrop-hetero
     , snowdrop-util
     , stm
     , vinyl
