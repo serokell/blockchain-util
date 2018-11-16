@@ -15,15 +15,31 @@ extra-deps:
 - teardown-0.5.0.0
 - universum-1.1.1
 
+# Required by lootbox (loot-log)
+- git: https://github.com/kowainik/co-log.git
+  commit: 41cc915e42628c9cc4eea28db2ecdf11bd0e413e
+  subdirs:
+  - co-log-core
+  - co-log
+
+- git: https://github.com/serokell/co-log-sys.git
+  commit: dc1b683eab9a82a1662259fd6cb0907e14e54ea9
+
+# Required by co-log and co-log-core
+- contravariant-1.5
+- relude-0.3.0
+- typerep-map-0.3.0
+- primitive-0.6.4.0
+
 - git: https://github.com/serokell/lootbox.git
-  commit: 15b4f1c5db6d25fb241031e82f771fa89c4f29b0
+  commit: b66d53bf42e88d44184046f3450ab2f01bd9c8b6
   subdirs:
     - code/base
     - code/log
     - code/network
     - code/prelude
 
-- git: git@github.com:serokell/auth-data-structures.git
+- git: https://github.com/serokell/auth-data-structures.git
   commit: c46d81fac79bbc1e4efcc6c4568a1500b273bd60
 
 # Forced by lootbox #

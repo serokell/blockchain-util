@@ -14,7 +14,6 @@ module Snowdrop.Util.Logging
     , MonadLogging (..)
     , ModifyLogName (..)
     , NameSelector (..)
-    , CanLog
 
     -- * Loggers
     , logDebug
@@ -32,18 +31,13 @@ import           Control.Monad.Trans.Control (MonadBaseControl (..))
 import           Data.Yaml (decodeFileEither, encode)
 import           Fmt (format)
 import           Loot.Base.HasLens (HasLens, lensOf)
-import           Loot.Log (ModifyLogName (..), MonadLogging (..), NameSelector (..), logDebug,
-                           logError, logInfo, logWarning, modifyLogName)
-import           Loot.Log.Internal (LogEvent)
-import           Loot.Log.Rio (LoggingIO)
+import           Loot.Log (ModifyLogName (..), MonadLogging (..), NameSelector (..),
+                           logDebug, logError, logInfo, logWarning, modifyLogName,
+                           LogEvent, allocateLogging, Severity (Debug), LoggingIO,
+                           LogConfig (..), BackendConfig (..))
 import qualified Loot.Log.Rio as Rio
-import           Loot.Log.Warper (prepareLogWarper)
-import           System.Wlog (CanLog (..), removeAllHandlers)
-
-import qualified Data.HashMap.Strict as HM
 import qualified System.Console.ANSI as Term
-import qualified System.Wlog as LW
-
+import Control.Monad.Component (runComponentM)
 -- Copied from Disciplina:
 
 {- | Conventional "ReaderT over IO" monad stack.
@@ -80,26 +74,13 @@ type ExecM = RIO LoggingIO
 -- Configuration and initiation
 ----------------------------------------------------------------------------
 
-defaultLogCfg :: LW.LoggerConfig
-defaultLogCfg = LW.productionB & LW.lcTermSeverityOut .~ Just mempty
-                               & LW.lcTermSeverityErr .~ Just LW.allSeverities
-                               & LW.lcTree .~ defaultTree
-                               & LW.lcLogsDirectory .~ Just "logs"
+defaultLogCfg :: LogConfig
+defaultLogCfg = LogConfig {..}
   where
-    defaultTree :: LW.LoggerTree
-    defaultTree = mempty & LW.ltSeverity .~ Just LW.infoPlus -- TODO: make it more reasonable
-      & LW.ltSubloggers .~ subloggersMap
-
-    mkTree :: FilePath -> LW.LoggerTree
-    mkTree logPath =
-      mempty & LW.ltSeverity .~ Just LW.infoPlus
-             & LW.ltSubloggers .~ mempty
-             & LW.ltFiles .~ [LW.HandlerWrap logPath Nothing]
-
-    subloggersMap :: LW.LoggerMap
-    subloggersMap = HM.fromList
-      [ (LW.LoggerName "Server", mkTree "Server.log")
-      , (LW.LoggerName "Client", mkTree "Client.log")
+    minSeverity = Debug
+    backends =
+      [ StdErr
+      , File "logs/out.log"
       ]
 
 
@@ -114,13 +95,10 @@ withLogger mConfigPath action = do
             withColor Term.Red (putTextLn "Error: ") >> print err
             withColor Term.Red (putTextLn "Default log config will be used.")
             return defaultLogCfg
-    bracket
-      (prepareLogWarper cfg (GivenName $ fromString ""))
-      (const removeAllHandlers)
-      (\(finalConfig, logging) ->
+    runComponentM "blockchain-util" (allocateLogging cfg (GivenName $ fromString "")) $ \logging ->
         runRIO logging $ modifyLogName (const "Executor") $ do
-          logInfo $ format "Used config:\n{}" (decodeUtf8 (encode finalConfig) :: Text)
-          action)
+          logInfo $ format "Used config:\n{}" (decodeUtf8 (encode cfg) :: Text)
+          action
   where
     withColor :: Term.Color -> IO () -> IO ()
     withColor col act = do

@@ -100,7 +100,7 @@ instance MonadError e (BaseM e eff ctx) where
     catchError (BaseM ma) cont = BaseM $ ma `catchError` \e -> unBaseM $ cont e
 
 instance Log.MonadLogging (BaseM e eff ctx) where
-    log l s t = BaseM (Log.log l s t)
+    log msg = BaseM (Log.log msg)
     logName = BaseM Log.logName
 
 instance Log.ModifyLogName (BaseM e eff ctx) where

@@ -87,7 +87,7 @@ newtype TestExecutorT e id value m a = TestExecutorT { runTestExecutorT :: Reade
 
 -- Dummy logging
 instance Monad m => MonadLogging (TestExecutorT e id value m) where
-    log _ _ _ = pure ()
+    log _ = pure ()
     logName = pure (GivenName "")
 
 instance Monad m => ModifyLogName (TestExecutorT e id value m) where
