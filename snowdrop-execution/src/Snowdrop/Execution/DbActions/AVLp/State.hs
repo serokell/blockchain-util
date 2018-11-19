@@ -3,6 +3,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE InstanceSigs #-}
 
 module Snowdrop.Execution.DbActions.AVLp.State
        ( AVLServerState (..)
@@ -25,7 +26,7 @@ import           Universum
 import           Data.Default (Default (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
-import           Data.Tree.AVL (KVStoreMonad (..), Serialisable (..))
+import           Data.Tree.AVL (MapLayer)
 import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
 import           Loot.Log (MonadLogging, logDebug)
@@ -36,7 +37,7 @@ import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashab
                                                         materialize, mkAVL, saveAVL)
 import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbActionsException (..))
 import           Snowdrop.Hetero (HKey, HMap, HVal, unHMapEl)
-import           Snowdrop.Util (HasGetter (..))
+import           Snowdrop.Util (HasGetter (..), Serialisable (..))
 
 ----------------------------------------------------------------------------
 -- Server state
@@ -96,14 +97,16 @@ instance Exception ClientError
 reThrowAVLEx :: forall k h m a . (MonadCatch m, Show h, Typeable h, Show k, Typeable k) => m a -> m a
 reThrowAVLEx m =
     m `catch` (\(e :: ClientError) -> throwM $ DbProtocolError $ show e)
-      `catch` (\(e :: AVL.DeserialisationError) -> throwM $ DbProtocolError $ show e)
       `catch` (\(e :: AVL.NotFound k) -> throwM $ DbProtocolError $ "Not found key: " <> show e)
       `catch` (\(e :: AVL.NotFound h) -> throwM $ DbProtocolError $ "Not found hash: " <> show e)
 
 clientModeToTempSt
     :: forall h xs m n .
     ( AvlHashable h
-    , MonadCatch m, MonadIO n, MonadCatch n
+    , MonadCatch m
+    , MonadIO n
+    , MonadIO m
+    , MonadCatch n
     , AllAvlEntries h xs
     )
     => RetrieveF h n
@@ -192,13 +195,33 @@ newtype AVLCacheT h m a = AVLCacheT (StateT (AVLCache h) m a)
     deriving (Functor, Applicative, Monad, MonadThrow,
               MonadCatch, MonadState (AVLCache h), MonadTrans)
 
+deriving instance MonadIO m => MonadIO (AVLCacheT h m)
+
+-- TODO: was this instance implemented previously?
+instance AvlHashable h => Serialisable (AVL.MapLayer h k v h) where
+    serialise :: (AVL.MapLayer h k v h) -> ByteString
+    serialise = error "FIXME: I am lazy"
+
+    deserialise :: ByteString -> Either String (AVL.MapLayer h k v h)
+    deserialise = error "FIXME: I am lazy"
+
 instance (MonadThrow m, AvlHashable h, RetrieveImpl m h)
-         => KVStoreMonad h (AVLCacheT h m) where
+         => AVL.KVRetrieve h (AVL.MapLayer h k v h) (AVLCacheT h m) where
+    retrieve :: h -> AVLCacheT h m (AVL.MapLayer h k v h)
     retrieve k = checkInAccum >>= deserialiseM
       where
         checkInAccum = M.lookup k . unAVLCache <$> get >>= maybe checkInState pure
         checkInState = lift (retrieveImpl k) >>= maybe (throwM $ AVL.NotFound k) pure
-    store k v = modify' $ AVLCache . M.insert k (serialise v) . unAVLCache
+
+-- TODO: implement
+instance (MonadThrow m, AvlHashable h, RetrieveImpl m h)
+         => AVL.KVStore h (AVL.MapLayer h k v h) (AVLCacheT h m) where
+    massStore :: [(h, AVL.MapLayer h k v h)] -> AVLCacheT h m ()
+    massStore = mapM_ store
+
+store :: (MonadThrow m, AvlHashable h, RetrieveImpl m h)
+      => (h, MapLayer h k v h) -> AVLCacheT h m ()
+store (k, v) = modify' $ AVLCache . M.insert k (serialise v) . unAVLCache
 
 runAVLCacheT
     :: MonadThrow m

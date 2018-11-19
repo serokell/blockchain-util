@@ -20,7 +20,7 @@ module Snowdrop.Execution.DbActions.AVLp.Accum
 
 import           Universum
 
-import           Data.Tree.AVL (MapLayer (..), Serialisable (..))
+import           Data.Tree.AVL (MapLayer (..))
 import qualified Data.Tree.AVL as AVL
 
 import           Data.Default (Default (def))
@@ -39,7 +39,7 @@ import           Snowdrop.Execution.DbActions.AVLp.State (AVLCache, AVLCacheT, R
                                                           reThrowAVLEx, runAVLCacheT)
 import           Snowdrop.Execution.DbActions.Types (DGetter', DIter', DModify', IterAction (..))
 import           Snowdrop.Hetero (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, Head)
-import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..))
+import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..), Serialisable (..))
 
 -- | Change accumulator type for AVL tree.
 data AVLChgAccum h t = AVLChgAccum
@@ -47,7 +47,7 @@ data AVLChgAccum h t = AVLChgAccum
     -- ^ AVL map, which contains avl tree with most-recent updates
     , acaStorage :: AVLCache h
     -- ^ AVL tree cache, which stores results of all `save` operations performed on AVL tree
-    , acaTouched :: Set h
+    , acaTouched :: Set AVL.Revision
     -- ^ Set of nodes, which were touched during all of change operations applied on tree
     }
 
@@ -80,6 +80,7 @@ modAccum
     => ctx
     -> AVLChgAccums h xs
     -> DModify' (AVLChgAccums h xs) xs m
+-- modAccum = undefined
 modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
     Just acc -> modAccumAll acc cs'
     Nothing  -> modAccumAll (resolveAvlCA ctx acc') cs'
@@ -118,19 +119,22 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
     doUncurry f ((a, c), b) = f a b c
 
 modAVL
-    ::
+    :: forall k v h m ctx .
       ( KVConstraint k v
       , Serialisable (MapLayer h k v h)
       , AVL.Hash h k v
       , AvlHashable h
       , MonadCatch m
+      , MonadIO m
       , RetrieveImpl (ReaderT ctx m) h
       )
-    => (AVL.Map h k v, Set h)
+    => (AVL.Map h k v, Set AVL.Revision)
     -> (k, ValueOp v)
-    -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
-modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup' k avl
+    -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set AVL.Revision)
+modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup k avl
   where
+    processResp :: ((Maybe v, Set AVL.Revision), AVL.Map h k v)
+                -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set AVL.Revision)
     processResp ((lookupRes, (<> touched) -> touched'), avl') =
       case (valueop, lookupRes) of
         (NotExisted, Nothing) -> pure (avl', touched')
@@ -138,7 +142,6 @@ modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup' k avl
         (Rem       , Just _)  -> (, touched') . snd <$> AVL.delete' k avl'
         (Upd v     , Just _)  -> (, touched') . snd <$> AVL.insert' k v avl'
         _                     -> throwM $ CSMappendException k
-
 
 modAccumU
     :: forall h xs . AVLChgAccums h xs
@@ -212,6 +215,7 @@ iter ctx (Just ca) = pure $ iterAll ca
     iterAll RNil = RNil
     iterAll (AVLChgAccum initAvl initAcc _ :& accums) =
         IterAction
-            (\initB f -> fmap fst $ reThrowAVLEx @(HKey (Head rs)) @h $
+            (\initB f -> fmap (fst . fst) $ reThrowAVLEx @(HKey (Head rs)) @h $
                 runAVLCacheT (AVL.fold (initB, flip f, id) initAvl) initAcc ctx) :& iterAll accums
+
 iter ctx cA = iter ctx (Just $ resolveAvlCA ctx cA)

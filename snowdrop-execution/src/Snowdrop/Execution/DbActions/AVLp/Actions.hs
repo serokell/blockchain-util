@@ -12,7 +12,7 @@ module Snowdrop.Execution.DbActions.AVLp.Actions
 
 import           Universum
 
-import           Data.Tree.AVL (MapLayer (..), Serialisable (..))
+import           Data.Tree.AVL (MapLayer (..))
 import qualified Data.Tree.AVL as AVL
 
 import           Data.Default (Default (def))
@@ -39,7 +39,7 @@ import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessAc
                                                      DbApplyProof, DbComponents,
                                                      DbModifyActions (..), RememberForProof (..))
 import           Snowdrop.Hetero (HKey, HVal, unHSetEl)
-import           Snowdrop.Util (NewestFirst)
+import           Snowdrop.Util (NewestFirst, Serialisable)
 
 avlClientDbActions
     :: forall conf h m n xs .
@@ -199,7 +199,7 @@ computeProofAll (RootHashComp rootH :& roots) (AVLChgAccum _ _ accTouched :& acc
 computeProof
     :: forall t h . (IsAvlEntry h t, AvlHashable h)
     => RootHash h
-    -> Set h
+    -> Set AVL.Revision
     -> AMSRequested t
     -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h (HKey t) (HVal t))
 computeProof (mkAVL -> oldAvl) accTouched requested =
@@ -218,15 +218,18 @@ computeProof (mkAVL -> oldAvl) accTouched requested =
         -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h (HKey t) (HVal t))
     computeProofKeys tree ks = do
         (avl', allTouched) <- foldM computeTouched (tree, mempty) ks
-        AVL.prune (allTouched <> accTouched) =<< materialize avl'
+
+        -- FIXME: I just stole this lines from Disciplina
+        -- proof <- run $ AVL.prune preproof (AVL.fullRehash old)
+        AVL.prune (allTouched <> accTouched) (AVL.fullRehash avl')
 
     computeTouched
         :: (KVConstraint k v, AVL.Hash h k v, Serialisable (MapLayer h k v h))
-        => (AVL.Map h k v, Set h)
+        => (AVL.Map h k v, Set AVL.Revision)
         -> k
-        -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Map h k v, Set h)
+        -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Map h k v, Set AVL.Revision)
     computeTouched (avl, touched) key = do
-        ((_res, touched'), avl') <- AVL.lookup' key avl
+        ((_res, touched'), avl') <- AVL.lookup key avl
         pure (avl', touched' <> touched)
 
 class AllWholeTree xs where

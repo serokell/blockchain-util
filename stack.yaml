@@ -15,6 +15,7 @@ extra-deps:
 - serokell-util-0.8.0
 - teardown-0.5.0.0
 - universum-1.1.1
+- ../auth-data-structures
 
 - git: https://github.com/serokell/lootbox.git
   commit: 15b4f1c5db6d25fb241031e82f771fa89c4f29b0
@@ -24,8 +25,10 @@ extra-deps:
     - code/network
     - code/prelude
 
-- git: https://github.com/serokell/auth-data-structures.git
-  commit: c46d81fac79bbc1e4efcc6c4568a1500b273bd60
+# - git: https://github.com/serokell/auth-data-structures.git
+#   # commit: 53db466c475009fe91dfd4e1defa97b25fa26209
+#   # DSCP version
+#   commit: 4a95f4dd32a82195f49ceb0113c9f05bc260ca7d
 
 # Forced by lootbox #
 - base-noprelude-4.10.1.0
