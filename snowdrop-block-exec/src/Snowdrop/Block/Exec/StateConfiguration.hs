@@ -18,11 +18,11 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..))
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
                                        PrevBlockRef (..), RawBlk, RawBlund, RawPayload, Tx)
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
-                                ERoComp, ERwComp, HChangeSet, HasBExceptions, MappendHChSet,
-                                QueryERo, SomeTx, StatePException (..), StateTx (..), TxComponents,
-                                TxRaw, Undo, UnitedTxType, UpCastableERoM, Validator, applySomeTx,
-                                liftERoComp, modifyAccumUndo, queryOne, queryOneExists,
+import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, ERoComp,
+                                ERoCompU, HChangeSet, HasBExceptions, MappendHChSet, QueryERo,
+                                SomeTx, StatePException (..), StateTx (..), TxComponents, TxRaw,
+                                Undo, UnitedTxType, UpCastableERoM, Validator, applySomeTx,
+                                convertEffect, modifyAccumUndo, queryOne, queryOneExists,
                                 runValidator, upcastEffERoComp, upcastEffERoCompM)
 import           Snowdrop.Execution (ExpandableTx, ProofNExp (..), UnionSeqExpandersInps,
                                      runSeqExpandersSequentially)
@@ -61,7 +61,7 @@ inmemoryBlkStateConfiguration
   :: forall blkType txtypes conf xs c m .
     ( xs ~ BlkProcComponents blkType txtypes
     , c ~ BlkProcConstr txtypes xs
-    , m ~ ERwComp conf (DbAccessU conf xs) (ChgAccum conf)
+    , m ~ ERoCompU conf xs
     , Tx blkType ~ SomeTx (BlkProcConstr txtypes xs)
     , HasBExceptions conf
         [ StatePException
@@ -69,7 +69,7 @@ inmemoryBlkStateConfiguration
         ]
     , Default (ChgAccum conf)
     , Default (HChangeSet (UnionSeqExpandersInps txtypes))
-    , HasGetter (BlockUndo blkType) (Undo conf)
+    , HasReview (Undo conf) (BlockUndo blkType)
     , HasGetter (RawBlk blkType) (BlockHeader blkType)
     , HasGetter (RawBlk blkType) [SomeData TxRaw (Both (ExpandableTx txtypes) c)]
     , HasLens (ChgAccum conf) (ChgAccum conf)
@@ -90,16 +90,17 @@ inmemoryBlkStateConfiguration cfg validator exps = fix $ \this ->
       pure $ OldestFirst $ gett <$> rawBlocks
     , bscExpandPayloads = \chgAccum rawBlks -> let
         comp = OldestFirst <$> traverse (runSeqExpandersSequentially exps . gett) rawBlks
-        in liftERoComp $ upcastEffERoCompM @_ @xs $ local (lensFor @(Ctx conf) @(ChgAccumCtx conf) .~ CAInitialized @conf chgAccum) comp
-    , bscValidateTx = \chgAccum tx -> liftERoComp $ mapTx_ @conf (runValidator validator) (chgAccum, tx)
-    , bscGetHeader = \blockRef -> liftERoComp $ do
+        in convertEffect @conf $ upcastEffERoCompM @_ @xs $ local (lensFor @(Ctx conf) @(ChgAccumCtx conf) .~ CAInitialized @conf chgAccum) comp
+    , bscValidateTx = \chgAccum tx -> convertEffect @conf $ mapTx_ @conf (runValidator validator) (chgAccum, tx)
+    , bscGetHeader = \blockRef -> convertEffect @conf $ do
         blund <- queryOne @(BlundComponent blkType) @xs @conf $ blockRef
         pure $ blkHeader. buBlock <$> blund
+    --  sequentially rollback every block from the tip down to blockRef
     , bscInmemRollback = \blockRef -> do
-          blunds <- bscGetTip this >>= maybe (throwLocalError BlockRefNotFound) (liftERoComp . getBlunds blockRef)
-          liftERoComp $ modifyAccumUndo @xs @conf $ NewestFirst (gett . buUndo <$> blunds)
-    , bscBlockExists = liftERoComp . queryOneExists @(BlundComponent blkType) @xs @conf
-    , bscGetTip = unTipValue <<$>> liftERoComp (queryOne @(TipComponent blkType) @xs @conf TipKey)
+          blunds <- bscGetTip this >>= maybe (throwLocalError BlockRefNotFound) (convertEffect @conf . getBlunds blockRef)
+          modifyAccumUndo @xs @conf $ NewestFirst (inj . buUndo <$> blunds)
+    , bscBlockExists = convertEffect @conf . queryOneExists @(BlundComponent blkType) @xs @conf
+    , bscGetTip = unTipValue <<$>> convertEffect @conf (queryOne @(TipComponent blkType) @xs @conf TipKey)
     }
     where
       getBlunds :: BlockRef blkType -> BlockRef blkType -> ERoComp conf xs [RawBlund blkType]

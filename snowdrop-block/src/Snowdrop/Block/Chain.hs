@@ -15,7 +15,7 @@ import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
                                        CurrentBlockRef (..), PrevBlockRef (..), RawBlund,
                                        RawPayload)
-import           Snowdrop.Core (ChgAccum, ERoComp, QueryERo, queryOne)
+import           Snowdrop.Core (ChgAccum, ERoCompU, QueryERo, convertEffect, queryOne)
 import           Snowdrop.Util (NewestFirst (..), OldestFirst (..), newestFirstFContainer,
                                 toOldestFirst)
 
@@ -23,7 +23,7 @@ import           Snowdrop.Util (NewestFirst (..), OldestFirst (..), newestFirstF
 iterateChain
     :: forall blkType conf xs m .
     ( QueryERo xs (BlundComponent blkType)
-    , m ~ ERoComp conf xs
+    , m ~ ERoCompU conf xs
     )
     => BlkStateConfiguration (ChgAccum conf) blkType m
     -> Int -- ^ Max depth of block sequence to load.
@@ -36,7 +36,7 @@ iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDep
     loadBlock _ Nothing = pure $ NewestFirst []
     loadBlock depth (Just blockRef)
         | depth <= 0 = pure $ NewestFirst []
-        | otherwise = queryOne @(BlundComponent blkType) @_ @conf blockRef >>= \case
+        | otherwise = convertEffect @conf (queryOne @(BlundComponent blkType) @xs @conf blockRef) >>= \case
             Nothing -> pure $ NewestFirst [] -- TODO throw exception
             Just b  -> newestFirstFContainer (b:) <$>
                 loadBlock
@@ -48,7 +48,7 @@ iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDep
 wholeChain, forkDepthChain
     :: forall blkType conf xs m .
     ( QueryERo xs (BlundComponent blkType)
-    , m ~ ERoComp conf xs
+    , m ~ ERoCompU conf xs
     )
     => BlkStateConfiguration (ChgAccum conf) blkType m
     -> m (OldestFirst [] (CurrentBlockRef blkType))
@@ -58,7 +58,7 @@ forkDepthChain bsConf = nDepthChain @_ @conf bsConf $ bcMaxForkDepth $ bscVerify
 nDepthChain
     :: forall blkType conf xs m .
     ( QueryERo xs (BlundComponent blkType)
-    , m ~ ERoComp conf xs
+    , m ~ ERoCompU conf xs
     )
     => BlkStateConfiguration (ChgAccum conf) blkType m
     -> Int
@@ -69,7 +69,7 @@ nDepthChain bsConf depth = toOldestFirst . fmap (getCurrentBlockRef $ bscVerifyC
 nDepthChainNE
     :: forall blkType conf xs m .
     ( QueryERo xs (BlundComponent blkType)
-    , m ~ ERoComp conf xs
+    , m ~ ERoCompU conf xs
     )
     => BlkStateConfiguration (ChgAccum conf) blkType m
     -> Int

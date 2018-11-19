@@ -27,8 +27,8 @@ import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
                                        CurrentBlockRef (..), OSParams, Payload, PrevBlockRef (..),
                                        RawBlk, RawBlund, RawPayload, Tx)
-import           Snowdrop.Core (CSMappendException, ChgAccum, ChgAccumCtx, Ctx, DbAccessU, ERoComp,
-                                ERwComp, HChangeSet, HUpCastableChSet, HasBExceptions,
+import           Snowdrop.Core (CSMappendException, ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
+                                ERoCompU, ERwComp, HChangeSet, HUpCastableChSet, HasBExceptions,
                                 MappendHChSet, QueryERo, SomeTx, StatePException (..), StateTx (..),
                                 Undo, ValueOp (..), applySomeTx, computeUndo, hChangeSetFromMap,
                                 liftERoComp, mconcatChangeSets, modifyAccum, modifyAccumOne,
@@ -55,7 +55,7 @@ instance Buildable blockRef => Buildable (BlockApplicationException blockRef) wh
 
 data ForkApplyAction chgAccum blkType = ForkApplyAction
     { faaRollbackTo  :: BlockRef blkType
-    , faaApplyBlocks :: OldestFirst [] (Block (BlockHeader blkType) (Payload blkType), chgAccum)
+    , faaApplyBlocks :: OldestFirst [] (Block (BlockHeader blkType) (Payload blkType), [chgAccum])
     }
 
 -- | Applies an individual block if it's a direct continuation of currently adopted "best" chain.
@@ -253,7 +253,8 @@ applyFork :: forall blkType m conf txtypes xs
     -> m (OldestFirst [] (ChgAccum conf))
 applyFork cfg fork ForkApplyAction{..} = do
     toApply <- txsToApply -- Apply tx1, ..., tx_k to state
-    forkUndos <- liftERoComp $ traverse (computeUndo @xs @conf) chgAccums
+    forkUndoss <- liftERoComp $ traverse (traverse (computeUndo @xs @conf)) chgAccums
+    let forkUndos = join forkUndoss
     let forkBlockUndos = gett <$> forkUndos
     (liftERoComp $ modifyAccumUndo @xs @conf (NewestFirst forkUndos)) >>= modify . flip sett
 
@@ -336,15 +337,11 @@ processFork
     . ( HasBExceptions conf
           [ ForkVerificationException (BlockRef blkType)
           , StatePException
-          , CSMappendException
           ]
       , Eq (BlockRef blkType)
-      , HasGetter (BlockHeader blkType) (BlockRef blkType)
-      , HasGetter (ChgAccum conf) (HChangeSet xs)
-      , HasGetter (HChangeSet xs) (ChgAccum conf)
       , MappendHChSet xs
-      , Default (HChangeSet xs)
-      , m ~ ERoComp conf xs
+      , HasLens (Ctx conf) (ChgAccumCtx conf)
+      , m ~ ERoCompU conf xs
       ) => BlkStateConfiguration (ChgAccum conf) blkType m
     -> OSParams blkType
     -> OldestFirst NonEmpty (RawBlk blkType)
@@ -354,8 +351,10 @@ processFork bcs@(BlkStateConfiguration {..}) osParams fork chgAccum = do
 
   let forkList = NE.toList $ unOldestFirst fork
 
-  headers <- bscExpandHeaders chgAccum forkList
+  -- 1. Expand headers from raw blocks of fork.
+  headers :: OldestFirst [] (BlockHeader blkType) <- bscExpandHeaders chgAccum forkList
 
+  -- 2. Perform structured validation of chain (via verifyFork), which requires access to headers of fork, cur
   case headers of
     OldestFirst []     -> throwLocalError @(ForkVerificationException (BlockRef blkType)) InvalidForkOrigin
     OldestFirst (x:xs) -> verifyFork @_ @(ChgAccum conf) bcs osParams (OldestFirst (x :| xs)) >>= \case
@@ -367,10 +366,16 @@ processFork bcs@(BlkStateConfiguration {..}) osParams fork chgAccum = do
 
   let depth = bcMaxForkDepth bscVerifyConfig
 
-  (rollbackTo, acc0) <- findLCA depth (gett <$> headers) tipHeader chgAccum
+  rollbackTo <- findLCA depth (unCurrentBlockRef . (bcBlockRef bscVerifyConfig) <$> headers) tipHeader
+
+  let acc0 = chgAccum
+
+  -- 3. Retrieve blunds (block + undo pairs) from the storage, apply undos to in-memory accumulator acc0
+  acc1 :: ChgAccum conf <- local ( lensFor @(Ctx conf) @(ChgAccumCtx conf) .~ CAInitialized @conf acc0 ) (bscInmemRollback rollbackTo)
 
   -- 4. Expand raw block bodies of fork, get sequence of transactions tx1, tx2, ..., tx_k.
-  txsWithChgAccum <- bscExpandPayloads acc0 forkList
+  -- TODO drop blocks before rollbackTo from forkList
+  txsWithChgAccum :: OldestFirst [] (OldestFirst [] (Tx blkType, ChgAccum conf)) <- bscExpandPayloads acc1 forkList
 
   -- 5. Compute series of accumulators acc1, .., acc_{k-1}: acc_i := applyChangeSet acc_{i-1} (changeSet tx_i).
   -- Step 5 done as part of runSeqExpandersSequentially
@@ -378,18 +383,13 @@ processFork bcs@(BlkStateConfiguration {..}) osParams fork chgAccum = do
   -- 6. Perform validation of tx_i using acc_{i-1} for all i: 1..k.
   void $ getCompose <$> traverse (uncurry bscValidateTx . swap) (Compose txsWithChgAccum)
 
+  -- 7.Compute undos for blocks in fork (also using acc0, .., acc_{i-1}).
+
   let headerAndPayloads = zip (unOldestFirst headers) (unOldestFirst txsWithChgAccum)
 
-  let mkBlockAndChgAccum :: (BlockHeader blkType, OldestFirst [] (Tx blkType, ChgAccum conf)) -> m (Block (BlockHeader blkType) (Payload blkType), ChgAccum conf)
-      mkBlockAndChgAccum (h, OldestFirst t) = let
-        (txs, chgAccums) = unzip t
-        blockTxChangeSets = gett @_ @(HChangeSet xs) <$> chgAccums
-        eitherBlockChangeSet = gett <$> mconcatChangeSets blockTxChangeSets
-        in do
-        blockChangeSet <- either throwLocalError pure eitherBlockChangeSet
-        pure (Block h (OldestFirst txs), blockChangeSet)
+  let mkBlockAndChgAccum (blockHeader, txs) = (Block blockHeader (fst <$> txs), snd <$> unOldestFirst txs)
 
-  applyBlocks <- OldestFirst <$> traverse mkBlockAndChgAccum headerAndPayloads
+  let applyBlocks = OldestFirst $ mkBlockAndChgAccum <$> headerAndPayloads
 
   pure $ ForkApplyAction rollbackTo applyBlocks
 
@@ -398,20 +398,18 @@ processFork bcs@(BlkStateConfiguration {..}) osParams fork chgAccum = do
           :: Int
           -> OldestFirst [] (BlockRef blkType)
           -> BlockHeader blkType
-          -> ChgAccum conf
-          -> m (BlockRef blkType, ChgAccum conf)
-      findLCA depth hashes currentHeader acc
+          -> m (BlockRef blkType)
+      findLCA depth hashes currentHeader
         | depth < 0 = throwLocalError @(ForkVerificationException (BlockRef blkType)) TooDeepFork
         | otherwise = case maybePrev of
             Nothing -> throwLocalError @(ForkVerificationException (BlockRef blkType)) OriginOfBlockchainReached
             Just prev ->
               if elem prev (unOldestFirst hashes)
-                then pure $ (cur, acc)
+                then pure $ cur
                 else do
                   prevHeader <- bscGetHeader prev
-                  prevChgAccum <- bscInmemRollback prev
                   case prevHeader of
-                    Just p -> findLCA (depth - 1) hashes p prevChgAccum
+                    Just p -> findLCA (depth - 1) hashes p
                     _      -> throwLocalError @(ForkVerificationException (BlockRef blkType)) (BlockDoesntExistInChain prev)
        where
          CurrentBlockRef cur = bcBlockRef bscVerifyConfig currentHeader
