@@ -5,6 +5,7 @@ module Snowdrop.Block.Application
        ( applyBlock
        , applyFork
        , processFork
+       , rollback
        , BlockApplicationException (..)
        , OpenBlockRawTx (..)
        , CloseBlockRawTx (..)
@@ -12,13 +13,14 @@ module Snowdrop.Block.Application
 
 import           Universum
 
-import           Data.Default (Default)
+import           Data.Default (Default, def)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import qualified Data.Text.Buildable
 import           Formatting (bprint, build, (%))
 
-import           Snowdrop.Block.Configuration (BlkConfiguration (..), unBIV)
+import           Snowdrop.Block.Chain (nDepthChainNE)
+import           Snowdrop.Block.Configuration (BlkConfiguration (..), getPreviousBlockRef, unBIV)
 import           Snowdrop.Block.Fork (ForkVerResult (..), ForkVerificationException (..),
                                       verifyFork)
 import           Snowdrop.Block.State (BlkProcConstr, BlundComponent, TipComponent, TipKey (..),
@@ -28,11 +30,11 @@ import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockU
                                        CurrentBlockRef (..), OSParams, Payload, PrevBlockRef (..),
                                        RawBlk, RawBlund, RawPayload, Tx)
 import           Snowdrop.Core (CSMappendException, ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
-                                ERoCompU, ERwComp, HChangeSet, HUpCastableChSet, HasBExceptions,
-                                MappendHChSet, QueryERo, SomeTx, StatePException (..), StateTx (..),
-                                Undo, ValueOp (..), applySomeTx, computeUndo, hChangeSetFromMap,
-                                liftERoComp, mconcatChangeSets, modifyAccum, modifyAccumOne,
-                                modifyAccumUndo, queryOne)
+                                ERoCompU, ERwComp, HChangeSet, HChangeSetEl, HUpCastableChSet,
+                                HasBExceptions, MappendHChSet, QueryERo, SomeTx,
+                                StatePException (..), StateTx (..), Undo, ValueOp (..), applySomeTx,
+                                computeUndo, hChangeSetFromMap, liftERoComp, mconcatChangeSets,
+                                modifyAccum, modifyAccumOne, modifyAccumUndo, queryOne)
 import           Snowdrop.Util (DBuildable, HasReview (inj), HasReviews, OldestFirst (..), maybeF,
                                 throwLocalError, unNewestFirst)
 
@@ -55,7 +57,7 @@ instance Buildable blockRef => Buildable (BlockApplicationException blockRef) wh
 
 data ForkApplyAction chgAccum blkType = ForkApplyAction
     { faaRollbackTo  :: BlockRef blkType
-    , faaApplyBlocks :: OldestFirst [] (Block (BlockHeader blkType) (Payload blkType), [chgAccum])
+    , faaApplyBlocks :: OldestFirst [] (Block (BlockHeader blkType) (Payload blkType), chgAccum)
     }
 
 -- | Applies an individual block if it's a direct continuation of currently adopted "best" chain.
@@ -71,6 +73,7 @@ applyBlock
         ]
       , HasGetter (RawBlk blkType) (RawPayload blkType)
       , HasGetter (Undo conf) (BlockUndo blkType)
+      , HasGetter (ChgAccum conf) (ChgAccum conf)
       , HasLens (Ctx conf) (ChgAccumCtx conf)
       , HUpCastableChSet '[TipComponent blkType] xs
       , HUpCastableChSet '[BlundComponent blkType] xs
@@ -81,7 +84,7 @@ applyBlock
       , m ~ ERwComp conf (DbAccessU conf xs) (ChgAccum conf)
       )
     => OSParams blkType
-    -> BlkStateConfiguration (ChgAccum conf) blkType m
+    -> BlkStateConfiguration (ChgAccum conf) blkType (ERoCompU conf xs)
     -> RawBlk blkType
     -> m ()
 -- TODO: compare old chain with new one via `bcIsBetterThan`
@@ -113,6 +116,7 @@ expandAndApplyBlock
       , HasReview (BlockRawTx blkType) (CloseBlockRawTx blkType)
       , HasGetter (RawBlk blkType) (RawPayload blkType)
       , HasGetter (Undo conf) (BlockUndo blkType)
+      , HasGetter (ChgAccum conf) (ChgAccum conf)
       , HasLens (Ctx conf) (ChgAccumCtx conf)
       , HUpCastableChSet '[TipComponent blkType] xs
       , HUpCastableChSet '[BlundComponent blkType] xs
@@ -124,7 +128,7 @@ expandAndApplyBlock
       )
     => Bool
     -> OSParams blkType
-    -> BlkStateConfiguration (ChgAccum conf) blkType m
+    -> BlkStateConfiguration (ChgAccum conf) blkType (ERoCompU conf xs)
     -> RawBlk blkType
     -> m ()
 --        bscExpand bsc
@@ -134,8 +138,8 @@ expandAndApplyBlock
 --          )
 expandAndApplyBlock checkBIV osParams bsc rawBlk = do
     chgAccum :: (ChgAccum conf) <- get
-    headers <- bscExpandHeaders bsc chgAccum [rawBlk]
-    payloads <- bscExpandPayloads bsc chgAccum [rawBlk]
+    headers <- liftERoComp $ bscExpandHeaders bsc chgAccum [rawBlk]
+    payloads <- liftERoComp $ bscExpandPayloads bsc chgAccum [rawBlk]
     let blks = uncurry Block <$> zip (unOldestFirst headers) (fst <<$>> unOldestFirst payloads)
     case blks of
       blk:[] -> applyBlockImpl checkBIV osParams bsc (gett rawBlk) blk
@@ -162,12 +166,12 @@ applyBlockImpl
       )
     => Bool
     -> OSParams blkType
-    -> BlkStateConfiguration (ChgAccum conf) blkType m
+    -> BlkStateConfiguration (ChgAccum conf) blkType (ERoCompU conf xs)
     -> RawPayload blkType
     -> Block (BlockHeader blkType) (Payload blkType)
     -> m ()
 applyBlockImpl checkBIV osParams BlkStateConfiguration{..} rawPayload blk@Block{..} = do
-    tip <- bscGetTip
+    tip <- liftERoComp bscGetTip
     when (checkBIV && any not [ unBIV (bcBlkVerify bscVerifyConfig) blk
                               , bcValidateFork bscVerifyConfig osParams (OldestFirst [blkHeader])]) $
         throwLocalError $ BlockIntegrityVerifierFailed @(BlockRef blkType)
@@ -253,16 +257,15 @@ applyFork :: forall blkType m conf txtypes xs
     -> m (OldestFirst [] (ChgAccum conf))
 applyFork cfg fork ForkApplyAction{..} = do
     toApply <- txsToApply -- Apply tx1, ..., tx_k to state
-    forkUndoss <- liftERoComp $ traverse (traverse (computeUndo @xs @conf)) chgAccums
-    let forkUndos = join forkUndoss
-    let forkBlockUndos = gett <$> forkUndos
-    (liftERoComp $ modifyAccumUndo @xs @conf (NewestFirst forkUndos)) >>= modify . flip sett
 
+    -- 7.Compute undos for blocks in fork (also using acc0, .., acc_{i-1}).
+    forkUndos <- liftERoComp $ traverse (computeUndo @xs @conf) chgAccum
+    let forkBlockUndos = gett <$> forkUndos
     storeRawBlunds forkBlockUndos -- save blunds for fork
     setTip @blkType faaRollbackTo -- and update tip
     pure toApply
   where
-    (blocks, chgAccums) = unzip $ unOldestFirst faaApplyBlocks
+    (blocks, chgAccum) = unzip $ unOldestFirst faaApplyBlocks
 
     txsToApply = liftERoComp $ modifyAccum @xs @conf (OldestFirst css)
        where
@@ -342,7 +345,7 @@ processFork
       , MappendHChSet xs
       , HasLens (Ctx conf) (ChgAccumCtx conf)
       , m ~ ERoCompU conf xs
-      ) => BlkStateConfiguration (ChgAccum conf) blkType m
+      ) => BlkStateConfiguration (ChgAccum conf) blkType (ERoCompU conf xs)
     -> OSParams blkType
     -> OldestFirst NonEmpty (RawBlk blkType)
     -> ChgAccum conf
@@ -383,11 +386,12 @@ processFork bcs@(BlkStateConfiguration {..}) osParams fork chgAccum = do
   -- 6. Perform validation of tx_i using acc_{i-1} for all i: 1..k.
   void $ getCompose <$> traverse (uncurry bscValidateTx . swap) (Compose txsWithChgAccum)
 
-  -- 7.Compute undos for blocks in fork (also using acc0, .., acc_{i-1}).
-
   let headerAndPayloads = zip (unOldestFirst headers) (unOldestFirst txsWithChgAccum)
 
-  let mkBlockAndChgAccum (blockHeader, txs) = (Block blockHeader (fst <$> txs), snd <$> unOldestFirst txs)
+  let mkBlockAndChgAccum (blockHeader, txs) = (Block blockHeader (fst <$> txs), head' (snd <$> unOldestFirst txs))
+        where
+          head' []    = error "processFork: unexpected empty list of [ChgAccum conf]"
+          head' (a:_) = a
 
   let applyBlocks = OldestFirst $ mkBlockAndChgAccum <$> headerAndPayloads
 
@@ -414,3 +418,39 @@ processFork bcs@(BlkStateConfiguration {..}) osParams fork chgAccum = do
        where
          CurrentBlockRef cur = bcBlockRef bscVerifyConfig currentHeader
          PrevBlockRef maybePrev = bcPrevBlockRef bscVerifyConfig currentHeader
+
+rollback
+    :: forall blkType conf xs m .
+    ( HasBExceptions conf
+        [ StatePException
+        , CSMappendException
+        ]
+      , HasLens (ChgAccum conf) (ChgAccum conf)
+      , HUpCastableChSet '[TipComponent blkType] xs
+      , QueryERo xs (TipComponent blkType)
+      , HasLens (Ctx conf) (ChgAccumCtx conf)
+      , HasReview (Undo conf) (BlockUndo blkType)
+      , HUpCastable HChangeSetEl '[BlundComponent blkType] xs
+      , QueryERo xs (BlundComponent blkType)
+      , m ~ ERwComp conf (DbAccessU conf xs) (ChgAccum conf)
+      )
+    => Int
+    -> BlkStateConfiguration (ChgAccum conf) blkType (ERoCompU conf xs)
+    -> m (OldestFirst [] (Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType)))
+rollback rollbackBy bsConf = do
+    toRoll <- liftERoComp $ nDepthChainNE bsConf rollbackBy
+    case toRoll of
+        Nothing -> pure $ OldestFirst def
+        Just blundsNE -> do
+          case unPrevBlockRef $ getPreviousBlockRef (bscVerifyConfig bsConf) $ head (unOldestFirst blundsNE) of
+            Nothing     -> throwLocalError BlockRefNotFound
+            Just newTip -> setTip @blkType newTip
+
+          forM_ (reverse $ toList $ unOldestFirst blundsNE) $ \blund -> do
+              applyUndo $ buUndo blund
+              removeBlund $ unCurrentBlockRef $ bcBlockRef (bscVerifyConfig bsConf) (blkHeader $ buBlock blund)
+          pure $ OldestFirst $ toList $ unOldestFirst blundsNE
+
+          where
+            applyUndo = liftERoComp . modifyAccumUndo @xs @conf . pure . inj >=> modify . flip sett
+            removeBlund blockRef = applyBlkChg $ hChangeSetFromMap @(BlundComponent blkType) $ M.singleton blockRef Rem
