@@ -160,9 +160,14 @@ modAccumU Nothing (NewestFirst (u:us)) =
   where
     undoRootH = last $ u :| us
 
+class AVL.Hash h (HKey x) (HVal x) => HHash h x
+instance AVL.Hash h (HKey x) (HVal x) => HHash h x
+
 computeUndo
     :: forall h xs ctx .
     ( HasGetter ctx (RootHashes h xs)
+    , AllConstrained (HHash h) xs
+    , AllAvlEntries h xs
     )
     => AVLChgAccums h xs
     -> ctx

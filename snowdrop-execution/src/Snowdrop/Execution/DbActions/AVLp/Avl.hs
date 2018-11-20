@@ -35,7 +35,7 @@ import qualified Data.Text.Buildable as Buildable
 import           Snowdrop.Execution.DbActions.Types (DbActionsException (..))
 import           Snowdrop.Hetero (HKey, HVal)
 
-import Snowdrop.Util (Serialisable (..))
+import           Snowdrop.Util (Serialisable (..))
 
 type AvlHashable h = (Ord h, Show h, Typeable h, Serialisable h)
 type KVConstraint k v = (Typeable k, Ord k, Show k,
@@ -80,8 +80,9 @@ mkAVL :: RootHash h -> AVL.Map h k v
 mkAVL = pure . unRootHash
 
 -- | Get root hash of AVL tree.
-avlRootHash :: AVL.Map h k v -> RootHash h
-avlRootHash x = maybe (error "FIXME") RootHash (AVL.rootHash x)
+-- TODO: in which cases it returns Nothing?
+avlRootHash :: AVL.Hash h k v => AVL.Map h k v -> RootHash h
+avlRootHash x = maybe (error "FIXME") RootHash (AVL.rootHash . AVL.getFreshlyRehashed . AVL.fullRehash $ x)
 
 deserialiseM :: (MonadThrow m, Serialisable v) => ByteString -> m v
 deserialiseM =
