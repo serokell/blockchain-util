@@ -20,9 +20,12 @@ module Snowdrop.Core.Transaction
 
 import           Universum
 
+import           Data.Union (UElem, Union, ulift)
+import           Data.Vinyl.TypeLevel (RIndex)
+
 import           Snowdrop.Core.ChangeSet (HChangeSet)
 import           Snowdrop.Hetero (HDownCastable, SomeData (..), hdowncast)
-import           Snowdrop.Util (HasGetter (..))
+import           Snowdrop.Util (DBuildable (..), HasGetter (..), HasReview (..))
 
 ------------------------------------------
 -- Basic storage: model
@@ -38,7 +41,11 @@ type family TxRawImpl (txtype :: k) :: *
 
 newtype TxRaw txtype = TxRaw { unTxRaw :: TxRawImpl txtype }
 
-deriving instance Hashable (TxRawImpl txtype) => Hashable (TxRaw txtype)
+instance UElem x xs (RIndex x xs) => HasReview (Union TxRaw xs) (TxRaw x) where
+    inj = ulift
+
+deriving instance Hashable (TxRawImpl t) => Hashable (TxRaw t)
+deriving instance DBuildable (TxRawImpl t) => DBuildable (TxRaw t)
 
 -- | Transaction which modifies state.
 -- There is also RawTx, which is posted on the blockchain.

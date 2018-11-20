@@ -1,6 +1,5 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE DeriveFunctor       #-}
-{-# LANGUAGE Rank2Types          #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE Rank2Types    #-}
 
 module Snowdrop.Core.BaseM
        (

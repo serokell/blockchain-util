@@ -26,6 +26,7 @@ library
       -- since 6.3 they use their own Buildable, contradicting with universum
     , formatting < 6.3
     , fmt
+    , hashable
     , lens
     , log-warper
     , loot-base
@@ -37,6 +38,7 @@ library
     , template-haskell
     , transformers
     , transformers-base
+    , union
     , universum >= 1.1.0
     , unordered-containers
     , vinyl

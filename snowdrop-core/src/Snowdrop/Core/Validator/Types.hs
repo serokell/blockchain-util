@@ -18,6 +18,7 @@ module Snowdrop.Core.Validator.Types
 
 import           Universum hiding (Nat)
 
+import           Data.Default (Default (..))
 import           Data.Vinyl
 import           Data.Vinyl.TypeLevel (AllConstrained, Nat (..), RLength)
 
@@ -104,7 +105,7 @@ upcastPreValidator prev = PreValidator $ upcastEffERoComp @_ @_ @conf . runPreva
 -- (which may be a concatenation of few other pre-validators).
 -- Each entry in the mapping (a pre-validator) is expected to fully validate
 -- the transaction, consider all id types in particular.
-type Validator conf (txtypes :: [*]) = Rec (PreValidator conf) txtypes
+type Validator conf = Rec (PreValidator conf)
 
 instance Semigroup (PreValidator conf txtype) where
      PreValidator a <> PreValidator b = PreValidator $ a <> b
@@ -112,6 +113,9 @@ instance Semigroup (PreValidator conf txtype) where
 instance Monoid (PreValidator conf txtype) where
     mempty = PreValidator $ const (pure ())
     mappend = (<>)
+
+instance Default (PreValidator conf txtype) where
+    def = mempty
 
 -- | Smart constructor for 'Validator' type
 mkValidator :: [PreValidator conf txtype] -> Validator conf '[txtype]
