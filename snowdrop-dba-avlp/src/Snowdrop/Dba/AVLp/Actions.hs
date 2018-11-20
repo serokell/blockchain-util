@@ -8,6 +8,7 @@ module Snowdrop.Dba.AVLp.Actions
        ( AVLChgAccum
        , avlServerDbActions
        , avlClientDbActions
+       , AllWholeTree
        ) where
 
 import           Universum

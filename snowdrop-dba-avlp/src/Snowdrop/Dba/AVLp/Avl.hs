@@ -32,7 +32,7 @@ import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Data.Default (Default (def))
 import qualified Data.Text.Buildable as Buildable
-import           Snowdrop.Dba.Base (DbActionsException (..))
+import           Snowdrop.Dba.Base (DbActionsException (..), DbApplyProofWrapper (..))
 import           Snowdrop.Hetero (HKey, HVal)
 
 
@@ -53,6 +53,9 @@ newtype AvlProof h t = AvlProof {unAvlProof :: AVL.Proof h (HKey t) (HVal t)}
 type AvlProofs h = Rec (AvlProof h)
 
 deriving instance (Show h, Show (HKey t), Show (HVal t)) => Buildable (AvlProof h t)
+
+instance Buildable (AvlProofs h xs) => Buildable (DbApplyProofWrapper (AvlProofs h xs)) where
+    build (DbApplyProofWrapper proofs) = Buildable.build proofs
 
 class ( KVConstraint (HKey t) (HVal t)
       , Serialisable (MapLayer h (HKey t) (HVal t) h)

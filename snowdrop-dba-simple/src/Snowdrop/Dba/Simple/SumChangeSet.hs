@@ -1,4 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE PolyKinds           #-}
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -7,6 +9,8 @@ module Snowdrop.Dba.Simple.SumChangeSet
          sumChangeSetDaa
        , sumChangeSetDaaM
        , sumChangeSetDaaU
+       , SimpleConf
+       , SimpleConf'
        ) where
 
 import           Universum
@@ -20,10 +24,27 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, H
                                 MappendHChSet, SumChangeSet (..), Undo, ValueOp (..), csNew,
                                 diffChangeSet, hChangeSetToHMap, hChangeSetToHSet, modifySumChgSet)
 import           Snowdrop.Dba.Base (DGetter, DGetter', DIter', DbAccessActions (..), DbAccessActionsM (..),
-                                    DbAccessActionsU (..), DbComponents, IterAction (..))
+                                    DbAccessActionsU (..), DbApplyProof, DbComponents, IterAction (..))
 import           Snowdrop.Hetero (ExnHKey, HIntersectable, HMap, HSet, HMapEl (..), HSetEl,
                                   OrdHKey, hdifference, hintersect, rAllEmpty)
 import           Snowdrop.Util (IsEmpty (..), NewestFirst (..), OldestFirst (..))
+
+data SimpleConf (xs :: [*])
+
+type instance ChgAccum (SimpleConf xs) = SumChangeSet xs
+type instance Undo (SimpleConf xs) = HChangeSet xs
+type instance DbComponents (SimpleConf xs) = xs
+type instance DbApplyProof (SimpleConf xs) = ()
+
+
+-- | Simple configuration with phantom type parameter @t@
+data SimpleConf' (t :: k) (xs :: [*])
+
+type instance ChgAccum (SimpleConf' t xs) = SumChangeSet xs
+type instance Undo (SimpleConf' t xs) = HChangeSet xs
+type instance DbComponents (SimpleConf' t xs) = xs
+type instance DbApplyProof (SimpleConf' t xs) = ()
+
 
 querySumChSet :: HIntersectable xs xs => SumChangeSet xs -> HSet xs -> (HSet xs, HMap xs)
 querySumChSet (SumChangeSet accum) reqIds = (reqIds', resp)

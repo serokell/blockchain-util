@@ -13,27 +13,29 @@ cabal-version:  >= 1.10
 source-repository head
   type: git
   location: https://github.com/githubuser/blockchain-util
-                     
+
 library
   hs-source-dirs:
       src
   build-depends:
       base >=4.7 && <5
-    , containers            
+    , containers
     , data-default
     , formatting < 6.3
-    , fmt          
+    , fmt
+    , hashable
     , snowdrop-util
     , text
-    , text-format          
-    , vinyl          
+    , text-format
+    , vinyl
+    , union
     , universum
   build-tool-depends:
       autoexporter:autoexporter
-                                         
+
   exposed-modules:
       Snowdrop.Hetero
-                  
+
   other-modules:
       Snowdrop.Hetero.Constraints
       Snowdrop.Hetero.HMap

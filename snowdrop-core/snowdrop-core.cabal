@@ -49,6 +49,7 @@ library
     , transformers
     , transformers-base
     , universum >= 1.1.0
+    , union
     , unliftio-core
     , unordered-containers
     , vinyl
