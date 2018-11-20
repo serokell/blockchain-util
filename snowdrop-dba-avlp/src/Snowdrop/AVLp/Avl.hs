@@ -3,7 +3,7 @@
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.Execution.DbActions.AVLp.Avl
+module Snowdrop.AVLp.Avl
        ( AllAvlEntries
        , IsAvlEntry
        , RootHashes

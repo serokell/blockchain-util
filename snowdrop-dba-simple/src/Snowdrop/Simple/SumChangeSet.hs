@@ -2,7 +2,7 @@
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.Execution.DbActions.Simple.SumChangeSet
+module Snowdrop.Simple.SumChangeSet
        (
          sumChangeSetDaa
        , sumChangeSetDaaM

@@ -49,22 +49,7 @@ library
       Snowdrop.Execution
 
   other-modules:
-      Snowdrop.Execution.Mempool
-      Snowdrop.Execution.Mempool.Core
-      Snowdrop.Execution.Mempool.Logic
       Snowdrop.Execution.Expand
-      Snowdrop.Execution.DbActions
-      Snowdrop.Execution.DbActions.Types
-      Snowdrop.Execution.DbActions.Simple
-      Snowdrop.Execution.DbActions.Simple.Actions
-      Snowdrop.Execution.DbActions.Simple.SumChangeSet
-      Snowdrop.Execution.DbActions.AVLp
-      Snowdrop.Execution.DbActions.AVLp.Accum
-      Snowdrop.Execution.DbActions.AVLp.Actions
-      Snowdrop.Execution.DbActions.AVLp.Avl
-      Snowdrop.Execution.DbActions.AVLp.State
-      Snowdrop.Execution.DbActions.Composite
-      Snowdrop.Execution.IOExecutor
 
   default-language: Haskell2010
   ghc-options:         -Wall

@@ -1,0 +1,44 @@
+name:           snowdrop-dba-avlp
+version:        0.1.0.0
+description:    Please see the README on Github at <https://github.com/githubuser/blockchain-util#readme>
+homepage:       https://github.com/githubuser/blockchain-util#readme
+bug-reports:    https://github.com/githubuser/blockchain-util/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+build-type:     Simple
+cabal-version:  >= 1.10
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/blockchain-util
+
+library
+  hs-source-dirs:
+      src
+  build-depends:
+      universum
+    , snowdrop-core
+    , snowdrop-dba
+    , snowdrop-hetero
+    , snowdrop-util
+  build-tool-depends:
+      autoexporter:autoexporter
+
+  exposed-modules:
+      Snowdrop.AVLp
+
+  other-modules:
+      Snowdrop.AVLp.Avl
+      Snowdrop.AVLp.Accum
+      Snowdrop.AVLp.Actions
+      Snowdrop.AVLp.State       
+
+  default-language:    Haskell2010
+
+  ghc-options:        -Wall
+                      -fno-warn-orphans
+
+  default-extensions: NoImplicitPrelude
+                      ExplicitNamespaces

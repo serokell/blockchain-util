@@ -5,7 +5,7 @@
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.Execution.DbActions.AVLp.Accum
+module Snowdrop.AVLp.Accum
        ( AVLChgAccum (..)
        , AVLChgAccums
        , RootHashComp (..)

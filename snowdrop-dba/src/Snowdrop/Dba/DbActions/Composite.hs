@@ -1,4 +1,4 @@
-module Snowdrop.Execution.DbActions.Composite
+module Snowdrop.Dba.DbActions.Composite
        (
          constructCompositeDaa
        , constructCompositeDaaM
@@ -17,7 +17,7 @@ import           Data.Default (Default (def))
 import           Data.Vinyl.TypeLevel (type (++))
 
 import           Snowdrop.Core (CSMappendException, ChgAccum, Undo)
-import           Snowdrop.Execution.DbActions.Types
+import           Snowdrop.Dba.DbActions.Types
 import           Snowdrop.Hetero (HDownCastable, NotIntersect, happend, hdowncast)
 import           Snowdrop.Util (NewestFirst (..), OldestFirst (..))
 
@@ -157,4 +157,3 @@ constructCompositeDma dbaP dbaS = DbModifyActions {
       -> m (DbApplyProof conf1, DbApplyProof conf2)
     apply (CompositeChgAccum cP cS) =
         liftA2 (,) (dmaApply dbaP cP) (dmaApply dbaS cS)
-

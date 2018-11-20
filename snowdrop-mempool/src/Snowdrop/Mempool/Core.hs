@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables     #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-module Snowdrop.Execution.Mempool.Core
+module Snowdrop.Mempool.Core
        ( Mempool
        , MempoolState
        , StateTxHandler (..)
@@ -29,9 +29,8 @@ import           Snowdrop.Core (BException, CSMappendException, ChgAccum, ChgAcc
                                 HasBExceptions, ProofNExp, StatePException, StateTx (..),
                                 TxComponents, TxRaw, UpCastableERoM, Validator, convertERwComp,
                                 convertEffect, liftERoComp, modifyAccumOne, runValidator)
-import           Snowdrop.Execution.DbActions (DbActions)
+import           Snowdrop.Dba (DbActions, IOCtx, IOExecEffect, runERwCompIO)
 import           Snowdrop.Execution.Expand (ExpandOneTxMode, expandOneTx)
-import           Snowdrop.Execution.IOExecutor (IOCtx, IOExecEffect, runERwCompIO)
 import           Snowdrop.Hetero (Both, RContains, SomeData (..), usingSomeData)
 import           Snowdrop.Util (ExecM, HasGetter (..), HasLens (..))
 

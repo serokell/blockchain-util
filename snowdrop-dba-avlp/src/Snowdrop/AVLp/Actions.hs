@@ -4,7 +4,7 @@
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.Execution.DbActions.AVLp.Actions
+module Snowdrop.AVLp.Actions
        ( AVLChgAccum
        , avlServerDbActions
        , avlClientDbActions

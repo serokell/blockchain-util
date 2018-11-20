@@ -2,7 +2,7 @@
 {-# LANGUAGE Rank2Types              #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-module Snowdrop.Execution.Mempool.Logic
+module Snowdrop.Mempool.Logic
        ( evictMempool
        , processTxAndInsertToMempool
        , normalizeMempool

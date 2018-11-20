@@ -3,8 +3,12 @@ resolver: lts-11.17
 packages:
 - snowdrop-block
 - snowdrop-core
+- snowdrop-dba
+- snowdrop-dba-avlp
+- snowdrop-dba-simple
 - snowdrop-execution
 - snowdrop-hetero
+- snowdrop-mempool
 - snowdrop-util
 
 extra-deps:

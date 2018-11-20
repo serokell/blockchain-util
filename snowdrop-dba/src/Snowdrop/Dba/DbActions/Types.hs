@@ -3,7 +3,7 @@
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.Execution.DbActions.Types
+module Snowdrop.Dba.DbActions.Types
        (
          DbComponents
        , DbApplyProof

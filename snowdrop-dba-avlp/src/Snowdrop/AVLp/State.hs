@@ -4,7 +4,7 @@
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.Execution.DbActions.AVLp.State
+module Snowdrop.AVLp.State
        ( AVLServerState (..)
        , AMSRequested (..)
        , ClientTempState (..)
