@@ -2,6 +2,7 @@ resolver: lts-11.17
 
 packages:
 - snowdrop-block
+- snowdrop-block-exec
 - snowdrop-core
 - snowdrop-dba
 - snowdrop-dba-avlp
@@ -57,6 +58,7 @@ ghc-options:
     snowdrop-util:       -Werror
     snowdrop-core:       -Werror
     snowdrop-block:      -Werror
+    snowdrop-block-exec: -Werror
     snowdrop-hetero:     -Werror
     snowdrop-dba:        -Werror
     snowdrop-dba-avlp:   -Werror

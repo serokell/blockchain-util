@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 
-module Snowdrop.Execution.Block.Storage
+module Snowdrop.Block.Exec.Storage
        ( TipComponent
        , BlundComponent
 
@@ -22,8 +22,8 @@ import qualified Data.Text.Buildable
 import           Data.Vinyl (Rec (..))
 
 import           Snowdrop.Block (BlockRef, Blund)
-import           Snowdrop.Execution.DbActions (DbModifyActions, HMapLensEl (..), SimpleConf,
-                                               simpleDbActions)
+import           Snowdrop.Dba.Base (DbModifyActions)
+import           Snowdrop.Dba.Simple (HMapLensEl (..), SimpleConf, simpleDbActions)
 import           Snowdrop.Hetero (HKeyVal)
 
 data TipComponent blkType
@@ -69,4 +69,3 @@ simpleBlockDbActions
 simpleBlockDbActions =
     simpleDbActions (BlockStorage def def)
         (HMapLensEl (bsTipMap @blkType) :& HMapLensEl bsBlunds :& RNil)
-

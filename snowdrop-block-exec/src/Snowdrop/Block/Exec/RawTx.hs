@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 
-module Snowdrop.Execution.Block.RawTx
+module Snowdrop.Block.Exec.RawTx
        ( OpenBlockRawTxType
        , CloseBlockRawTxType
        ) where
@@ -46,4 +46,3 @@ instance
   )
   => HasGetter (Union TxRaw (t1 : t2 : t3 : t4)) (Union TxRaw (t1 : t2' : t3' : t4')) where
     gett = union (urelax . gett @_ @(Union TxRaw (t2' : t3' : t4'))) ulift
-

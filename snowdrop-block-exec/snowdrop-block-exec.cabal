@@ -1,0 +1,62 @@
+name:           snowdrop-block-exec
+version:        0.1.0.0
+description:    Please see the README on Github at <https://github.com/githubuser/blockchain-util#readme>
+homepage:       https://github.com/githubuser/blockchain-util#readme
+bug-reports:    https://github.com/githubuser/blockchain-util/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+build-type:     Simple
+cabal-version:  >= 1.10
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/blockchain-util
+
+library
+  hs-source-dirs:
+      src
+  build-depends:
+      containers
+    , data-default
+    , lens
+    , snowdrop-block
+    , snowdrop-dba
+    , snowdrop-dba-simple
+    , snowdrop-core
+    , snowdrop-hetero
+    , snowdrop-mempool
+    , snowdrop-util
+    , text-format
+    , vinyl
+    , union
+    , universum
+  build-tool-depends:
+      autoexporter:autoexporter
+
+  exposed-modules:
+      Snowdrop.Block.Exec
+
+  other-modules:
+      Snowdrop.Block.Exec.RawTx
+      Snowdrop.Block.Exec.StateConfiguration
+      Snowdrop.Block.Exec.Storage
+
+  default-language: Haskell2010
+  ghc-options:         -Wall
+                       -fno-warn-orphans
+  default-extensions:   NoImplicitPrelude
+                        TypeApplications
+                        TypeOperators
+                        ScopedTypeVariables
+                        FlexibleInstances
+                        TypeFamilies
+                        MultiParamTypeClasses
+                        FlexibleContexts
+                        UndecidableInstances
+                        TemplateHaskell
+                        DeriveGeneric
+                        OverloadedStrings
+                        TupleSections
+                        ConstraintKinds

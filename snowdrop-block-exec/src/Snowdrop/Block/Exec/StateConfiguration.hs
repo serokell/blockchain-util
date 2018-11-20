@@ -3,7 +3,7 @@
 {-# LANGUAGE Rank2Types              #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-module Snowdrop.Execution.Block.StateConfiguration
+module Snowdrop.Block.Exec.StateConfiguration
        ( inmemoryBlkStateConfiguration
        , BlkProcConstr
        , MempoolReasonableTx
@@ -27,11 +27,11 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (
                                 modifyAccum, modifyAccumOne, modifyAccumUndo, queryOne,
                                 queryOneExists, runSeqExpandersSequentially, runValidator,
                                 upcastEffERoComp, upcastEffERoCompM)
-import           Snowdrop.Execution.Block.RawTx ()
-import           Snowdrop.Execution.Block.Storage (BlundComponent, TipComponent, TipKey (..),
+import           Snowdrop.Block.Exec.RawTx ()
+import           Snowdrop.Block.Exec.Storage (BlundComponent, TipComponent, TipKey (..),
                                                    TipValue (..))
-import           Snowdrop.Execution.DbActions (DbComponents)
-import           Snowdrop.Execution.Mempool (MempoolTx)
+import           Snowdrop.Dba.Base (DbComponents)
+import           Snowdrop.Mempool (MempoolTx)
 import           Snowdrop.Hetero (Both, CList, RContains, SomeData, UnionTypes, hupcast)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), OldestFirst (..))
 
