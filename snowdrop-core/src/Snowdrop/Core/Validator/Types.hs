@@ -26,7 +26,7 @@ import           Snowdrop.Core.ERoComp (ERoComp, UpCastableERo, upcastEffERoComp
 import           Snowdrop.Core.Stuff (UnitedTxType)
 import           Snowdrop.Core.Transaction (DownCastableTx, StateTx, TxComponents, downcastStateTx)
 
-import           Snowdrop.Util (RContains, RecToList (..))
+import           Snowdrop.Hetero (RContains, RecToList (..))
 
 ------------------------------------------------------
 -- PreValidator

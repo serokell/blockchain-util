@@ -4,7 +4,7 @@
 {-# LANGUAGE TypeInType              #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-module Snowdrop.Util.Hetero.Constraints where
+module Snowdrop.Hetero.Constraints where
 
 import           Universum hiding (Compose (..), Const (..), show)
 
@@ -18,9 +18,7 @@ import           Data.Vinyl.TypeLevel (AllConstrained, RImage, RIndex, RecAll)
 
 import           GHC.TypeLits (ErrorMessage (..), TypeError)
 
-import           Snowdrop.Util.Containers (IsEmpty (..))
-import           Snowdrop.Util.Lens (HasGetter (..))
-
+import           Snowdrop.Util (HasGetter (..), IsEmpty (..))
 
 instance Hashable (Rec f '[]) where
     hashWithSalt i RNil = i

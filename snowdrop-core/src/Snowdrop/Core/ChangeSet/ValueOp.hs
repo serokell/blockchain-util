@@ -13,7 +13,7 @@ module Snowdrop.Core.ChangeSet.ValueOp
 
 import           Universum hiding (head, init, last)
 
-import           Snowdrop.Util
+import           Snowdrop.Util (HasPrism (..), HasReview (..))
 
 -- | ValueOp datatype is an action which should be performed over an entry
 -- stored in a key-value storage. Intended to be used in @ChangeSet@,
@@ -40,6 +40,8 @@ data ValueOp v
     -- This operation has no side effects with respect to the state.
     -- However, if invariant isn't hold an exception will be caused.
     deriving (Functor, Foldable, Traversable, Show, Eq, Ord, Generic)
+
+instance Hashable v => Hashable (ValueOp v)
 
 instance HasReview v v1 => HasReview (ValueOp v) (ValueOp v1) where
     inj = fmap inj

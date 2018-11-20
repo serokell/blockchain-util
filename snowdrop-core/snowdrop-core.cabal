@@ -40,6 +40,7 @@ library
     , mtl
     , random
     , reflection
+    , snowdrop-hetero          
     , snowdrop-util
     , stm
     , text
@@ -64,11 +65,14 @@ library
       Snowdrop.Core.ChangeSet
       Snowdrop.Core.ChangeSet.Type
       Snowdrop.Core.ChangeSet.ValueOp
+      Snowdrop.Core.ChangeSet.SumChangeSet
       Snowdrop.Core.ERoComp
       Snowdrop.Core.ERoComp.Helpers
       Snowdrop.Core.ERoComp.Types
       Snowdrop.Core.ERwComp
-      Snowdrop.Core.Expander
+      Snowdrop.Core.Expand          
+      Snowdrop.Core.Expand.Type
+      Snowdrop.Core.Expand.Sequential          
       Snowdrop.Core.Stuff
       Snowdrop.Core.Transaction
       Snowdrop.Core.Validator
@@ -130,6 +134,7 @@ test-suite snowdrop-core-test
     , universum
     , vinyl
     , snowdrop-core
+    , snowdrop-hetero          
     , snowdrop-util
   build-tool-depends:
       hspec-discover:hspec-discover

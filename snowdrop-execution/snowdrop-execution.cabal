@@ -37,6 +37,7 @@ library
     , mtl
     , reflection
     , snowdrop-core
+    , snowdrop-hetero
     , snowdrop-util
     , snowdrop-block
     , stm
@@ -54,7 +55,6 @@ library
       Snowdrop.Execution.Mempool
       Snowdrop.Execution.Mempool.Core
       Snowdrop.Execution.Mempool.Logic
-      Snowdrop.Execution.Expand
       Snowdrop.Execution.DbActions
       Snowdrop.Execution.DbActions.Types
       Snowdrop.Execution.DbActions.Simple

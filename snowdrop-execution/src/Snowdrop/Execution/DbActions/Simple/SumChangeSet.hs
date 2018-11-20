@@ -9,9 +9,6 @@ module Snowdrop.Execution.DbActions.Simple.SumChangeSet
          sumChangeSetDaa
        , sumChangeSetDaaM
        , sumChangeSetDaaU
-       , SumChangeSet (..)
-       , mappendStOrThrow
-       , modifySumChgSet
        , SimpleConf
        , SimpleConf'
        ) where
@@ -19,19 +16,20 @@ module Snowdrop.Execution.DbActions.Simple.SumChangeSet
 import           Universum
 
 import           Control.Monad.Except (throwError)
-import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, HChangeSetEl (..),
-                                MappendHChSet, Undo, ValueOp (..), csNew, diffChangeSet,
-                                hChangeSetToHMap, hChangeSetToHSet, mappendChangeSet)
+                                MappendHChSet, SumChangeSet (..), Undo, ValueOp (..), csNew,
+                                diffChangeSet, hChangeSetToHMap, hChangeSetToHSet, modifySumChgSet)
 import           Snowdrop.Execution.DbActions.Types (DGetter, DGetter', DIter',
                                                      DbAccessActions (..), DbAccessActionsM (..),
                                                      DbAccessActionsU (..), DbApplyProof,
                                                      DbComponents, IterAction (..))
-import           Snowdrop.Util
+import           Snowdrop.Hetero (ExnHKey, HIntersectable, HMap, HMapEl (..), HSet, HSetEl, OrdHKey,
+                                  hdifference, hintersect, rAllEmpty)
+import           Snowdrop.Util (IsEmpty (..), NewestFirst (..), OldestFirst (..))
 
 data SimpleConf (xs :: [*])
 
@@ -49,32 +47,6 @@ type instance Undo (SimpleConf' t xs) = HChangeSet xs
 type instance DbComponents (SimpleConf' t xs) = xs
 type instance DbApplyProof (SimpleConf' t xs) = ()
 
--- | SumChangeSet holds some change set which is sum of several ChangeSet
-newtype SumChangeSet xs = SumChangeSet {unSumCS :: HChangeSet xs}
-
-deriving instance Show (HChangeSet xs) => Show (SumChangeSet xs)
-
-instance Default (HChangeSet xs) => Default (SumChangeSet xs) where
-    def = SumChangeSet def
-
-modifySumChgSet
-    :: AllConstrained ExnHKey xs
-    => SumChangeSet xs
-    -> HChangeSet xs
-    -> Either CSMappendException (SumChangeSet xs)
-modifySumChgSet (SumChangeSet cs1) cs2 = SumChangeSet <$> mappendChangeSet cs1 cs2
-
-mappendStOrThrow
-    :: forall e xs m .
-    ( Monad m
-    , MonadState (SumChangeSet xs) m
-    , HasReview e CSMappendException
-    , MappendHChSet xs
-    )
-    => HChangeSet xs
-    -> m (Either e ())
-mappendStOrThrow chg = (flip modifySumChgSet chg) <$> get >>=
-    either (pure . Left . inj) (\s -> put s $> Right ())
 
 querySumChSet :: HIntersectable xs xs => SumChangeSet xs -> HSet xs -> (HSet xs, HMap xs)
 querySumChSet (SumChangeSet accum) reqIds = (reqIds', resp)

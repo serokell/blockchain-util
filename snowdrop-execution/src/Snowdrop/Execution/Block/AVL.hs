@@ -26,7 +26,8 @@ import           Snowdrop.Execution.DbActions (AMSRequested, AllWholeTree, AvlCl
                                                avlClientDbActions, avlServerDbActions,
                                                constructCompositeDma, initAVLPureStorage,
                                                unAVLPureStorage)
-import           Snowdrop.Util (ExecM, HDownCastable, HMap, NotIntersect, fmapH, logInfo)
+import           Snowdrop.Hetero (HDownCastable, HMap, NotIntersect)
+import           Snowdrop.Util (ExecM, fmapH, logInfo)
 
 
 type ServerDma conf = RememberForProof -> DbModifyActions conf ExecM

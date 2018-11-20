@@ -25,7 +25,9 @@ import           Snowdrop.Core (BException, CSMappendException (..), ChgAccum, C
                                 Ctx, DbAccess (..), ERoComp, Effectful (..), FoldF (..), HChangeSet,
                                 HChangeSetEl, ValueOp (..), getCAOrDefault, hChangeSetElToList,
                                 unBaseM)
-import           Snowdrop.Util
+import           Snowdrop.Hetero (ExnHKey, HIntersectable, HMap, HMapEl (..), hintersect)
+import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), ModifyLogName (..),
+                                MonadLogging (..), throwLocalError)
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
 -- Copy-pasted from snowdrop-execution in order to avoid bad dependency between packages

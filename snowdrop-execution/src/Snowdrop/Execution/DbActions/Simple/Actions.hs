@@ -17,14 +17,16 @@ import           Data.Vinyl (RApply (..), RMap (..), RPureConstrained (..), Rec 
                              rtraverse, (<<*>>))
 import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
-import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), Undo, ValueOp (..))
-import           Snowdrop.Execution.DbActions.Simple.SumChangeSet (SumChangeSet (..),
-                                                                   sumChangeSetDaa,
+import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), SumChangeSet (..), Undo,
+                                ValueOp (..))
+import           Snowdrop.Execution.DbActions.Simple.SumChangeSet (sumChangeSetDaa,
                                                                    sumChangeSetDaaU)
 import           Snowdrop.Execution.DbActions.Types (DbActionsException (..), DbApplyProof,
                                                      DbComponents, DbModifyActions (..),
                                                      IterAction (..))
-import           Snowdrop.Util
+import           Snowdrop.Hetero (ExnHKey, HElem, HElemFlipped, HIntersectable, HKey, HMap,
+                                  HMapEl (..), HSetEl (..), HVal, OrdHKey, rliftA2)
+import           Snowdrop.Util (IsEmpty (..), toDummyMap)
 
 type SimpleDbActionsConstr conf xs =
       ( DbComponents conf ~ xs

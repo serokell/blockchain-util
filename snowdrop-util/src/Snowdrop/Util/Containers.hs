@@ -49,3 +49,9 @@ toOldestFirst (NewestFirst xs) = OldestFirst $ reverse xs
 
 class IsEmpty x where
   isEmpty :: x -> Bool
+
+instance (Hashable i, Hashable v) => Hashable (Map i v) where
+    hashWithSalt salt (M.toList -> a) = hashWithSalt salt a
+
+instance Hashable v => Hashable (Set v) where
+    hashWithSalt salt (S.toList -> a) = hashWithSalt salt a

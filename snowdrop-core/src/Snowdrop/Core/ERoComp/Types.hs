@@ -29,7 +29,8 @@ import           Data.Vinyl.Core (Rec)
 import           Snowdrop.Core.BaseM (BaseM)
 
 import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet)
-import           Snowdrop.Util (HKey, HMap, HSet, HVal, NewestFirst, OldestFirst)
+import           Snowdrop.Hetero (HKey, HMap, HSet, HVal)
+import           Snowdrop.Util (NewestFirst, OldestFirst)
 
 ------------------------
 -- DbAccess

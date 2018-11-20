@@ -39,7 +39,8 @@ import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessAc
                                                      DbAccessActionsM (..), DbAccessActionsU (..),
                                                      DbApplyProof, DbComponents,
                                                      DbModifyActions (..), RememberForProof (..))
-import           Snowdrop.Util (HKey, HVal, NewestFirst, unHSetEl)
+import           Snowdrop.Hetero (HKey, HVal, unHSetEl)
+import           Snowdrop.Util (NewestFirst)
 
 avlClientDbActions
     :: forall conf h m n xs .

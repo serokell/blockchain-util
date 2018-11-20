@@ -15,7 +15,8 @@ import           Control.Lens (to)
 import           Data.Vinyl (Rec (..), type (∈), rget)
 
 import           Snowdrop.Core.Transaction (TxComponents, TxProof)
-import           Snowdrop.Util (HasGetter (..), UnionTypes)
+import           Snowdrop.Hetero (UnionTypes)
+import           Snowdrop.Util (HasGetter (..))
 
 ------------------------
 -- UnitedTxType

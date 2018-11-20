@@ -41,8 +41,8 @@ import           Snowdrop.Execution.DbActions.AVLp.State (AVLCache, AVLCacheT, R
                                                           reThrowAVLEx, runAVLCacheT)
 import           Snowdrop.Execution.DbActions.Types (DGetter', DIter', DModify', DbApplyProof,
                                                      DbComponents, IterAction (..))
-import           Snowdrop.Util (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, HasGetter (..),
-                                Head, NewestFirst (..), OldestFirst (..))
+import           Snowdrop.Hetero (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, Head)
+import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..))
 
 data AvlClientConf hash (xs :: [*])
 

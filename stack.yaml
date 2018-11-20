@@ -4,6 +4,7 @@ packages:
 - snowdrop-block
 - snowdrop-core
 - snowdrop-execution
+- snowdrop-hetero
 - snowdrop-util
 
 extra-deps:
@@ -54,3 +55,4 @@ ghc-options:
     snowdrop-core:       -Werror
     snowdrop-block:      -Werror
     snowdrop-execution:  -Werror
+    snowdrop-hetero:     -Werror

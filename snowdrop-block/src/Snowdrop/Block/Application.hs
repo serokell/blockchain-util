@@ -25,8 +25,8 @@ import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRawTx, BlockRef, Blund (..),
                                        CurrentBlockRef (..), ExpandedBlk, OSParams,
                                        PrevBlockRef (..), RawBlk)
-import           Snowdrop.Util (DBuildable, HasReview (inj), HasReviews, NewestFirst (..),
-                                OldestFirst (..), maybeF, throwLocalError)
+import           Snowdrop.Util (DBuildable, HasReview (inj), HasReviews, OldestFirst (..), maybeF,
+                                throwLocalError, unNewestFirst)
 
 -- | Exception type for block application.
 data BlockApplicationException blockRef
@@ -73,6 +73,9 @@ instance DBuildable (CloseBlockRawTx h)
 instance Buildable (OpenBlockRawTx h) where
     build _ = "Block open tx"
 instance DBuildable (OpenBlockRawTx h)
+
+deriving instance Hashable (BlockHeader blkType) => Hashable (OpenBlockRawTx blkType)
+deriving instance Hashable (BlockHeader blkType) => Hashable (CloseBlockRawTx blkType)
 
 expandAndApplyBlock
     :: forall blkType e m

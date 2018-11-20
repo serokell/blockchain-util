@@ -24,7 +24,7 @@ import           Data.Vinyl (Rec (..))
 import           Snowdrop.Block (BlockRef, Blund)
 import           Snowdrop.Execution.DbActions (DbModifyActions, HMapLensEl (..), SimpleConf,
                                                simpleDbActions)
-import           Snowdrop.Util (HKeyVal)
+import           Snowdrop.Hetero (HKeyVal)
 
 data TipComponent blkType
 data BlundComponent blkType

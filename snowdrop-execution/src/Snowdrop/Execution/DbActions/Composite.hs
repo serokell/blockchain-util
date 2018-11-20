@@ -20,8 +20,8 @@ import           Data.Vinyl.TypeLevel (type (++))
 
 import           Snowdrop.Core (CSMappendException, ChgAccum, Undo)
 import           Snowdrop.Execution.DbActions.Types
-import           Snowdrop.Util (HDownCastable, HasGetter (..), HasReview (..), NewestFirst (..),
-                                NotIntersect, OldestFirst (..), happend, hdowncast)
+import           Snowdrop.Hetero (HDownCastable, NotIntersect, happend, hdowncast)
+import           Snowdrop.Util (HasGetter (..), HasReview (..), NewestFirst (..), OldestFirst (..))
 
 data CompositeConf conf1 conf2
 
