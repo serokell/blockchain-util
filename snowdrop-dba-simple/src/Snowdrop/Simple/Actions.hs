@@ -16,9 +16,8 @@ import           Data.Vinyl.Core (Rec (..))
 import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
 import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), Undo, ValueOp (..))
-import           Snowdrop.Simple.SumChangeSet (SumChangeSet (..),
-                                                                   sumChangeSetDaa,
-                                                                   sumChangeSetDaaU)
+import           Snowdrop.Simple.SumChangeSet (SumChangeSet (..), sumChangeSetDaa,
+                                               sumChangeSetDaaU)
 import           Snowdrop.Dba (DIter', DbActionsException (..), DbApplyProof,
                                                      DbComponents, DbModifyActions (..),
                                                      IterAction (..))

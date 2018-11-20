@@ -29,15 +29,15 @@ import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (BlockExpandedTx, BlockRawTx, BlockRef, BlockUndo, Blund (..),
                                        CurrentBlockRef (..))
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
-                                ERoComp, ERwComp, HChangeSet, HUpCastableChSet, HasBExceptions,
-                                MappendHChSet, QueryERo, SomeTx, StatePException (..), StateTx (..),
-                                TxComponents, TxRaw, TxRawImpl, Undo, UnitedTxType, UpCastableERoM,
-                                Validator, ValueOp (..), applySomeTx, computeUndo, convertEffect,
+                                ERoComp, ERwComp, ExpandRawTxsMode, ExpandableTx, HChangeSet,
+                                HUpCastableChSet, HasBExceptions,
+                                MappendHChSet, ProofNExp (..), QueryERo, SomeTx, StatePException (..),
+                                StateTx (..), TxComponents, TxRaw, TxRawImpl, Undo, UnionSeqExpandersInps, UnitedTxType,
+                                UpCastableERoM, Validator, ValueOp (..), applySomeTx, computeUndo, convertEffect,
                                 getCAOrDefault, hChangeSetFromMap, liftERoComp, modifyAccum,
                                 modifyAccumOne, modifyAccumUndo, queryOne, queryOneExists,
-                                runValidator, upcastEffERoComp, upcastEffERoCompM)
-import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
-                                     UnionSeqExpandersInps, runSeqExpandersSequentially)
+                                runValidator, runSeqExpandersSequentially, upcastEffERoComp,
+                                upcastEffERoCompM)
 import           Snowdrop.Hetero (Both, HKeyVal, RContains, SomeData, UnionTypes, hupcast)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), OldestFirst (..))
 
@@ -54,13 +54,17 @@ type instance HKeyVal (BlundComponent blkType)  =
       '(BlockRef blkType, Blund blkType)
 
 data TipKey = TipKey
-  deriving (Eq, Ord, Show, Generic)
+    deriving (Eq, Ord, Show, Generic)
+
+instance Hashable TipKey
 
 instance Buildable TipKey where
     build TipKey = "tip"
 
 data TipValue blockRef = TipValue {unTipValue :: blockRef}
     deriving (Eq, Ord, Show, Generic)
+
+instance Hashable bRef => Hashable (TipValue bRef)
 
 class ( RContains txtypes txtype
       , HUpCastableChSet (TxComponents txtype) xs

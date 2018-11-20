@@ -43,6 +43,7 @@ type KVConstraint k v = (Typeable k, Ord k, Show k,
 newtype RootHash h = RootHash { unRootHash :: h }
   deriving (Eq, Serialisable, Show)
 
+deriving instance Hashable h => Hashable (RootHash h)
 
 newtype RootHashComp h t = RootHashComp {unRootHashComp :: RootHash h}
   deriving (Eq, Serialisable, Show)

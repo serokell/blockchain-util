@@ -53,6 +53,12 @@ data Block header tx = Block
     }
     deriving (Eq, Show, Generic)
 
+instance (Hashable h, Hashable p) => Hashable (Block h p)
+instance ( Hashable (BlockHeader blkType)
+         , Hashable (BlockRawTx blkType)
+         , Hashable (BlockUndo blkType)
+         ) => Hashable (Blund blkType)
+
 -- | Raw block type
 type RawBlk blkType = Block (BlockHeader blkType) (BlockRawTx blkType)
 
@@ -93,6 +99,8 @@ data BlkStructuralData blockRef blkBodyProof = BlkStructuralData
     , blkBodyProof :: blkBodyProof
     }
     deriving (Eq, Generic, Show)
+
+instance (Hashable blkRef, Hashable blkBodyProof) => Hashable (BlkStructuralData blkRef blkBodyProof)
 
 -- | Block extra header data, parametrized by unified parameter of block configuration @blkType@
 type family BlockExtraH blkType :: *

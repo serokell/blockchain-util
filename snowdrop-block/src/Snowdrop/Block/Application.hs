@@ -64,7 +64,12 @@ applyBlock
 applyBlock = expandAndApplyBlock True
 
 newtype OpenBlockRawTx header  = OpenBlockRawTx  { unOpenBlockRawTx :: header }
+
+deriving instance Hashable header => Hashable (OpenBlockRawTx header)
+
 newtype CloseBlockRawTx header = CloseBlockRawTx { unCloseBlockRawTx :: header }
+
+deriving instance Hashable header => Hashable (CloseBlockRawTx header)
 
 expandAndApplyBlock
     :: forall blkType e m
