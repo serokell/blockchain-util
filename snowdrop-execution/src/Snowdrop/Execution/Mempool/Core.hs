@@ -25,12 +25,11 @@ import           Data.Default (Default (..))
 import           Data.Vinyl (Rec, rget)
 
 import           Snowdrop.Core (BException, CSMappendException, ChgAccum, ChgAccumCtx,
-                                ConvertEffect, Ctx, DbAccessM, ERwComp, HasBException,
-                                HasBExceptions, ProofNExp, StatePException, StateTx (..),
+                                ConvertEffect, Ctx, DbAccessM, ERwComp, ExpandOneTxMode,
+                                HasBException, HasBExceptions, ProofNExp, StatePException, StateTx (..),
                                 TxComponents, TxRaw, UpCastableERoM, Validator, convertERwComp,
-                                convertEffect, liftERoComp, modifyAccumOne, runValidator)
+                                convertEffect, expandOneTx, liftERoComp, modifyAccumOne, runValidator)
 import           Snowdrop.Execution.DbActions (DbActions)
-import           Snowdrop.Execution.Expand (ExpandOneTxMode, expandOneTx)
 import           Snowdrop.Execution.IOExecutor (IOCtx, IOExecEffect, runERwCompIO)
 import           Snowdrop.Hetero (Both, RContains, SomeData (..), usingSomeData)
 import           Snowdrop.Util (ExecM, HasGetter (..), HasLens (..))
