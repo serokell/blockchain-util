@@ -194,15 +194,7 @@ newtype AVLCacheT h m a = AVLCacheT (StateT (AVLCache h) m a)
 
 deriving instance MonadIO m => MonadIO (AVLCacheT h m)
 
--- TODO: was this instance implemented previously?
-instance AvlHashable h => Serialisable (AVL.MapLayer h k v h) where
-    serialise :: (AVL.MapLayer h k v h) -> ByteString
-    serialise = error "FIXME: I am lazy"
-
-    deserialise :: ByteString -> Either String (AVL.MapLayer h k v h)
-    deserialise = error "FIXME: I am lazy"
-
-instance (MonadThrow m, AvlHashable h, RetrieveImpl m h)
+instance (MonadThrow m, AvlHashable h, RetrieveImpl m h, Serialisable (MapLayer h k v h))
          => AVL.KVRetrieve h (AVL.MapLayer h k v h) (AVLCacheT h m) where
     retrieve :: h -> AVLCacheT h m (AVL.MapLayer h k v h)
     retrieve k = checkInAccum >>= deserialiseM
@@ -211,12 +203,12 @@ instance (MonadThrow m, AvlHashable h, RetrieveImpl m h)
         checkInState = lift (retrieveImpl k) >>= maybe (throwM $ AVL.NotFound k) pure
 
 -- TODO: implement
-instance (MonadThrow m, AvlHashable h, RetrieveImpl m h)
+instance (MonadThrow m, AvlHashable h, RetrieveImpl m h, Serialisable (MapLayer h k v h))
          => AVL.KVStore h (AVL.MapLayer h k v h) (AVLCacheT h m) where
     massStore :: [(h, AVL.MapLayer h k v h)] -> AVLCacheT h m ()
     massStore = mapM_ store
 
-store :: (MonadThrow m, AvlHashable h, RetrieveImpl m h)
+store :: (MonadThrow m, AvlHashable h, RetrieveImpl m h, Serialisable (MapLayer h k v h))
       => (h, MapLayer h k v h) -> AVLCacheT h m ()
 store (k, v) = modify' $ AVLCache . M.insert k (serialise v) . unAVLCache
 
