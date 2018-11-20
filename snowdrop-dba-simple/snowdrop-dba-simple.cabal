@@ -20,6 +20,7 @@ library
   build-depends:
       containers
     , lens
+    , mtl
     , stm
     , snowdrop-core
     , snowdrop-dba
@@ -31,11 +32,11 @@ library
       autoexporter:autoexporter
 
   exposed-modules:
-      Snowdrop.Simple
+      Snowdrop.Dba.Simple
 
   other-modules:
-      Snowdrop.Simple.Actions
-      Snowdrop.Simple.SumChangeSet
+      Snowdrop.Dba.Simple.Actions
+      Snowdrop.Dba.Simple.SumChangeSet
 
   default-language:    Haskell2010
 
@@ -44,3 +45,10 @@ library
 
   default-extensions: NoImplicitPrelude
                       LambdaCase
+                      TypeApplications
+                      FlexibleContexts
+                      TypeFamilies
+                      OverloadedStrings
+                      TupleSections
+                      ScopedTypeVariables
+                      FunctionalDependencies

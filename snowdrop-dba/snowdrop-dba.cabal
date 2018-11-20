@@ -35,13 +35,13 @@ library
       autoexporter:autoexporter
 
   exposed-modules:
-      Snowdrop.Dba
+      Snowdrop.Dba.Base
 
   other-modules:
-      Snowdrop.Dba.DbActions
-      Snowdrop.Dba.DbActions.Types
-      Snowdrop.Dba.DbActions.Composite
-      Snowdrop.Dba.IOExecutor
+      Snowdrop.Dba.Base.DbActions
+      Snowdrop.Dba.Base.DbActions.Types
+      Snowdrop.Dba.Base.DbActions.Composite
+      Snowdrop.Dba.Base.IOExecutor
 
   default-language:    Haskell2010
 

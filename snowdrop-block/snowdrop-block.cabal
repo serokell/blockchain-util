@@ -28,7 +28,6 @@ library
     , snowdrop-core
     , snowdrop-hetero
     , snowdrop-util
-    , snowdrop-execution
     , time
     , hashable-time
     , text-format

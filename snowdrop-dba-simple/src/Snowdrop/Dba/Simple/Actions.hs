@@ -2,7 +2,7 @@
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE RankNTypes          #-}
 
-module Snowdrop.Simple.Actions
+module Snowdrop.Dba.Simple.Actions
     ( simpleDbActions
     , HMapLensEl (..)
     ) where
@@ -15,12 +15,11 @@ import qualified Data.Map as M
 import           Data.Vinyl.Core (Rec (..))
 import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
-import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), Undo, ValueOp (..))
-import           Snowdrop.Simple.SumChangeSet (SumChangeSet (..), sumChangeSetDaa,
-                                               sumChangeSetDaaU)
-import           Snowdrop.Dba (DIter', DbActionsException (..), DbApplyProof,
-                                                     DbComponents, DbModifyActions (..),
-                                                     IterAction (..))
+import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), SumChangeSet (..),
+                                Undo, ValueOp (..))
+import           Snowdrop.Dba.Simple.SumChangeSet (sumChangeSetDaa, sumChangeSetDaaU)
+import           Snowdrop.Dba.Base (DIter', DbActionsException (..), DbApplyProof,
+                                    DbComponents, DbModifyActions (..), IterAction (..))
 import           Snowdrop.Hetero (ExnHKey, HIntersectable, HKey, HMap, HMapEl (..),
                                   HSet, HSetEl (..), HVal, OrdHKey)
 import           Snowdrop.Util (IsEmpty (..), toDummyMap)

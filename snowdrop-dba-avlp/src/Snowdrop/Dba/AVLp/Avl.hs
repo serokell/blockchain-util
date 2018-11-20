@@ -3,7 +3,7 @@
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.AVLp.Avl
+module Snowdrop.Dba.AVLp.Avl
        ( AllAvlEntries
        , IsAvlEntry
        , RootHashes
@@ -32,7 +32,7 @@ import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Data.Default (Default (def))
 import qualified Data.Text.Buildable as Buildable
-import           Snowdrop.Execution.DbActions.Types (DbActionsException (..))
+import           Snowdrop.Dba.Base (DbActionsException (..))
 import           Snowdrop.Hetero (HKey, HVal)
 
 

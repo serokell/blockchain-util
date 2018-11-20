@@ -4,7 +4,7 @@
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.AVLp.Actions
+module Snowdrop.Dba.AVLp.Actions
        ( AVLChgAccum
        , avlServerDbActions
        , avlClientDbActions
@@ -21,23 +21,20 @@ import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 
 import           Snowdrop.Core (ChgAccum, Undo)
-import           Snowdrop.Execution.DbActions.AVLp.Accum (AVLChgAccum (..), AVLChgAccums,
-                                                          RootHashes, computeUndo, iter, modAccum,
-                                                          modAccumU, query)
-import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
-                                                        AvlProofs, AvlUndo, IsAvlEntry,
-                                                        KVConstraint, RootHash (..),
-                                                        RootHashComp (..), avlRootHash, materialize,
-                                                        mkAVL, saveAVL)
-import           Snowdrop.Execution.DbActions.AVLp.State (AMSRequested (..), AVLCache (..),
+import           Snowdrop.Dba.AVLp.Accum (AVLChgAccum (..), AVLChgAccums, RootHashes, computeUndo,
+                                          iter, modAccum, modAccumU, query)
+import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
+                                        AvlProofs, AvlUndo, IsAvlEntry, KVConstraint,
+                                        RootHash (..), RootHashComp (..), avlRootHash,
+                                        materialize, mkAVL, saveAVL)
+import           Snowdrop.Dba.AVLp.State (AMSRequested (..), AVLCache (..),
                                                           AVLCacheT, AVLPureStorage (..),
                                                           AVLServerState (..), ClientTempState,
                                                           RetrieveF, RetrieveImpl,
                                                           clientModeToTempSt, runAVLCacheT)
-import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessActions (..),
-                                                     DbAccessActionsM (..), DbAccessActionsU (..),
-                                                     DbApplyProof, DbComponents,
-                                                     DbModifyActions (..), RememberForProof (..))
+import           Snowdrop.Dba.Base (ClientMode (..), DbAccessActions (..), DbAccessActionsM (..),
+                                    DbAccessActionsU (..), DbApplyProof, DbComponents,
+                                    DbModifyActions (..), RememberForProof (..))
 import           Snowdrop.Hetero (HKey, HVal, unHSetEl)
 import           Snowdrop.Util (NewestFirst)
 

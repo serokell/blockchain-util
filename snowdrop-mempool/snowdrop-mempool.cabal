@@ -19,7 +19,9 @@ library
       src
   build-depends:
       data-default
+    , formatting < 6.3
     , lens
+    , mtl
     , snowdrop-core
     , snowdrop-dba
     , snowdrop-hetero
@@ -43,3 +45,12 @@ library
 
   default-extensions: NoImplicitPrelude
                       TypeApplications
+                      RecordWildCards
+                      KindSignatures
+                      FlexibleInstances
+                      MultiParamTypeClasses
+                      FlexibleContexts
+                      UndecidableInstances
+                      TypeFamilies
+                      OverloadedStrings
+                      ScopedTypeVariables

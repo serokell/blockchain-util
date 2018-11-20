@@ -6,7 +6,6 @@ packages:
 - snowdrop-dba
 - snowdrop-dba-avlp
 - snowdrop-dba-simple
-- snowdrop-execution
 - snowdrop-hetero
 - snowdrop-mempool
 - snowdrop-util
@@ -57,5 +56,8 @@ ghc-options:
     snowdrop-util:       -Werror
     snowdrop-core:       -Werror
     snowdrop-block:      -Werror
-    snowdrop-execution:  -Werror
     snowdrop-hetero:     -Werror
+    snowdrop-dba:        -Werror
+    snowdrop-dba-avlp:   -Werror
+    snowdrop-dba-simple: -Werror
+    snowdrop-mempool:    -Werror

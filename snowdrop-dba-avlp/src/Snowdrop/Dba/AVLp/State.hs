@@ -4,7 +4,7 @@
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.AVLp.State
+module Snowdrop.Dba.AVLp.State
        ( AVLServerState (..)
        , AMSRequested (..)
        , ClientTempState (..)
@@ -30,11 +30,11 @@ import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
 import           Loot.Log (MonadLogging, logDebug)
 
-import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
-                                                        AvlProofs, IsAvlEntry, RootHash (..),
-                                                        RootHashComp (..), RootHashes, deserialiseM,
-                                                        materialize, mkAVL, saveAVL)
-import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbActionsException (..))
+import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
+                                        AvlProofs, IsAvlEntry, RootHash (..),
+                                        RootHashComp (..), RootHashes, deserialiseM,
+                                        materialize, mkAVL, saveAVL)
+import           Snowdrop.Dba.Base (ClientMode (..), DbActionsException (..))
 import           Snowdrop.Hetero (HKey, HMap, HVal, unHMapEl)
 import           Snowdrop.Util (HasGetter (..))
 

@@ -29,7 +29,7 @@ import           Snowdrop.Core (BException, CSMappendException, ChgAccum, ChgAcc
                                 HasBException, HasBExceptions, ProofNExp, StatePException, StateTx (..),
                                 TxComponents, TxRaw, UpCastableERoM, Validator, convertERwComp,
                                 convertEffect, expandOneTx, liftERoComp, modifyAccumOne, runValidator)
-import           Snowdrop.Execution.DbActions (DbActions, IOCtx, IOExecEffect, runERwCompIO)
+import           Snowdrop.Dba.Base (DbActions, IOCtx, IOExecEffect, runERwCompIO)
 import           Snowdrop.Hetero (Both, RContains, SomeData (..), usingSomeData)
 import           Snowdrop.Util (ExecM, HasGetter (..), HasLens (..))
 

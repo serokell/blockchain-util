@@ -1,4 +1,4 @@
-module Snowdrop.Dba.DbActions.Composite
+module Snowdrop.Dba.Base.DbActions.Composite
        (
          constructCompositeDaa
        , constructCompositeDaaM
@@ -17,7 +17,7 @@ import           Data.Default (Default (def))
 import           Data.Vinyl.TypeLevel (type (++))
 
 import           Snowdrop.Core (CSMappendException, ChgAccum, Undo)
-import           Snowdrop.Dba.DbActions.Types
+import           Snowdrop.Dba.Base.DbActions.Types
 import           Snowdrop.Hetero (HDownCastable, NotIntersect, happend, hdowncast)
 import           Snowdrop.Util (NewestFirst (..), OldestFirst (..))
 

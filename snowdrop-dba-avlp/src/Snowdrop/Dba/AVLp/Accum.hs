@@ -5,7 +5,7 @@
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.AVLp.Accum
+module Snowdrop.Dba.AVLp.Accum
        ( AVLChgAccum (..)
        , AVLChgAccums
        , RootHashComp (..)
@@ -31,13 +31,12 @@ import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Snowdrop.Core (CSMappendException (..), HChangeSet, HChangeSetEl, ValueOp (..),
                                 hChangeSetElToList)
-import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashable, AvlUndo,
-                                                        IsAvlEntry, KVConstraint,
-                                                        RootHash (unRootHash), RootHashComp (..),
-                                                        RootHashes, avlRootHash, mkAVL)
-import           Snowdrop.Execution.DbActions.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl,
-                                                          reThrowAVLEx, runAVLCacheT)
-import           Snowdrop.Execution.DbActions.Types (DGetter', DIter', DModify', IterAction (..))
+import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlUndo,
+                                        IsAvlEntry, KVConstraint, RootHash (unRootHash),
+                                        RootHashComp (..), RootHashes, avlRootHash, mkAVL)
+import           Snowdrop.Dba.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl,
+                                          reThrowAVLEx, runAVLCacheT)
+import           Snowdrop.Dba.Base (DGetter', DIter', DModify', IterAction (..))
 import           Snowdrop.Hetero (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, Head)
 import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..))
 

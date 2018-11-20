@@ -19,9 +19,8 @@ import           Formatting (sformat, (%))
 
 import           Snowdrop.Core (BException, ChgAccum, ChgAccumCtx, Ctx, HasBException,
                                 StatePException, upcastEffERwCompM)
-import           Snowdrop.Execution.Mempool.Core (Mempool, MempoolConfig (..), MempoolTx,
-                                                  RwMempoolAct, StateTxHandler (..), getMempoolTxs,
-                                                  msTxsL)
+import           Snowdrop.Mempool.Core (Mempool, MempoolConfig (..), MempoolTx,
+                                        RwMempoolAct, StateTxHandler (..), getMempoolTxs, msTxsL)
 import           Snowdrop.Hetero (Both, usingSomeData)
 import           Snowdrop.Util (ExecM, DBuildable, HasLens (..), bareListF, dbuild, dlater,
                                 logDoc, logInfo, indented, newlineF)

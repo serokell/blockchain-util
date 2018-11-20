@@ -2,7 +2,7 @@
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.Simple.SumChangeSet
+module Snowdrop.Dba.Simple.SumChangeSet
        (
          sumChangeSetDaa
        , sumChangeSetDaaM
@@ -19,10 +19,8 @@ import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, HChangeSetEl (..),
                                 MappendHChSet, SumChangeSet (..), Undo, ValueOp (..), csNew,
                                 diffChangeSet, hChangeSetToHMap, hChangeSetToHSet, modifySumChgSet)
-import           Snowdrop.Execution.DbActions.Types (DGetter, DGetter', DIter',
-                                                     DbAccessActions (..), DbAccessActionsM (..),
-                                                     DbAccessActionsU (..), DbComponents,
-                                                     IterAction (..))
+import           Snowdrop.Dba.Base (DGetter, DGetter', DIter', DbAccessActions (..), DbAccessActionsM (..),
+                                    DbAccessActionsU (..), DbComponents, IterAction (..))
 import           Snowdrop.Hetero (ExnHKey, HIntersectable, HMap, HSet, HMapEl (..), HSetEl,
                                   OrdHKey, hdifference, hintersect, rAllEmpty)
 import           Snowdrop.Util (IsEmpty (..), NewestFirst (..), OldestFirst (..))

@@ -3,7 +3,7 @@
 {-# LANGUAGE Rank2Types          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Snowdrop.Dba.IOExecutor
+module Snowdrop.Dba.Base.IOExecutor
        (
          IOExecEffect
        , runBaseMIO
@@ -35,8 +35,8 @@ import qualified Loot.Log.Rio as Rio
 import           Snowdrop.Core (BException, BaseM (..), ChgAccum, ChgAccumCtx (..), Ctx,
                                 CtxConcurrently (..), ERwComp, Effectful (..), HasBException,
                                 StatePException, getCAOrDefault, runERwComp)
-import           Snowdrop.Dba.DbActions (DbAccessActionsU, DbActions (..), DbApplyProof,
-                                               DbModifyActions (..))
+import           Snowdrop.Dba.Base.DbActions (DbAccessActionsU, DbActions (..), DbApplyProof,
+                                              DbModifyActions (..))
 import           Snowdrop.Util (ExecM, HasGetter (gett), HasLens (sett))
 import qualified Snowdrop.Util as Log
 
