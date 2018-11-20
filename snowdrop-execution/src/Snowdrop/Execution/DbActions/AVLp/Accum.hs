@@ -125,7 +125,6 @@ modAVL
       , AVL.Hash h k v
       , AvlHashable h
       , MonadCatch m
-      , MonadIO m
       , RetrieveImpl (ReaderT ctx m) h
       )
     => (AVL.Map h k v, Set AVL.Revision)
