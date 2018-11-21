@@ -2,9 +2,13 @@ resolver: lts-11.17
 
 packages:
 - snowdrop-block
+- snowdrop-block-exec
 - snowdrop-core
-- snowdrop-execution
+- snowdrop-dba
+- snowdrop-dba-avlp
+- snowdrop-dba-simple
 - snowdrop-hetero
+- snowdrop-mempool
 - snowdrop-util
 
 extra-deps:
@@ -54,5 +58,9 @@ ghc-options:
     snowdrop-util:       -Werror
     snowdrop-core:       -Werror
     snowdrop-block:      -Werror
-    snowdrop-execution:  -Werror
+    snowdrop-block-exec: -Werror
     snowdrop-hetero:     -Werror
+    snowdrop-dba:        -Werror
+    snowdrop-dba-avlp:   -Werror
+    snowdrop-dba-simple: -Werror
+    snowdrop-mempool:    -Werror
