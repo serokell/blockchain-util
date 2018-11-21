@@ -1,0 +1,55 @@
+name:           snowdrop-dba-simple
+version:        0.1.0.0
+description:    Please see the README on Github at <https://github.com/githubuser/blockchain-util#readme>
+homepage:       https://github.com/githubuser/blockchain-util#readme
+bug-reports:    https://github.com/githubuser/blockchain-util/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2018 Author name here
+license:        BSD3
+build-type:     Simple
+cabal-version:  >= 1.10
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/blockchain-util
+
+library
+  hs-source-dirs:
+      src
+  build-depends:
+      containers
+    , lens
+    , mtl
+    , stm
+    , snowdrop-core
+    , snowdrop-dba
+    , snowdrop-hetero
+    , snowdrop-util
+    , vinyl
+    , universum
+  build-tool-depends:
+      autoexporter:autoexporter
+
+  exposed-modules:
+      Snowdrop.Dba.Simple
+
+  other-modules:
+      Snowdrop.Dba.Simple.Actions
+      Snowdrop.Dba.Simple.SumChangeSet
+
+  default-language:    Haskell2010
+
+  ghc-options:        -Wall
+                      -fno-warn-orphans
+
+  default-extensions: NoImplicitPrelude
+                      LambdaCase
+                      TypeApplications
+                      FlexibleContexts
+                      TypeFamilies
+                      OverloadedStrings
+                      TupleSections
+                      ScopedTypeVariables
+                      FunctionalDependencies
+                      ConstraintKinds
