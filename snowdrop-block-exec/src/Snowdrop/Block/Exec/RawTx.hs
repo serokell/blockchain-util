@@ -12,7 +12,7 @@ import           Data.Vinyl.TypeLevel (RImage, RIndex)
 
 import           Snowdrop.Block (BlockHeader, CloseBlockRawTx (..), OpenBlockRawTx (..))
 import           Snowdrop.Core (TxRaw (..), TxRawImpl)
-import           Snowdrop.Util
+import           Snowdrop.Util (HasGetter (..), HasReview (..))
 
 data OpenBlockRawTxType blkType
 data CloseBlockRawTxType blkType
