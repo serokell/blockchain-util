@@ -40,7 +40,7 @@ library
     , mtl
     , random
     , reflection
-    , snowdrop-hetero          
+    , snowdrop-hetero
     , snowdrop-util
     , stm
     , text

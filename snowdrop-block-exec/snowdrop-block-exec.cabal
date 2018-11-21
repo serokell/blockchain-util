@@ -26,7 +26,6 @@ library
     , snowdrop-dba-simple
     , snowdrop-core
     , snowdrop-hetero
-    , snowdrop-mempool
     , snowdrop-util
     , text-format
     , vinyl

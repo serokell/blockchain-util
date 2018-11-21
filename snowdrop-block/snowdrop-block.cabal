@@ -25,7 +25,6 @@ library
       -- since 6.3 they use their own Buildable, contradicting with universum
     , formatting < 6.3
     , mtl
-    , snowdrop-hetero
     , snowdrop-util
     , time
     , hashable-time

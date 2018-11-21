@@ -6,7 +6,6 @@
 module Snowdrop.Block.Exec.StateConfiguration
        ( inmemoryBlkStateConfiguration
        , BlkProcConstr
-       , MempoolReasonableTx
        ) where
 
 import           Universum
@@ -17,6 +16,9 @@ import           Data.Vinyl (Rec)
 
 import           Snowdrop.Block (BlkConfiguration (..), BlkStateConfiguration (..), BlockExpandedTx,
                                  BlockRawTx, BlockUndo, Blund (..), CurrentBlockRef (..))
+import           Snowdrop.Block.Exec.RawTx ()
+import           Snowdrop.Block.Exec.Storage (BlundComponent, TipComponent, TipKey (..),
+                                              TipValue (..))
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
                                 ERoComp, ERwComp, ExpandRawTxsMode, ExpandableTx, HChangeSet,
                                 HUpCastableChSet, HasBExceptions, MappendHChSet, ProofNExp (..),
@@ -27,19 +29,8 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (
                                 modifyAccum, modifyAccumOne, modifyAccumUndo, queryOne,
                                 queryOneExists, runSeqExpandersSequentially, runValidator,
                                 upcastEffERoComp, upcastEffERoCompM)
-import           Snowdrop.Block.Exec.RawTx ()
-import           Snowdrop.Block.Exec.Storage (BlundComponent, TipComponent, TipKey (..),
-                                                   TipValue (..))
-import           Snowdrop.Dba.Base (DbComponents)
-import           Snowdrop.Mempool (MempoolTx)
-import           Snowdrop.Hetero (Both, CList, RContains, SomeData, UnionTypes, hupcast)
+import           Snowdrop.Hetero (Both, RContains, SomeData, UnionTypes, hupcast)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), OldestFirst (..))
-
-type MempoolReasonableTx txtypes conf =
-    CList '[ MempoolTx txtypes (DbComponents conf)
-           , BlkProcConstr txtypes (DbComponents conf)
-           , ExpandableTx txtypes
-           ]
 
 instance Hashable bRef => Hashable (TipValue bRef)
 
