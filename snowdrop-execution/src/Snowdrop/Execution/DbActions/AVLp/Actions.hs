@@ -41,13 +41,15 @@ import           Snowdrop.Execution.DbActions.Types (ClientMode (..), DbAccessAc
 import           Snowdrop.Hetero (HKey, HVal, unHSetEl)
 import           Snowdrop.Util (NewestFirst, Serialisable)
 
+import           Snowdrop.Execution.DbActions.AVLp.Constraints (RHashable, rmapWithHash)
+
 avlClientDbActions
     :: forall conf h m n xs .
     ( MonadIO m, MonadCatch m, MonadIO n, MonadCatch n
     , AvlHashable h
+    , RHashable h xs
     , RetrieveImpl (ReaderT (ClientTempState h xs n) m) h
     , AllAvlEntries h xs
-
     , Undo conf ~ AvlUndo h xs
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ ()
@@ -86,7 +88,7 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
 
     apply :: AvlHashable h => TVar (RootHashes h xs) -> AVLChgAccums h xs -> m ()
     apply var (Just accums) =
-        liftIO $ atomically $ writeTVar var $ rmap (RootHashComp . avlRootHash . acaMap) accums
+        liftIO $ atomically $ writeTVar var $ rmapWithHash @h (RootHashComp . avlRootHash . acaMap) accums
     apply _ Nothing = pure ()
 
 withProjUndo :: (MonadThrow m, Applicative f) => (NewestFirst [] undo -> a) -> NewestFirst [] undo -> m (f a)
@@ -96,6 +98,7 @@ avlServerDbActions
     :: forall conf h m n xs .
     ( MonadIO m, MonadCatch m, AvlHashable h, MonadIO n
     , AllAvlEntries h xs
+    , RHashable h xs
 
     , AllWholeTree xs
     , Monoid (Rec AMSRequested xs)

@@ -39,7 +39,10 @@ import           Snowdrop.Execution.DbActions.AVLp.State (AVLCache, AVLCacheT, R
                                                           reThrowAVLEx, runAVLCacheT)
 import           Snowdrop.Execution.DbActions.Types (DGetter', DIter', DModify', IterAction (..))
 import           Snowdrop.Hetero (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, Head)
-import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..), Serialisable (..))
+import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..),
+                                Serialisable (..))
+
+import           Snowdrop.Execution.DbActions.AVLp.Constraints (RHashable, rmapWithHash)
 
 -- | Change accumulator type for AVL tree.
 data AVLChgAccum h t = AVLChgAccum
@@ -160,20 +163,16 @@ modAccumU Nothing (NewestFirst (u:us)) =
   where
     undoRootH = last $ u :| us
 
-class AVL.Hash h (HKey x) (HVal x) => HHash h x
-instance AVL.Hash h (HKey x) (HVal x) => HHash h x
-
 computeUndo
     :: forall h xs ctx .
     ( HasGetter ctx (RootHashes h xs)
-    , AllConstrained (HHash h) xs
-    , AllAvlEntries h xs
+    , RHashable h xs
     )
     => AVLChgAccums h xs
     -> ctx
     -> AvlUndo h xs
 computeUndo Nothing ctx    = gett ctx
-computeUndo (Just accum) _ = rmap (RootHashComp . avlRootHash . acaMap) accum
+computeUndo (Just accum) _ = rmapWithHash @h (RootHashComp . avlRootHash . acaMap) accum
 
 query
     :: forall h xs ctx m .

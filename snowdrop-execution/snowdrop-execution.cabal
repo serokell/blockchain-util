@@ -24,6 +24,7 @@ library
     , bytestring
     , cereal
     , containers
+    , constraints
     , data-default
       -- since 6.3 they use their own Buildable, contradicting with universum
     , formatting < 6.3
@@ -62,6 +63,7 @@ library
       Snowdrop.Execution.DbActions.AVLp.Accum
       Snowdrop.Execution.DbActions.AVLp.Actions
       Snowdrop.Execution.DbActions.AVLp.Avl
+      Snowdrop.Execution.DbActions.AVLp.Constraints
       Snowdrop.Execution.DbActions.AVLp.State
       Snowdrop.Execution.DbActions.Composite
       Snowdrop.Execution.IOExecutor
