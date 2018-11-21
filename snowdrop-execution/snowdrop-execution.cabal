@@ -24,7 +24,6 @@ library
     , bytestring
     , cereal
     , containers
-    , constraints
     , data-default
     , fmt
       -- since 6.3 they use their own Buildable, contradicting with universum
