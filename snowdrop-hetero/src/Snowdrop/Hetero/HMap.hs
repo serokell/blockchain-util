@@ -176,6 +176,10 @@ hdowncast = rcast
 
 type HElem r rs = RElem r rs (RIndex r rs)
 
+class HElem x xs => HElemFlipped xs x
+instance HElem x xs => HElemFlipped xs x
+
+
 ------------------------
 -- Intersection && Difference && Mappend
 ------------------------

@@ -16,6 +16,8 @@ module Snowdrop.Execution.DbActions.AVLp.Accum
        , computeUndo
        , query
        , iter
+       , AvlClientConf
+       , AvlServerConf
        ) where
 
 import           Universum
@@ -29,20 +31,35 @@ import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
-import           Snowdrop.Core (CSMappendException (..), HChangeSet, HChangeSetEl, ValueOp (..),
-                                hChangeSetElToList)
-import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashable, AvlUndo,
-                                                        IsAvlEntry, KVConstraint,
+import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, HChangeSetEl, Undo,
+                                ValueOp (..), hChangeSetElToList)
+import           Snowdrop.Execution.DbActions.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProofs,
+                                                        AvlUndo, IsAvlEntry, KVConstraint,
                                                         RootHash (unRootHash), RootHashComp (..),
                                                         RootHashes, avlRootHash, mkAVL)
 import           Snowdrop.Execution.DbActions.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl,
                                                           reThrowAVLEx, runAVLCacheT)
-import           Snowdrop.Execution.DbActions.Types (DGetter', DIter', DModify', IterAction (..))
+import           Snowdrop.Execution.DbActions.Types (DGetter', DIter', DModify', DbApplyProof,
+                                                     DbComponents, IterAction (..))
 import           Snowdrop.Hetero (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, Head)
 import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..),
                                 Serialisable (..))
 
 import           Snowdrop.Execution.DbActions.AVLp.Constraints (RHashable, rmapWithHash)
+
+data AvlClientConf hash (xs :: [*])
+
+type instance ChgAccum (AvlClientConf hash xs) = AVLChgAccums hash xs
+type instance Undo (AvlClientConf hash xs) = AvlUndo hash xs
+type instance DbComponents (AvlClientConf hash xs) = xs
+type instance DbApplyProof (AvlClientConf hash xs) = ()
+
+data AvlServerConf hash (xs :: [*])
+
+type instance ChgAccum (AvlServerConf hash xs) = AVLChgAccums hash xs
+type instance Undo (AvlServerConf hash xs) = AvlUndo hash xs
+type instance DbComponents (AvlServerConf hash xs) = xs
+type instance DbApplyProof (AvlServerConf hash xs) = AvlProofs hash xs
 
 -- | Change accumulator type for AVL tree.
 data AVLChgAccum h t = AVLChgAccum

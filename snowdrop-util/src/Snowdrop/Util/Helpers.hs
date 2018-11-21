@@ -146,4 +146,3 @@ class HFunctor t where
 
 class SecureHash hash msg where
     secureHash :: msg -> hash
-

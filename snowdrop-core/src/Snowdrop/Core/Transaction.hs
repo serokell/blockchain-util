@@ -20,9 +20,12 @@ module Snowdrop.Core.Transaction
 
 import           Universum
 
+import           Data.Union (UElem, Union, ulift)
+import           Data.Vinyl.TypeLevel (RIndex)
+
 import           Snowdrop.Core.ChangeSet (HChangeSet)
 import           Snowdrop.Hetero (HDownCastable, SomeData (..), hdowncast)
-import           Snowdrop.Util (HasGetter (..))
+import           Snowdrop.Util (DBuildable (..), HasGetter (..), HasReview (..))
 
 ------------------------------------------
 -- Basic storage: model
@@ -38,6 +41,12 @@ type family TxRawImpl (txtype :: k) :: *
 
 newtype TxRaw txtype = TxRaw { unTxRaw :: TxRawImpl txtype }
 
+instance UElem x xs (RIndex x xs) => HasReview (Union TxRaw xs) (TxRaw x) where
+    inj = ulift
+
+deriving instance Hashable (TxRawImpl t) => Hashable (TxRaw t)
+deriving instance DBuildable (TxRawImpl t) => DBuildable (TxRaw t)
+
 -- | Transaction which modifies state.
 -- There is also RawTx, which is posted on the blockchain.
 -- Ideally, RawStateTx and any action which modifies a state can be converted into StateStateTx.
@@ -46,6 +55,7 @@ data StateTx (txtype :: *) = StateTx
     , txBody  :: HChangeSet (TxComponents txtype)
     } deriving (Generic)
 
+instance (Hashable (HChangeSet (TxComponents txtype)), Hashable (TxProof txtype)) => Hashable (StateTx txtype)
 deriving instance (Eq (HChangeSet (TxComponents txtype)), Eq (TxProof txtype)) => Eq (StateTx txtype)
 deriving instance (Ord (HChangeSet (TxComponents txtype)), Ord (TxProof txtype)) => Ord (StateTx txtype)
 deriving instance (Show (HChangeSet (TxComponents txtype)), Show (TxProof txtype)) => Show (StateTx txtype)

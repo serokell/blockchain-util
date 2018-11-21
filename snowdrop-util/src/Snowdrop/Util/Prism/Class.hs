@@ -7,9 +7,11 @@ module Snowdrop.Util.Prism.Class
 
 import           Universum hiding (head, init, last)
 
-import           Control.Lens (Prism', Review, prism', re, unto)
+import           Control.Lens (Prism', Review, prism', re, unto, ( # ))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+import           Data.Union (OpenUnion, UElem, openUnion)
+import           Data.Vinyl.TypeLevel (RIndex)
 
 -- TODO probably using lens package is overkill and we have to use manually defined
 -- Prism and Getter in future
@@ -98,3 +100,7 @@ instance (Ord id, Ord id1, HasPrism id id1, HasPrism value value1)
 
 fPair :: Applicative f => (f a, f b) -> f (a, b)
 fPair (fa, fb) = (,) <$> fa <*> fb
+
+instance UElem x xs (RIndex x xs) => HasReview (OpenUnion xs) x where
+    inj = (openUnion #)
+

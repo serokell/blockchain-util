@@ -3,64 +3,45 @@
 {-# LANGUAGE Rank2Types              #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 
-module Snowdrop.Block.State
-       ( TipComponent
-       , BlundComponent
-
-       , TipKey (..)
-       , TipValue (..)
-       , inmemoryBlkStateConfiguration
-
+module Snowdrop.Execution.Block.StateConfiguration
+       ( inmemoryBlkStateConfiguration
        , BlkProcConstr
-       , OpenBlockRawTxType
-       , CloseBlockRawTxType
+       , MempoolReasonableTx
        ) where
 
 import           Universum
 
 import           Data.Default (Default)
 import qualified Data.Map as M
-import qualified Data.Text.Buildable
 import           Data.Vinyl (Rec)
 
-import           Snowdrop.Block.Application (CloseBlockRawTx, OpenBlockRawTx)
-import           Snowdrop.Block.Configuration (BlkConfiguration (..))
-import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (BlockExpandedTx, BlockRawTx, BlockRef, BlockUndo, Blund (..),
-                                       CurrentBlockRef (..))
+import           Snowdrop.Block (BlkConfiguration (..), BlkStateConfiguration (..), BlockExpandedTx,
+                                 BlockRawTx, BlockUndo, Blund (..), CurrentBlockRef (..))
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
-                                ERoComp, ERwComp, HChangeSet, HUpCastableChSet, HasBExceptions,
-                                MappendHChSet, QueryERo, SomeTx, StatePException (..), StateTx (..),
-                                TxComponents, TxRaw, TxRawImpl, Undo, UnitedTxType, UpCastableERoM,
-                                Validator, ValueOp (..), applySomeTx, computeUndo, convertEffect,
-                                getCAOrDefault, hChangeSetFromMap, liftERoComp, modifyAccum,
-                                modifyAccumOne, modifyAccumUndo, queryOne, queryOneExists,
-                                runValidator, upcastEffERoComp, upcastEffERoCompM)
-import           Snowdrop.Execution (ExpandRawTxsMode, ExpandableTx, ProofNExp (..),
-                                     UnionSeqExpandersInps, runSeqExpandersSequentially)
-import           Snowdrop.Hetero (Both, HKeyVal, RContains, SomeData, UnionTypes, hupcast)
+                                ERoComp, ERwComp, ExpandRawTxsMode, ExpandableTx, HChangeSet,
+                                HUpCastableChSet, HasBExceptions, MappendHChSet, ProofNExp (..),
+                                QueryERo, SomeTx, StatePException (..), StateTx (..), TxComponents,
+                                TxRaw (..), Undo, UnionSeqExpandersInps, UnitedTxType,
+                                UpCastableERoM, Validator, ValueOp (..), applySomeTx, computeUndo,
+                                convertEffect, getCAOrDefault, hChangeSetFromMap, liftERoComp,
+                                modifyAccum, modifyAccumOne, modifyAccumUndo, queryOne,
+                                queryOneExists, runSeqExpandersSequentially, runValidator,
+                                upcastEffERoComp, upcastEffERoCompM)
+import           Snowdrop.Execution.Block.RawTx ()
+import           Snowdrop.Execution.Block.Storage (BlundComponent, TipComponent, TipKey (..),
+                                                   TipValue (..))
+import           Snowdrop.Execution.DbActions (DbComponents)
+import           Snowdrop.Execution.Mempool (MempoolTx)
+import           Snowdrop.Hetero (Both, CList, RContains, SomeData, UnionTypes, hupcast)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), OldestFirst (..))
 
-data OpenBlockRawTxType header
-data CloseBlockRawTxType header
+type MempoolReasonableTx txtypes conf =
+    CList '[ MempoolTx txtypes (DbComponents conf)
+           , BlkProcConstr txtypes (DbComponents conf)
+           , ExpandableTx txtypes
+           ]
 
-type instance TxRawImpl (OpenBlockRawTxType header) = OpenBlockRawTx header
-type instance TxRawImpl (CloseBlockRawTxType header) = CloseBlockRawTx header
-
-data TipComponent blkType
-data BlundComponent blkType
-type instance HKeyVal (TipComponent blkType) = '(TipKey, TipValue (BlockRef blkType))
-type instance HKeyVal (BlundComponent blkType)  =
-      '(BlockRef blkType, Blund blkType)
-
-data TipKey = TipKey
-  deriving (Eq, Ord, Show, Generic)
-
-instance Buildable TipKey where
-    build TipKey = "tip"
-
-data TipValue blockRef = TipValue {unTipValue :: blockRef}
-    deriving (Eq, Ord, Show, Generic)
+instance Hashable bRef => Hashable (TipValue bRef)
 
 class ( RContains txtypes txtype
       , HUpCastableChSet (TxComponents txtype) xs
@@ -128,7 +109,7 @@ inmemoryBlkStateConfiguration cfg validator exps = fix $ \this ->
     BlkStateConfiguration {
       bscConfig = cfg
     , bscExpand = liftERoComp . upcastEffERoCompM @_ @xs . runSeqExpandersSequentially exps . map gett
-    , bscApplyPayload = \(gett @_ @[SomeTx (BlkProcConstr txtypes xs)] -> txs) -> do
+    , bscApplyPayload = \txs -> do
           (newSt, undo) <- liftERoComp $ do
               curAcc <- asks (getCAOrDefault @conf . gett)
               OldestFirst accs <-

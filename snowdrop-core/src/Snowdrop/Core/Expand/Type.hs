@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeInType          #-}
 
-module Snowdrop.Core.Expander
+module Snowdrop.Core.Expand.Type
        ( ProofNExp (..)
        , SeqExpander
        , PreExpander (..)

@@ -4,97 +4,95 @@
 
 module Snowdrop.Execution.DbActions.Simple.Actions
     ( simpleDbActions
+    , simpleDbActions'
     , HMapLensEl (..)
     ) where
 
-import           Universum
+import           Universum hiding (Compose)
 
 import           Control.Concurrent.STM.TVar (modifyTVar)
-import           Control.Lens (at)
+import           Control.Lens (at, iso)
 import qualified Data.Map as M
-import           Data.Vinyl.Core (Rec (..))
+import           Data.Vinyl (RApply (..), RMap (..), RPureConstrained (..), Rec (..), rlens,
+                             rtraverse, (<<*>>))
 import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
-import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), Undo, ValueOp (..))
-import           Snowdrop.Execution.DbActions.Simple.SumChangeSet (SumChangeSet (..),
-                                                                   sumChangeSetDaa,
+import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), SumChangeSet (..), Undo,
+                                ValueOp (..))
+import           Snowdrop.Execution.DbActions.Simple.SumChangeSet (sumChangeSetDaa,
                                                                    sumChangeSetDaaU)
-import           Snowdrop.Execution.DbActions.Types (DIter', DbActionsException (..), DbApplyProof,
+import           Snowdrop.Execution.DbActions.Types (DbActionsException (..), DbApplyProof,
                                                      DbComponents, DbModifyActions (..),
                                                      IterAction (..))
-import           Snowdrop.Hetero (ExnHKey, HIntersectable, HKey, HMap, HMapEl (..),
-                                  HSet, HSetEl (..), HVal, OrdHKey)
+import           Snowdrop.Hetero (ExnHKey, HElem, HElemFlipped, HIntersectable, HKey, HMap,
+                                  HMapEl (..), HSetEl (..), HVal, OrdHKey, rliftA2)
 import           Snowdrop.Util (IsEmpty (..), toDummyMap)
 
-simpleDbActions
-    :: forall st conf xs.
+type SimpleDbActionsConstr conf xs =
       ( DbComponents conf ~ xs
       , DbApplyProof conf ~ ()
       , ChgAccum conf ~ SumChangeSet xs
       , Undo conf ~ HChangeSet xs
-      , AllConstrained ExnHKey xs
-      , AllConstrained OrdHKey xs
       , Semigroup (HMap xs)
       , RecAll HMapEl xs IsEmpty
       , RecAll HSetEl xs IsEmpty
       , HIntersectable xs xs
+      , RMap xs
+      , RPureConstrained OrdHKey xs
+      , RPureConstrained ExnHKey xs
+      , RApply xs
+      , AllConstrained ExnHKey xs
       )
+
+simpleDbActions'
+    :: forall conf xs.
+      ( SimpleDbActionsConstr conf xs
+      , RPureConstrained (HElemFlipped xs) xs
+      )
+    => HMap xs
+    -> STM (DbModifyActions conf STM)
+simpleDbActions' = flip simpleDbActions $
+    rpureConstrained @(HElemFlipped xs) mkHMapLensEl
+  where
+    mkHMapLensEl :: forall t . HElem t xs => HMapLensEl (HMap xs) t
+    mkHMapLensEl = HMapLensEl $ rlens @t . iso unHMapEl HMapEl
+
+simpleDbActions
+    :: forall st conf xs.
+      SimpleDbActionsConstr conf xs
     => st
     -> Rec (HMapLensEl st) xs
     -> STM (DbModifyActions conf STM)
 simpleDbActions initSt lenses =
     fmap mkActions $ newTVar initSt
   where
-    mkActions var = DbModifyActions (mkAccessActions var) (applyImpl var lenses)
+    mkActions var = DbModifyActions (mkAccessActions var) (applyImpl var)
     mkAccessActions var =
-        sumChangeSetDaaU $ sumChangeSetDaa (queryImpl var lenses) (iterImpl var lenses)
+        sumChangeSetDaaU $ sumChangeSetDaa (queryImpl var) (iterImpl var)
 
-    -- Queries
-    queryImpl
-      :: forall xs'.
-        ( AllConstrained ExnHKey xs'
-        )
-       =>  TVar st -> Rec (HMapLensEl st) xs' -> HSet xs' -> STM (HMap xs')
-    queryImpl _ RNil RNil = pure RNil
-    queryImpl tvar (HMapLensEl lens :& lensRest) (q :& qRest) = do
-        st <- readTVar tvar
-        let subSt = st ^. lens
-        let resp1 = queryFromMap q subSt
-        (resp1 :&) <$> queryImpl tvar lensRest qRest
+    queryImpl tvar q = (rliftA2 @OrdHKey queryFromMap <<*>> q <<*>>) <$> rtraverse (readSubSt tvar) lenses
+    iterImpl tvar = rmap (iterAction . readSubSt tvar) lenses
 
-    iterImpl
-      :: forall xs'.
-        ( AllConstrained ExnHKey xs'
-        )
-       => TVar st -> Rec (HMapLensEl st) xs' -> DIter' xs' STM
-    iterImpl _ RNil                        = RNil
-    iterImpl var (HMapLensEl lens :& rest) = iterAction var lens :& iterImpl var rest
+    readSubSt tvar (HMapLensEl lens) = HMapEl . view lens <$> readTVar tvar
 
-    -- Modifies
-    applyImpl
-      :: forall xs'.
-        ( AllConstrained ExnHKey xs'
-        )
-       => TVar st -> Rec (HMapLensEl st) xs' -> SumChangeSet xs' -> STM ()
-    applyImpl _ RNil (SumChangeSet RNil) = pure ()
-    applyImpl var (HMapLensEl lens :& lensRest) (SumChangeSet (cs :& csRest)) = do
-        applyChSetEl var lens cs
-        applyImpl var lensRest (SumChangeSet csRest)
+    applyImpl var (SumChangeSet css) =
+        void $ rtraverse (($> Const ()) . getConst) $
+        rliftA2 @ExnHKey (Const ... applyChSetEl var) <<*>> lenses <<*>> css
 
 newtype HMapLensEl st t =
-  HMapLensEl { unHMapLensEl :: Lens' st (Map (HKey t) (HVal t)) }
+    HMapLensEl { unHMapLensEl :: Lens' st (Map (HKey t) (HVal t)) }
 
-iterAction :: TVar st -> Lens' st (Map (HKey t) (HVal t)) -> IterAction STM t
-iterAction var lens = IterAction $ \b foldF -> foldl' foldF b . M.toList . view lens <$> readTVar var
+iterAction :: STM (HMapEl t) -> IterAction STM t
+iterAction readHMap = IterAction $ \b foldF -> foldl' foldF b . M.toList . unHMapEl <$> readHMap
 
-queryFromMap :: OrdHKey t => HSetEl t -> Map (HKey t) (HVal t) -> HMapEl t
-queryFromMap (HSetEl s) mp = HMapEl $ mp `M.intersection` (toDummyMap s)
+queryFromMap :: OrdHKey t => HSetEl t -> HMapEl t -> HMapEl t
+queryFromMap (HSetEl s) (HMapEl mp) = HMapEl $ mp `M.intersection` (toDummyMap s)
 
 applyChSetEl
     :: forall t st . (ExnHKey t)
     => TVar st
-    -> Lens' st (Map (HKey t) (HVal t)) -> HChangeSetEl t -> STM ()
-applyChSetEl var ls =
+    -> HMapLensEl st t -> HChangeSetEl t -> STM ()
+applyChSetEl var (HMapLensEl ls) =
     mapM_ (\(k, v) -> performActionWithTVar var (ls . at k) (applyException k) v) . M.toList . unHChangeSetEl
 
 applyException :: (Show key, MonadThrow m) => key -> ValueOp v -> Maybe v -> m void
