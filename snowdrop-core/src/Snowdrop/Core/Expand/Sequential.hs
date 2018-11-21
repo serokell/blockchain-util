@@ -22,18 +22,19 @@ import           Data.Default (Default (def))
 import           Data.Vinyl (Rec (..), rget)
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx,
-                                DiffChangeSet (..), ERoCompM, ExpInpComps, ExpOutComps,
-                                ExpRestriction (..), HChangeSet, HChangeSetEl, HUpCastableChSet,
-                                HasBException, MappendHChSet, PreExpander (..), ProofNExp (..),
-                                SeqExpander, SeqExpanderComponents, SomeTx, StateTx (..),
-                                TxComponents, TxRaw, UpCastableERoM, convertEffect,
-                                mappendChangeSet, modifyAccum, upcastEffERoCompM,
-                                withModifiedAccumCtxOne)
-import           Snowdrop.Execution.DbActions (SumChangeSet (..))
+import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HChangeSetEl,
+                                          HUpCastableChSet, MappendHChSet, SumChangeSet (..),
+                                          SumChangeSet (..), mappendChangeSet)
+import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), Ctx, ERoCompM, HasBException,
+                                        UpCastableERoM, convertEffect, modifyAccum,
+                                        upcastEffERoCompM, withModifiedAccumCtxOne)
+import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, ExpOutComps,
+                                            ExpRestriction (..), PreExpander (..), ProofNExp (..),
+                                            SeqExpander, SeqExpanderComponents)
+import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw)
 import           Snowdrop.Hetero (Both, HCastable, HElem, SomeData (..), UnionTypes, applySomeData,
                                   castStrip, hupcast)
-import           Snowdrop.Util (HasLens (..), throwLocalError)
+import           Snowdrop.Util (HasLens (..), OldestFirst (..), throwLocalError)
 
 type ExpandRawTxsMode conf txtypes =
     ( HasBException conf CSMappendException
@@ -50,7 +51,6 @@ type ExpandOneTxMode txtype =
     , RestrictTx (TxComponents txtype) txtype
     )
 
--- TODO there is assumption that tx can be expanded within own TxComponents txtype
 expandOneTx
     :: forall txtype conf .
     ( HasBException conf CSMappendException
@@ -65,7 +65,6 @@ expandOneTx (ProofNExp (prf, sexp)) tx = do
     hcs <- unSumCS <$> runSeqExpanderForTx @txtype tx sexp
     pure $ StateTx (prf tx) hcs
 
--- TODO: make up a united raw tx type via Union and make this code compile
 runSeqExpandersSequentially
     :: forall txtypes (c :: * -> Constraint) conf .
     ( HasBException conf CSMappendException

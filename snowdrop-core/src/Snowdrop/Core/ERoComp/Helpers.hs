@@ -26,6 +26,7 @@ module Snowdrop.Core.ERoComp.Helpers
        , initAccumCtx
        , getCAOrDefault
        , withModifiedAccumCtxOne
+       , withAccum
 
        , UpCastableERo
        , UpCastableERoM
@@ -52,9 +53,8 @@ import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, H
 import           Snowdrop.Core.ERoComp.Types (BException, ChgAccum, Ctx, DbAccess (..),
                                               DbAccessM (..), DbAccessU (..), ERoComp, ERoCompM,
                                               ERoCompU, FoldF (..), Undo)
-import           Snowdrop.Hetero (HIntersectable, HElem, HKey, HSet, HVal,
-                                  HUpCastableSet, hintersect, hdowncast, hmapToMap,
-                                  hsetFromSet, hupcast)
+import           Snowdrop.Hetero (HElem, HIntersectable, HKey, HSet, HUpCastableSet, HVal,
+                                  hdowncast, hintersect, hmapToMap, hsetFromSet, hupcast)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), HasReviews,
                                 NewestFirst (..), OldestFirst (..), deriveIdView, throwLocalError,
                                 unOldestFirst, withInj)
@@ -168,7 +168,17 @@ withModifiedAccumCtxOne
   -> ERoCompM conf xs a
 withModifiedAccumCtxOne chgSet comp = do
     acc' <- modifyAccumOne chgSet
-    local ( lensFor @(Ctx conf) @(ChgAccumCtx conf) .~ CAInitialized @conf acc' ) comp
+    withAccum @conf acc' comp
+
+withAccum
+  :: forall conf ctx m a .
+    ( MonadReader ctx m
+    , HasLens ctx (ChgAccumCtx conf)
+    )
+  => ChgAccum conf
+  -> m a
+  -> m a
+withAccum acc comp = local ( lensFor @ctx @(ChgAccumCtx conf) .~ CAInitialized @conf acc ) comp
 
 ----------------------------------------------------
 --- Functions to modify computation's context
@@ -186,9 +196,7 @@ initAccumCtx
 initAccumCtx acc' comp = do
     gett @_ @(ChgAccumCtx conf) <$> ask >>= \case
         CAInitialized _ -> throwLocalError ChgAccumCtxUnexpectedlyInitialized
-        CANotInitialized ->
-            local ( lensFor @(Ctx conf) @(ChgAccumCtx conf) .~ CAInitialized @conf acc' ) comp
-
+        CANotInitialized -> withAccum @conf acc' comp
 
 ------------------------
 -- Cast and hoist

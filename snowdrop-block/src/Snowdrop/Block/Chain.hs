@@ -1,81 +1,120 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Snowdrop.Block.Chain
-       ( iterateChain
-       , wholeChain
+       ( wholeChain
        , forkDepthChain
-       , nDepthChain
-       , nDepthChainNE
+       , loadBlocksFromTo
+       , loadHeadersFrom
+       , IterationException (..)
+       , FromRef (..)
+       , ToRef (..)
        ) where
 
 import           Universum
 
-import           Snowdrop.Block.Configuration (BlkConfiguration (..), getCurrentBlockRef)
-import           Snowdrop.Block.State (BlundComponent)
-import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
-import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, BlockUndo, Blund (..),
-                                       CurrentBlockRef (..), PrevBlockRef (..), RawBlund,
-                                       RawPayload)
-import           Snowdrop.Core (ChgAccum, ERoCompU, QueryERo, convertEffect, queryOne)
-import           Snowdrop.Util (NewestFirst (..), OldestFirst (..), newestFirstFContainer,
-                                toOldestFirst)
+import           Control.Monad.Except (MonadError)
+import qualified Data.Text.Buildable
+import           Formatting (bprint, build, (%))
 
--- | Load up to @maxDepth@ blocks from the currently adopted block sequence.
-iterateChain
-    :: forall blkType conf xs m .
-    ( QueryERo xs (BlundComponent blkType)
-    , m ~ ERoCompU conf xs
-    )
-    => BlkStateConfiguration (ChgAccum conf) blkType m
-    -> Int -- ^ Max depth of block sequence to load.
-    -> m (NewestFirst [] (Blund blkType))
-iterateChain BlkStateConfiguration{..} maxDepth = bscGetTip >>= loadBlock maxDepth
-  where
-    loadBlock
-        :: Int -> Maybe (BlockRef blkType)
-        -> m (NewestFirst [] (Blund blkType))
-    loadBlock _ Nothing = pure $ NewestFirst []
-    loadBlock depth (Just blockRef)
-        | depth <= 0 = pure $ NewestFirst []
-        | otherwise = convertEffect @conf (queryOne @(BlundComponent blkType) @xs @conf blockRef) >>= \case
-            Nothing -> pure $ NewestFirst [] -- TODO throw exception
-            Just b  -> newestFirstFContainer (b:) <$>
-                loadBlock
-                  (depth - 1)
-                  (unPrevBlockRef . (bcPrevBlockRef bscVerifyConfig) . blkHeader . buBlock $ b)
+import           Snowdrop.Block.Configuration (BlkConfiguration (..))
+import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
+import           Snowdrop.Block.Types (BlockHeader, BlockRef, CurrentBlockRef (..),
+                                       PrevBlockRef (..))
+import           Snowdrop.Util (HasReview, NewestFirst (..), OldestFirst (..),
+                                newestFirstFContainer, throwLocalError, toOldestFirst)
+
+data IterationException blkRef
+    = TooDeepFork
+    -- ^ Given fork is too deep.
+    | OriginOfBlockchainReached
+    -- ^ Origin of blockchain reached before an LCA is found.
+    | BlockDoesntExistInChain blkRef
+    -- ^ Wrong block reference occurred during chain traversal (of block that is not present in storage).
+
+instance Buildable blkRef => Buildable (IterationException blkRef) where
+    build TooDeepFork = "Provided fork is too deep."
+    build OriginOfBlockchainReached =
+        "Origin of blockchain reached before an LCA is found (block storage inconsistency)."
+    build (BlockDoesntExistInChain ref) =
+        bprint ("Block refernce "%build%" not found (block storage inconsistency).") ref
 
 -- | 'wholeChain' retrieves list of Hashes of whole blockchain in oldest first order.
 -- | 'forkDepthChain' retrieves list of Hashes from newest to maxForkDepth in oldest first order.
 wholeChain, forkDepthChain
-    :: forall blkType conf xs m .
-    ( QueryERo xs (BlundComponent blkType)
-    , m ~ ERoCompU conf xs
-    )
-    => BlkStateConfiguration (ChgAccum conf) blkType m
-    -> m (OldestFirst [] (CurrentBlockRef blkType))
-wholeChain     bsConf = nDepthChain @_ @conf bsConf maxBound
-forkDepthChain bsConf = nDepthChain @_ @conf bsConf $ bcMaxForkDepth $ bscVerifyConfig bsConf
+    :: ( MonadError e m
+       , Eq (BlockRef blkType)
+       , HasReview e (IterationException (BlockRef blkType))
+       )
+    => BlkStateConfiguration chgAccum blkType m
+    -> m (OldestFirst [] (CurrentBlockRef (BlockRef blkType)))
+wholeChain     bsConf = nDepthChain bsConf maxBound
+forkDepthChain bsConf = nDepthChain bsConf $ bcMaxForkDepth $ bscVerifyConfig bsConf
 
 nDepthChain
-    :: forall blkType conf xs m .
-    ( QueryERo xs (BlundComponent blkType)
-    , m ~ ERoCompU conf xs
-    )
-    => BlkStateConfiguration (ChgAccum conf) blkType m
+    :: ( MonadError e m
+       , Eq (BlockRef blkType)
+       , HasReview e (IterationException (BlockRef blkType))
+       )
+    => BlkStateConfiguration chgAccum blkType m
     -> Int
-    -> m (OldestFirst [] (CurrentBlockRef blkType))
-nDepthChain bsConf depth = toOldestFirst . fmap (getCurrentBlockRef $ bscVerifyConfig bsConf) <$> iterateChain @_ @conf bsConf depth
+    -> m (OldestFirst [] (CurrentBlockRef (BlockRef blkType)))
+nDepthChain bsConf depth =
+    toOldestFirst . fmap (bcBlockRef $ bscVerifyConfig bsConf)
+      <$> loadHeadersFrom bsConf depth Nothing
 
--- | Retrieves 'depth' number of Hashes in oldest first order.
-nDepthChainNE
-    :: forall blkType conf xs m .
-    ( QueryERo xs (BlundComponent blkType)
-    , m ~ ERoCompU conf xs
-    )
-    => BlkStateConfiguration (ChgAccum conf) blkType m
+newtype FromRef blkRef = FromRef { unFromRef :: Maybe blkRef }
+newtype ToRef blkRef = ToRef { unToRef :: Maybe blkRef }
+
+loadHeadersFrom
+    :: forall chgAccum blkType e m iterE .
+       ( MonadError e m
+       , Eq (BlockRef blkType)
+       , iterE ~ IterationException (BlockRef blkType)
+       , HasReview e iterE
+       )
+    => BlkStateConfiguration chgAccum blkType m
     -> Int
-    -> m (Maybe (OldestFirst NonEmpty (Blund (BlockHeader blkType) (RawPayload blkType) (BlockUndo blkType))))
-nDepthChainNE bsConf depth = toOldestFirstNE . toOldestFirst <$> iterateChain @_ @conf bsConf depth
-  where
-    toOldestFirstNE :: OldestFirst [] a -> Maybe (OldestFirst NonEmpty a)
-    toOldestFirstNE (OldestFirst [])       = Nothing
-    toOldestFirstNE (OldestFirst (x : xs)) = Just $ OldestFirst $ (x :| xs)
+    -> Maybe (FromRef (BlockRef blkType))
+    -> m (NewestFirst [] (BlockHeader blkType))
+loadHeadersFrom BlkStateConfiguration {..} depth from = do
+    tip <- bscGetTip
+    loadBlocksFromTo
+        bscGetHeader
+        (bcPrevBlockRef bscVerifyConfig)
+        depth
+        from
+        (ToRef tip)
+
+loadBlocksFromTo
+    :: forall blkRef blk e m iterE .
+       ( MonadError e m
+       , Eq blkRef
+       , iterE ~ IterationException blkRef
+       , HasReview e iterE
+       )
+    => (blkRef -> m (Maybe blk))
+    -> (blk -> PrevBlockRef blkRef)
+    -> Int
+    -> Maybe (FromRef blkRef)
+    -> ToRef blkRef
+    -> m (NewestFirst [] blk)
+loadBlocksFromTo getHeader getPrevBlkRef maxForkDepth fromMb (ToRef toMb)
+    | Just toMb == (unFromRef <$> fromMb) =
+        pure $ NewestFirst []
+    | maxForkDepth <= 0 = do
+        whenJust fromMb $ \_ -> throwLocalError @iterE TooDeepFork
+        pure $ NewestFirst []
+    | Just to <- toMb = getHeader to >>= \case
+        Just b  ->
+            newestFirstFContainer (b:) <$>
+                loadBlocksFromTo
+                  getHeader
+                  getPrevBlkRef
+                  (maxForkDepth - 1)
+                  fromMb
+                  (ToRef $ unPrevBlockRef $ getPrevBlkRef b)
+        Nothing -> throwLocalError $ BlockDoesntExistInChain to
+    | otherwise = do
+        whenJust fromMb $ \_ -> throwLocalError @iterE OriginOfBlockchainReached
+        pure $ NewestFirst []
+

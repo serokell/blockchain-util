@@ -7,8 +7,8 @@ module Snowdrop.Block.StateConfiguration
 import           Universum
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
-import           Snowdrop.Block.Types (BlockHeader, BlockRef, RawBlk, Tx)
-import           Snowdrop.Util (OldestFirst)
+import           Snowdrop.Block.Types (BlockHeader, BlockRef, RawBlk)
+import           Snowdrop.Util (NewestFirst, OldestFirst)
 
 -- | Block handling configuration.
 -- Contains methods for to perform handling of block sequence (chain):
@@ -25,11 +25,9 @@ import           Snowdrop.Util (OldestFirst)
 --  while state contains actual blockchain state
 --  as result of application of currently adopted "best" chain on initial blockchain state.
 data BlkStateConfiguration chgAccum blkType m = BlkStateConfiguration
-    { bscExpandHeaders   :: chgAccum -> [ RawBlk blkType ] -> m ( OldestFirst [] (BlockHeader blkType) )
+    { bscExpandHeaders   :: chgAccum -> OldestFirst NonEmpty (RawBlk blkType) -> m ( OldestFirst NonEmpty (BlockHeader blkType) )
     -- ^ Required for step 1
-    , bscExpandPayloads  :: chgAccum -> [ RawBlk blkType ] -> m ( OldestFirst [] (OldestFirst [] (Tx blkType, chgAccum)) )
-    -- ^ Required for steps 4-5
-    , bscValidateTx      :: chgAccum -> Tx blkType -> m ()
+    , bscValidatePayloads  :: chgAccum -> OldestFirst NonEmpty (RawBlk blkType) -> m ( OldestFirst NonEmpty chgAccum )
     -- ^ Required for step 6
     , bscGetHeader       :: BlockRef blkType -> m (Maybe (BlockHeader blkType))
     -- ^ Required for step 2
@@ -37,7 +35,7 @@ data BlkStateConfiguration chgAccum blkType m = BlkStateConfiguration
     -- ^ Required for step 2
     , bscGetTip          :: m (Maybe (BlockRef blkType))
     -- ^ Required for step 2
-    , bscInmemRollback   :: BlockRef blkType -> m chgAccum
+    , bscInmemRollback   :: chgAccum -> Maybe (BlockRef blkType) -> m (chgAccum, NewestFirst [] (BlockRef blkType))
     -- ^ Required for step 3
     , bscVerifyConfig    :: BlkConfiguration blkType
     -- ^ Required for step 2
