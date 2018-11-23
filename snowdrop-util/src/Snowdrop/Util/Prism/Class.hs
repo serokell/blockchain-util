@@ -30,7 +30,7 @@ class HasReview s a => HasPrism s a where
     prismOf :: Prism' s a
     prismOf = prism' inj proj
 
-    proj :: HasPrism s a => s -> Maybe a
+    proj :: s -> Maybe a
     proj = (^? prismOf)
 
 ------------------------------------------------------
