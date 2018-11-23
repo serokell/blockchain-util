@@ -35,29 +35,29 @@ class (Ord (HKey t), Show (HKey t), Buildable (HKey t), Typeable (HKey t)) => Ex
 instance (Ord (HKey t), Show (HKey t), Buildable (HKey t), Typeable (HKey t)) => ExnHKey t
 
 -- HMap
-newtype HMapEl (t :: u) = HMapEl {unHMapEl :: Map (HKey t) (HVal t)}
-type HMap = Rec HMapEl
+newtype HMapEl (f :: * -> *) (t :: u) = HMapEl {unHMapEl :: Map (HKey t) (f (HVal t))}
+type HMap f = Rec (HMapEl f)
 
-instance IsEmpty (HMapEl t) where
+instance IsEmpty (HMapEl f t) where
     isEmpty = M.null . unHMapEl
 
-instance Default (HMapEl t) where
+instance Default (HMapEl f t) where
     def = HMapEl M.empty
 
-instance OrdHKey t => Semigroup (HMapEl t) where
+instance OrdHKey t => Semigroup (HMapEl f t) where
     HMapEl a <> HMapEl b = HMapEl $ a <> b
 
-instance OrdHKey t => Monoid (HMapEl t) where
+instance OrdHKey t => Monoid (HMapEl f t) where
     a `mappend` b = a <> b
     mempty = HMapEl mempty
 
-hmapEl :: OrdHKey t => [(HKey t, HVal t)] -> HMapEl t
+hmapEl :: OrdHKey t => [(HKey t, f (HVal t))] -> HMapEl f t
 hmapEl = HMapEl . M.fromList
 
-hmapFromMap :: OrdHKey t => Map (HKey t) (HVal t) -> HMap '[t]
+hmapFromMap :: OrdHKey t => Map (HKey t) (f (HVal t)) -> HMap f '[t]
 hmapFromMap = (:& RNil) . HMapEl
 
-hmapToMap :: OrdHKey t => HMap '[t] -> Map (HKey t) (HVal t)
+hmapToMap :: OrdHKey t => HMap f '[t] -> Map (HKey t) (f (HVal t))
 hmapToMap (HMapEl x :& RNil) = x
 
 
@@ -80,7 +80,7 @@ hsetFromSet = (:& RNil) . HSetEl
 hsetToSet :: OrdHKey t => HSet '[t] -> Set (HKey t)
 hsetToSet (HSetEl x :& RNil) = x
 
-hmapToHSet :: HMap xs -> HSet xs
+hmapToHSet :: HMap f xs -> HSet xs
 hmapToHSet RNil             = RNil
 hmapToHSet (HMapEl x :& xs) = HSetEl (M.keysSet x) :& hmapToHSet xs
 
@@ -142,8 +142,8 @@ instance ( Default (f t)
         (Nothing, rest) -> def :& hupcast @f @(RemoveElem t xs) @res' rest
         (Just rx, rest) -> rx :& hupcast @f @(RemoveElem t xs) @res' rest
 
-type HUpCastableMap = HUpCastable HMapEl
-type HUpCastableSet = HUpCastable HSetEl
+type HUpCastableMap f = HUpCastable (HMapEl f)
+type HUpCastableSet   = HUpCastable HSetEl
 
 class (HRemoveElem t xs, OrdHKey t) => HCast xs t
 instance (HRemoveElem t xs, OrdHKey t) => HCast xs t
@@ -187,13 +187,13 @@ instance HElem x xs => HElemFlipped xs x
 class IntersectionF f g where
     intersectf :: OrdHKey t => f t -> g t -> f t
 
-instance IntersectionF HMapEl HMapEl where
+instance IntersectionF (HMapEl f) (HMapEl f) where
     intersectf (HMapEl a) (HMapEl b) = HMapEl $ a `M.intersection` b
 
-instance IntersectionF HMapEl HSetEl where
+instance IntersectionF (HMapEl f) HSetEl where
     intersectf (HMapEl a) (HSetEl b) = HMapEl $ a `M.intersection` (toDummyMap b)
 
-instance IntersectionF HSetEl HMapEl where
+instance IntersectionF HSetEl (HMapEl f) where
     intersectf (HSetEl a) (HMapEl b) = HSetEl $ a `S.intersection` (M.keysSet b)
 
 type HIntersectable xs res = (HDownCastable xs res, AllConstrained OrdHKey res)
@@ -211,7 +211,7 @@ hintersect a b = hdowncast a `hintersect'` b
 class DifferenceF f g where
     differencef :: OrdHKey t => f t -> g t -> f t
 
-instance DifferenceF HSetEl HMapEl where
+instance DifferenceF HSetEl (HMapEl f) where
     differencef (HSetEl a) (HMapEl b) = HSetEl $ a `S.difference` (M.keysSet b)
 
 type HDifference xs res = (HDownCastable xs res, AllConstrained OrdHKey res)
@@ -230,7 +230,7 @@ type HMappend f xs ys =
     , HUpCastable f ys (UnionTypes xs ys)
     , Semigroup (Rec f (UnionTypes xs ys))
     )
-type HMappendMap xs ys = HMappend HMapEl xs ys
+type HMappendMap f xs ys = HMappend (HMapEl f) xs ys
 
 hmappend
     :: forall xs ys f . HMappend f xs ys
@@ -279,11 +279,13 @@ type K1 = '[Component1, Component2]
 type K2 = '[Component2, Component3]
 type K1K2Union = '[Component1, Component2, Component3]
 
-k1map :: HMap K1
-k1map = hmapEl [(1, 1), (1, 3)] :& (hmapEl [(3, "aaa"), (4, "bbb")] :& RNil)
+newtype I a = I a
 
-k2map :: HMap K2
-k2map = hmapEl [(3, "ccc"), (5, "ddd")] :& (hmapEl [(3, 1), (4, 1)] :& RNil)
+k1map :: HMap I K1
+k1map = hmapEl [(1, I 1), (1, I 3)] :& (hmapEl [(3, I "aaa"), (4, I "bbb")] :& RNil)
+
+k2map :: HMap I K2
+k2map = hmapEl [(3, I "ccc"), (5, I "ddd")] :& (hmapEl [(3, I 1), (4, I 1)] :& RNil)
 
 -- res1 :: HMap K1
 -- res1 = gmappend @Identity @'[] @K1 GNil k1map

@@ -11,6 +11,10 @@ module Snowdrop.Dba.AVLp.Accum
        , RootHashComp (..)
        , RootHashes
        , AllAvlEntries
+       , AvlHash
+       , MapLayerIsSerialisable
+       , AllAvlHashSerialisable
+       , AllAvlEntryHashSerialisable
        , modAccum
        , modAccumU
        , computeUndo
@@ -60,7 +64,7 @@ type instance DbApplyProof (AvlServerConf hash xs) = AvlProofs hash xs
 
 -- | Change accumulator type for AVL tree.
 data AVLChgAccum h t = AVLChgAccum
-    { acaMap     :: AVL.Map h (HKey t) (HVal t)
+    { acaMap     :: AVL.Map h (HKey t) (ValueOp (HVal t))
     -- ^ AVL map, which contains avl tree with most-recent updates
     , acaStorage :: AVLCache h
     -- ^ AVL tree cache, which stores results of all `save` operations performed on AVL tree
@@ -87,12 +91,22 @@ resolveAvlCA st Nothing = rmap crAVLChgAccum (gett st)
       , acaTouched = mempty
       }
 
+class AVL.Hash h (HKey x) (ValueOp (HVal x)) => AvlHash h x
+instance AVL.Hash h (HKey x) (ValueOp (HVal x)) => AvlHash h x
+
+class Serialisable (MapLayer h (HKey x) (ValueOp (HVal x)) h) => MapLayerIsSerialisable h x
+instance Serialisable (MapLayer h (HKey x) (ValueOp (HVal x)) h) => MapLayerIsSerialisable h x
+
+type AllAvlHashSerialisable h rs = (AllConstrained (MapLayerIsSerialisable h) rs, AllConstrained (AvlHash h) rs)
+type AllAvlEntryHashSerialisable h rs = (AllConstrained (IsAvlEntry h) rs, AllAvlHashSerialisable h rs)
+
 modAccum
     :: forall h xs ctx m .
     ( AvlHashable h, HasGetter ctx (RootHashes h xs)
     , RetrieveImpl (ReaderT ctx m) h
     , MonadIO m, MonadCatch m
     , AllAvlEntries h xs
+    , AllAvlHashSerialisable h xs
     )
     => ctx
     -> AVLChgAccums h xs
@@ -102,7 +116,7 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
     Nothing  -> modAccumAll (resolveAvlCA ctx acc') cs'
   where
     modAccumAll
-        :: AllConstrained (IsAvlEntry h) rs
+        :: AllAvlEntryHashSerialisable h rs
         => Rec (AVLChgAccum h) rs
         -> OldestFirst [] (HChangeSet rs)
         -> m (Either CSMappendException (OldestFirst [] (Rec (AVLChgAccum h) rs)))
@@ -113,7 +127,7 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
         foldHandler (curAcc, resAccs) hcs = (\acc -> (acc, acc : resAccs)) <$> modAccumOne curAcc hcs
 
     modAccumOne
-        :: AllConstrained (IsAvlEntry h) rs
+        :: AllAvlEntryHashSerialisable h rs
         => Rec (AVLChgAccum h) rs
         -> HChangeSet rs
         -> m (Rec (AVLChgAccum h) rs)
@@ -123,7 +137,11 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
 
     modAccumOneDo
         :: forall r .
-          IsAvlEntry h r
+        (
+          MapLayerIsSerialisable h r
+        , AvlHash h r
+        , IsAvlEntry h r
+        )
         => AVLChgAccum h r
         -> HChangeSetEl r
         -> m (AVLChgAccum h r)
@@ -137,25 +155,24 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
 modAVL
     ::
       ( KVConstraint k v
-      , Serialisable (MapLayer h k v h)
-      , AVL.Hash h k v
+      , Serialisable (MapLayer h k (ValueOp v) h)
+      , AVL.Hash h k (ValueOp v)
       , AvlHashable h
       , MonadCatch m
       , RetrieveImpl (ReaderT ctx m) h
       )
-    => (AVL.Map h k v, Set h)
+    => (AVL.Map h k (ValueOp v), Set h)
     -> (k, ValueOp v)
-    -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
+    -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k (ValueOp v), Set h)
 modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup' k avl
   where
     processResp ((lookupRes, (<> touched) -> touched'), avl') =
       case (valueop, lookupRes) of
         (NotExisted, Nothing) -> pure (avl', touched')
-        (New v     , Nothing) -> (, touched') . snd <$> AVL.insert' k v avl'
+        (v@(New _) , Nothing) -> (, touched') . snd <$> AVL.insert' k v avl'
         (Rem       , Just _)  -> (, touched') . snd <$> AVL.delete' k avl'
-        (Upd v     , Just _)  -> (, touched') . snd <$> AVL.insert' k v avl'
+        (v@(Upd _) , Just _)  -> (, touched') . snd <$> AVL.insert' k v avl'
         _                     -> throwM $ CSMappendException k
-
 
 modAccumU
     :: forall h xs . AVLChgAccums h xs
@@ -191,17 +208,18 @@ query
     , RetrieveImpl (ReaderT ctx m) h
     , MonadIO m, MonadCatch m
     , AllAvlEntries h xs
+    , AllAvlHashSerialisable h xs
     )
    => ctx -> AVLChgAccums h xs -> DGetter' xs m
 query ctx (Just ca) hset = queryAll ca hset
   where
-    queryAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
+    queryAll :: forall rs . AllAvlEntryHashSerialisable h rs => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap ValueOp rs)
     queryAll RNil RNil                       = pure RNil
     queryAll accums'@(_ :& _) reqs'@(_ :& _) = query' accums' reqs'
 
     query'
-        :: forall r rs rs' . (rs ~ (r ': rs'), AllConstrained (IsAvlEntry h) rs)
-        => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
+        :: forall r rs rs' . (rs ~ (r ': rs'), AllAvlEntryHashSerialisable h rs)
+        => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap ValueOp rs)
     query' (AVLChgAccum initAvl initAcc _ :& accums) (HSetEl req :& reqs) = reThrowAVLEx @(HKey r) @h $ do
         let queryDo = fst <$> foldM queryDoOne (mempty, initAvl) req
             queryDoOne (resp, avl) key = first (processResp resp key) <$> AVL.lookup' key avl
@@ -219,13 +237,14 @@ iter
     , RetrieveImpl (ReaderT ctx m) h
     , MonadIO m, MonadCatch m
     , AllAvlEntries h xs
+    , AllAvlHashSerialisable h xs
     )
     => ctx
     -> AVLChgAccums h xs
     -> m (DIter' xs m)
 iter ctx (Just ca) = pure $ iterAll ca
   where
-    iterAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> DIter' rs m
+    iterAll :: forall rs . AllAvlEntryHashSerialisable h rs => Rec (AVLChgAccum h) rs -> DIter' rs m
     iterAll RNil = RNil
     iterAll (AVLChgAccum initAvl initAcc _ :& accums) =
         IterAction

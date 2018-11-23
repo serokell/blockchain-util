@@ -38,6 +38,8 @@ import           Snowdrop.Dba.Base (ClientMode (..), DbActionsException (..))
 import           Snowdrop.Hetero (HKey, HMap, HVal, unHMapEl)
 import           Snowdrop.Util (HasGetter (..))
 
+import           Snowdrop.Core (ValueOp, getVal)
+
 ----------------------------------------------------------------------------
 -- Server state
 ----------------------------------------------------------------------------
@@ -147,13 +149,13 @@ initAVLPureStorage
     , AvlHashable h
     , AllAvlEntries h xs
     )
-    => HMap xs
+    => HMap ValueOp xs
     -> m (AVLServerState h xs)
 initAVLPureStorage xs = initAVLPureStorageAll xs def
   where
     initAVLPureStorageAll
         :: forall rs . AllAvlEntries h rs
-        => HMap rs
+        => HMap ValueOp rs
         -> AVLPureStorage h
         -> m (AVLServerState h rs)
     initAVLPureStorageAll RNil cache        = pure $ AMS RNil cache RNil
@@ -161,14 +163,14 @@ initAVLPureStorage xs = initAVLPureStorageAll xs def
 
     initAVLPureStorage'
         :: forall rs r rs' . (rs ~ (r ': rs'), AllAvlEntries h rs)
-        => HMap rs
+        => HMap ValueOp rs
         -> AVLPureStorage h
         -> m (AVLServerState h rs)
     initAVLPureStorage' ((M.toList . unHMapEl -> kvs) :& accums) cache = reThrowAVLEx @(HKey r) @h $ do
         logDebug "Initializing AVL+ pure storage"
         (rootH, unAVLCache -> cache') <-
             runAVLCacheT
-                (foldM (\b (k, v) -> snd <$> AVL.insert @h k v b) AVL.empty kvs >>= saveAVL)
+                (foldM (\b (k, v) -> snd <$> AVL.insert @h k (getVal v) b) AVL.empty kvs >>= saveAVL)
                 def
                 cache
         let newCache = AVLPureStorage $ unAVLPureStorage cache <> cache'

@@ -40,8 +40,8 @@ instance Default (HChangeSet xs) => Default (SumChangeSet xs) where
 
 simpleStateAccessor
     :: HIntersectable xs xs
-    => HMap xs
-    -> DbAccess conf xs res
+    => HMap ValueOp xs
+    -> DbAccess xs res
     -> res
 simpleStateAccessor st (DbQuery q cont) = cont (st `hintersect` q)
 simpleStateAccessor st (DbIterator getComp (FoldF (e, foldf, applier))) = applier $
@@ -89,28 +89,28 @@ applyDiff
     , AllConstrained ExnHKey xs
     )
     => HChangeSet xs
-    -> HMap xs
-    -> m (HMap xs)
+    -> HMap ValueOp xs
+    -> m (HMap ValueOp xs)
 applyDiff = applyDiffDo
   where
-    applyDiffDo :: AllConstrained ExnHKey rs => HChangeSet rs  -> HMap rs -> m (HMap rs)
+    applyDiffDo :: AllConstrained ExnHKey rs => HChangeSet rs  -> HMap ValueOp rs -> m (HMap ValueOp rs)
     applyDiffDo RNil RNil                = pure RNil
     applyDiffDo (cs :& xs) (initM :& ys) = (:&) <$> applyDiffF cs initM <*> applyDiffDo xs ys
 
-    applyDiffF :: ExnHKey t => HChangeSetEl t -> HMapEl t -> m (HMapEl t)
+    applyDiffF :: ExnHKey t => HChangeSetEl t -> HMapEl ValueOp t -> m (HMapEl ValueOp t)
     applyDiffF cs initM = HMapEl <$> foldM applyDiffOne (unHMapEl initM) (hChangeSetElToList cs)
       where
         maybeLookup k m act1 act2 = maybe act1 act2 $ M.lookup k m
-        applyDiffOne m (k, New v) =
+        applyDiffOne m (k, v@(New _)) =
             maybeLookup k m (pure $ M.insert k v m) (\_ -> throwLocalError $ CSMappendException k)
-        applyDiffOne m (k, Upd v) =
+        applyDiffOne m (k, v@(Upd _)) =
             maybeLookup k m (throwLocalError $ CSMappendException k) (\_ -> pure $ M.insert k v m)
         applyDiffOne m (k, Rem)   =
             maybeLookup k m (throwLocalError $ CSMappendException k) (\_ -> pure $ M.delete k m)
         applyDiffOne m (k, NotExisted) =
             maybeLookup k m (pure m) (\_ -> throwLocalError $ CSMappendException k)
 
-instance ( MonadReader (HMap xs) m
+instance ( MonadReader (HMap ValueOp xs) m
          , Default (HChangeSet xs)
          , HasReview e CSMappendException
          , HIntersectable xs xs
@@ -136,7 +136,7 @@ type instance ChgAccum (TestConf e xs) = SumChangeSet xs
 
 countERoComp
     :: forall e xs m a .
-       ( MonadReader (HMap xs) m
+       ( MonadReader (HMap ValueOp xs) m
        , HasReview e CSMappendException
        , Default (HChangeSet xs)
        , HIntersectable xs xs
@@ -150,7 +150,7 @@ countERoComp comp =
 
 runERoComp
     :: forall e xs m a .
-       ( MonadReader (HMap xs) m
+       ( MonadReader (HMap ValueOp xs) m
        , HasReview e CSMappendException
        , Default (HChangeSet xs)
        , HIntersectable xs xs

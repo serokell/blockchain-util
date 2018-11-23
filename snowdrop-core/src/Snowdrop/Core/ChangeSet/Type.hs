@@ -18,6 +18,8 @@ module Snowdrop.Core.ChangeSet.Type
        , csRemove
        , csNew
        , csUpdate
+       , ValGetter
+       , csUpdateV
        , CSMappendException (..)
 
        , diffChangeSet
@@ -51,7 +53,7 @@ deriving instance (Eq (HKey t), Eq (ValueOp (HVal t))) => Eq (HChangeSetEl t)
 
 type HChangeSet = Rec HChangeSetEl
 
-instance IntersectionF HChangeSetEl HMapEl where
+instance IntersectionF HChangeSetEl (HMapEl ValueOp) where
     intersectf (HChangeSetEl a) (HMapEl b) = HChangeSetEl $ a `M.intersection` b
 
 instance IntersectionF HChangeSetEl HSetEl where
@@ -68,7 +70,7 @@ type HUpCastableChSet = HUpCastable HChangeSetEl
 hChangeSetToHSet :: HChangeSet xs -> HSet xs
 hChangeSetToHSet = rmap (HSetEl . M.keysSet . unHChangeSetEl)
 
-hChangeSetToHMap :: HChangeSet xs -> HMap xs
+hChangeSetToHMap :: HChangeSet xs -> HMap ValueOp xs
 hChangeSetToHMap = rmap hChangeSetElToMap
 
 hChangeSetFromMap :: Map (HKey t) (ValueOp (HVal t)) -> HChangeSet '[t]
@@ -91,21 +93,26 @@ csNew = M.mapMaybe isNew . unHChangeSetEl
 
 -- | Returns a map containg keys which Upd operation should be applied to
 -- and corresponding new values according to ChangeSet.
-csUpdate :: HChangeSetEl t -> Map (HKey t) (HVal t)
+csUpdate :: HChangeSetEl t -> Map (HKey t) (ValueOp (HVal t))
 csUpdate = M.mapMaybe isUpd . unHChangeSetEl
   where
-    isUpd (Upd x) = Just x
-    isUpd _       = Nothing
+    isUpd x@(Upd _) = Just x
+    isUpd _         = Nothing
+
+type ValGetter t = Map (HKey t) (ValueOp (HVal t)) -> Map (HKey t) (HVal t)
+
+csUpdateV :: ValGetter t -> HChangeSetEl t -> Map (HKey t) (HVal t)
+csUpdateV vg = vg . csUpdate
 
 -- | Returns map consisted of keys corresponding to New and Upd operations and
 -- values from operations themselves.
-hChangeSetElToMap :: HChangeSetEl t -> HMapEl t
+hChangeSetElToMap :: HChangeSetEl t -> HMapEl ValueOp t
 hChangeSetElToMap = HMapEl . M.mapMaybe toJust . unHChangeSetEl
   where
     toJust Rem        = Nothing
     toJust NotExisted = Nothing
-    toJust (Upd x)    = Just x
-    toJust (New x)    = Just x
+    toJust x@(Upd _)  = Just x
+    toJust x@(New _)  = Just x
 
 -- | Like @hChangeSetElToMap@ but returns a list.
 hChangeSetElToList :: HChangeSetEl t -> [(HKey t, ValueOp (HVal t))]

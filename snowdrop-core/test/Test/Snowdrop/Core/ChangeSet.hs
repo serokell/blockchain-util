@@ -14,7 +14,7 @@ import qualified Hedgehog.Range as Range
 import           Test.Tasty (TestTree)
 import           Test.Tasty.Hedgehog (testProperty)
 
-import           Snowdrop.Core (HChangeSet, HChangeSetEl (..), ValueOp (..), ValueOpEx (..),
+import           Snowdrop.Core (HChangeSet, HChangeSetEl (..), ValueUpd (..), ValueOp (..), ValueOpEx (..),
                                 mappendChangeSet)
 import           Snowdrop.Hetero (HKeyVal, rone)
 import           Snowdrop.Util (VerRes (..))
@@ -106,7 +106,7 @@ genAnyInt = Gen.int $ Range.constantBounded @Int
 genValueOp :: MonadGen m => m (ValueOp Int)
 genValueOp = do
     n <- genAnyInt
-    Gen.element [ New n , Upd n , Rem, NotExisted ]
+    Gen.element [ New n , Upd (Replace n) , Rem, NotExisted ]
 
 -- | Generates random 'ValueOpEx'.
 genValueOpEx :: Monad m => PropertyT m (ValueOpEx Int)

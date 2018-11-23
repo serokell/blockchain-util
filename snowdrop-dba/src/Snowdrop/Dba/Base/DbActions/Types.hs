@@ -33,7 +33,7 @@ import           Data.Vinyl.Recursive (rmap)
 import           Formatting (bprint, build, (%))
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, DbAccess (..), DbAccessM (..),
-                                DbAccessU (..), FoldF (..), HChangeSet, Undo)
+                                DbAccessU (..), FoldF (..), HChangeSet, Undo, ValueOp)
 import           Snowdrop.Hetero (HKey, HMap, HSet, HVal)
 import           Snowdrop.Util (HFunctor (..), NewestFirst, OldestFirst)
 
@@ -49,7 +49,7 @@ instance Buildable (DbApplyProofWrapper ()) where
 instance Buildable (DbApplyProofWrapper proof) => Buildable (DbApplyProofWrapper ((), proof)) where
     build (DbApplyProofWrapper (_, proof)) = Buildable.build $ DbApplyProofWrapper proof
 
-type DGetter' xs m = HSet xs -> m (HMap xs)
+type DGetter' xs m = HSet xs -> m (HMap ValueOp xs)
 type DGetter conf m = ChgAccum conf -> DGetter' (DbComponents conf) m
 
 type DModify' chgAccum xs m =
@@ -68,7 +68,7 @@ type DComputeUndo conf m =
     -> ChgAccum conf
     -> m (Either CSMappendException (Undo conf))
 
-newtype IterAction m t = IterAction {runIterAction :: forall b . b -> (b -> (HKey t, HVal t) -> b) -> m b }
+newtype IterAction m t = IterAction {runIterAction :: forall b . b -> (b -> (HKey t, ValueOp (HVal t)) -> b) -> m b }
 type DIter' xs m = Rec (IterAction m) xs
 type DIter conf m = ChgAccum conf -> m (DIter' (DbComponents conf) m)
 

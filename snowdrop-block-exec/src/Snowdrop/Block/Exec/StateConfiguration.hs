@@ -24,9 +24,9 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (
                                 HUpCastableChSet, HasBExceptions, MappendHChSet, ProofNExp (..),
                                 QueryERo, SomeTx, StatePException (..), StateTx (..), TxComponents,
                                 TxRaw (..), Undo, UnionSeqExpandersInps, UnitedTxType,
-                                UpCastableERoM, Validator, ValueOp (..), applySomeTx, computeUndo,
-                                convertEffect, getCAOrDefault, hChangeSetFromMap, liftERoComp,
-                                modifyAccum, modifyAccumOne, modifyAccumUndo, queryOne,
+                                UpCastableERoM, Validator, ValueOp (..), getVal, makeReplace, applySomeTx,
+                                computeUndo, convertEffect, getCAOrDefault, hChangeSetFromMap, liftERoComp,
+                                modifyAccum, modifyAccumOne, modifyAccumUndo, queryOneV,
                                 queryOneExists, runSeqExpandersSequentially, runValidator,
                                 upcastEffERoComp, upcastEffERoCompM)
 import           Snowdrop.Hetero (Both, RContains, SomeData, UnionTypes, hupcast)
@@ -118,16 +118,16 @@ inmemoryBlkStateConfiguration cfg validator exps = fix $ \this ->
      , bscRemoveBlund = \blockRef -> do
            let chg = hChangeSetFromMap @(BlundComponent blkType) $ M.singleton blockRef Rem
            applyBlkChg chg
-     , bscGetBlund = liftERoComp . queryOne @(BlundComponent blkType) @xs @conf
+     , bscGetBlund = liftERoComp . queryOneV @(BlundComponent blkType) @xs @conf vg
      , bscBlockExists = liftERoComp . queryOneExists @(BlundComponent blkType) @xs @conf
-     , bscGetTip = unTipValue <<$>> liftERoComp (queryOne @(TipComponent blkType) @xs @conf TipKey)
+     , bscGetTip = unTipValue <<$>> liftERoComp (queryOneV @(TipComponent blkType) @xs @conf vg TipKey)
      , bscSetTip = \newTip' -> do
            oldTip <- bscGetTip this
            let applyChg tipMod = applyBlkChg $ hChangeSetFromMap @(TipComponent blkType) $ M.singleton TipKey tipMod
            case (newTip', oldTip) of
              (Nothing, Nothing) -> pure ()
              (Just v, Nothing)  -> applyChg $ New (TipValue v)
-             (Just v, Just _)   -> applyChg $ Upd (TipValue v)
+             (Just v, Just _)   -> applyChg $ makeReplace (TipValue v)
              (Nothing, Just _)  -> applyChg Rem
     }
     where
@@ -135,3 +135,5 @@ inmemoryBlkStateConfiguration cfg validator exps = fix $ \this ->
       applyBlkChg chg =
           liftERoComp (modifyAccumOne @xs @conf $ hupcast @_ @'[t] @xs chg)
               >>= modify . flip sett
+      -- FIXME? Should we pull ValueOp further?
+      vg = M.map getVal

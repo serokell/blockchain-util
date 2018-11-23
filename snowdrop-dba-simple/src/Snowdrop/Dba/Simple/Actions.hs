@@ -31,8 +31,8 @@ type SimpleDbActionsConstr conf xs =
       , DbApplyProof conf ~ ()
       , ChgAccum conf ~ SumChangeSet xs
       , Undo conf ~ HChangeSet xs
-      , Semigroup (HMap xs)
-      , RecAll HMapEl xs IsEmpty
+      , Semigroup (HMap ValueOp xs)
+      , RecAll (HMapEl ValueOp) xs IsEmpty
       , RecAll HSetEl xs IsEmpty
       , HIntersectable xs xs
       , RMap xs
@@ -47,12 +47,12 @@ simpleDbActions'
       ( SimpleDbActionsConstr conf xs
       , RPureConstrained (HElemFlipped xs) xs
       )
-    => HMap xs
+    => HMap ValueOp xs
     -> STM (DbModifyActions conf STM)
 simpleDbActions' = flip simpleDbActions $
     rpureConstrained @(HElemFlipped xs) mkHMapLensEl
   where
-    mkHMapLensEl :: forall t . HElem t xs => HMapLensEl (HMap xs) t
+    mkHMapLensEl :: forall t . HElem t xs => HMapLensEl (HMap ValueOp xs) t
     mkHMapLensEl = HMapLensEl $ rlens @t . iso unHMapEl HMapEl
 
 simpleDbActions
@@ -78,12 +78,12 @@ simpleDbActions initSt lenses =
         rliftA2 @ExnHKey (Const ... applyChSetEl var) <<*>> lenses <<*>> css
 
 newtype HMapLensEl st t =
-    HMapLensEl { unHMapLensEl :: Lens' st (Map (HKey t) (HVal t)) }
+    HMapLensEl { unHMapLensEl :: Lens' st (Map (HKey t) (ValueOp (HVal t))) }
 
-iterAction :: STM (HMapEl t) -> IterAction STM t
+iterAction :: STM (HMapEl ValueOp t) -> IterAction STM t
 iterAction readHMap = IterAction $ \b foldF -> foldl' foldF b . M.toList . unHMapEl <$> readHMap
 
-queryFromMap :: OrdHKey t => HSetEl t -> HMapEl t -> HMapEl t
+queryFromMap :: OrdHKey t => HSetEl t -> HMapEl ValueOp t -> HMapEl ValueOp t
 queryFromMap (HSetEl s) (HMapEl mp) = HMapEl $ mp `M.intersection` (toDummyMap s)
 
 applyChSetEl
@@ -93,7 +93,7 @@ applyChSetEl
 applyChSetEl var (HMapLensEl ls) =
     mapM_ (\(k, v) -> performActionWithTVar var (ls . at k) (applyException k) v) . M.toList . unHChangeSetEl
 
-applyException :: (Show key, MonadThrow m) => key -> ValueOp v -> Maybe v -> m void
+applyException :: (Show key, MonadThrow m) => key -> ValueOp v -> Maybe (ValueOp v) -> m void
 applyException key vOp val =
     throwM $ DbApplyException $ "Error applying operation " <> vOpShow vOp <> " to value " <> valShown <> " (key: " <> show key <> ")"
   where
@@ -105,14 +105,14 @@ applyException key vOp val =
 
 performActionWithTVar
     :: TVar var
-    -> Lens' var (Maybe value)
-    -> (ValueOp value -> Maybe value -> STM ())
+    -> Lens' var (Maybe  (ValueOp value))
+    -> (ValueOp value -> Maybe (ValueOp value) -> STM ())
     -> ValueOp value
     -> STM ()
 performActionWithTVar tvar ln onEx valop = (valop,) . view ln <$> readTVar tvar >>= \case
     (Rem, Just _)         -> setVal Nothing
-    (New v, Nothing)      -> setVal (Just v)
-    (Upd v, Just _)       -> setVal (Just v)
+    (v@(New _), Nothing)  -> setVal (Just v)
+    (v@(Upd _), Just _)   -> setVal (Just v)
     (NotExisted, Nothing) -> pure ()
     (_, val)              -> onEx valop val
   where

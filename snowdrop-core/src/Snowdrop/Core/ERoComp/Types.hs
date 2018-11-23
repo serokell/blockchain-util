@@ -28,7 +28,7 @@ import           Data.Vinyl.Core (Rec)
 
 import           Snowdrop.Core.BaseM (BaseM)
 
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet)
+import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, ValueOp)
 import           Snowdrop.Hetero (HKey, HMap, HSet, HVal)
 import           Snowdrop.Util (NewestFirst, OldestFirst)
 
@@ -53,12 +53,12 @@ type family Ctx conf :: *
 -- Type variables @id@, @value@ describe types of key and value of key-value storage.
 -- Variable @res@ denotes result of 'DbAccess' execution.
 data DbAccess conf (components :: [*]) (res :: *)
-    = DbQuery (HSet components) (HMap components -> res)
+    = DbQuery (HSet components) (HMap ValueOp components -> res)
     -- ^ Request to state.
     -- The first field is request set of keys which are requested from state.
     -- The second one is a callback which accepts result of request: Map key value
     -- and returns a continuation (a next request to state).
-    | forall t . DbIterator (forall f . Rec f components -> f t) (FoldF (HKey t, HVal t) res)
+    | forall t . DbIterator (forall f . Rec f components -> f t) (FoldF (HKey t, ValueOp (HVal t)) res)
     -- ^ Iteration over state.
     -- The first field is prefix for iteration over keys with this prefix.
     -- The second one is used to accumulate entries during iteration.

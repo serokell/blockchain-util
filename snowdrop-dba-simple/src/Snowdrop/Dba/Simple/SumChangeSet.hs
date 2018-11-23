@@ -15,14 +15,13 @@ module Snowdrop.Dba.Simple.SumChangeSet
 
 import           Universum
 
-import           Control.Monad.Except (throwError)
 import qualified Data.Map.Strict as M
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, HChangeSetEl (..),
-                                MappendHChSet, SumChangeSet (..), Undo, ValueOp (..), csNew,
-                                diffChangeSet, hChangeSetToHMap, hChangeSetToHSet, modifySumChgSet)
+                                MappendHChSet, SumChangeSet (..), ValueUpd (..), Undo, ValueOp (..), getVal,
+                                csNew, diffChangeSet, hChangeSetToHMap, hChangeSetToHSet, modifySumChgSet)
 import           Snowdrop.Dba.Base (DGetter, DGetter', DIter', DbAccessActions (..), DbAccessActionsM (..),
                                     DbAccessActionsU (..), DbApplyProof, DbComponents, IterAction (..))
 import           Snowdrop.Hetero (ExnHKey, HIntersectable, HMap, HSet, HMapEl (..), HSetEl,
@@ -46,7 +45,7 @@ type instance DbComponents (SimpleConf' t xs) = xs
 type instance DbApplyProof (SimpleConf' t xs) = ()
 
 
-querySumChSet :: HIntersectable xs xs => SumChangeSet xs -> HSet xs -> (HSet xs, HMap xs)
+querySumChSet :: HIntersectable xs xs => SumChangeSet xs -> HSet xs -> (HSet xs, HMap ValueOp xs)
 querySumChSet (SumChangeSet accum) reqIds = (reqIds', resp)
   where
     resp    = hChangeSetToHMap accum `hintersect` reqIds
@@ -74,7 +73,7 @@ computeHChSetUndo getter sch chs = do
   where
     computeHChSetUndo'
       :: forall xs1 . MappendHChSet xs1
-      => HMap xs1
+      => HMap ValueOp xs1
       -> HChangeSet xs1
       -> Either CSMappendException (HChangeSet xs1)
     computeHChSetUndo' RNil RNil        = pure RNil
@@ -85,25 +84,43 @@ computeHChSetUndo getter sch chs = do
 
     computeUndo
         :: ExnHKey t
-        => HMapEl t
+        => HMapEl ValueOp t
         -> HChangeSetEl t
         -> Either CSMappendException (HChangeSetEl t)
-    computeUndo (HMapEl vals) (HChangeSetEl cs) = do
+    computeUndo (HMapEl vals) (HChangeSetEl cs) =
+        let processOne m (k, valueop) = case (valueop, k `M.lookup` vals') of
+              (New _, Nothing)      -> okinsert Rem
+              -- FIXME (Replace)?
+              (Upd _, Just v0)      -> okinsert (Upd (Replace v0))
+              (NotExisted, Nothing) -> okinsert NotExisted
+              (Rem, Just v0)        -> okinsert (New v0)
+              _                     -> Left (CSMappendException k)
+              where okinsert v = Right $ M.insert k v m
+       in HChangeSetEl <$> foldM processOne mempty (M.toList cs)
+      where
+        vals' = M.map getVal vals
+      {- Alternative impl
         let processOne m (k, valueop) = case (valueop, k `M.lookup` vals) of
-              (New _, Nothing)      -> pure $ M.insert k Rem m
-              (Upd _, Just v0)      -> pure $ M.insert k (Upd v0) m
-              (NotExisted, Nothing) -> pure $ M.insert k NotExisted m
-              (Rem, Just v0)        -> pure $ M.insert k (New v0) m
-              _                     -> throwError (CSMappendException k)
-        HChangeSetEl <$> foldM processOne mempty (M.toList cs)
+              (New _, Nothing)      -> okinsert Rem
+              -- (Upd _, Just v0)      -> pure $ M.insert k (Upd v0) m
+              -- FIXME! Put correct logic here
+              (Upd _, Just v0)      -> okinsert v0
+              (NotExisted, Nothing) -> okinsert NotExisted
+              -- (Rem, Just v0)        -> pure $ M.insert k (New v0) m
+              -- FIXME! Put correct logic here
+              (Rem, Just v0)        -> okinsert v0
+              _                     -> Left (CSMappendException k)
+              where okinsert v = Right $ M.insert k v m
+        in HChangeSetEl <$> foldM processOne mempty (M.toList cs)
+       -}
 
 sumChangeSetDaa
     :: forall conf m xs .
        ( Monad m
        , MappendHChSet xs
        , HIntersectable xs xs
-       , Semigroup (HMap xs)
-       , RecAll HMapEl xs IsEmpty
+       , Semigroup (HMap ValueOp xs)
+       , RecAll (HMapEl ValueOp) xs IsEmpty
        , RecAll HSetEl xs IsEmpty
        , ChgAccum conf ~ SumChangeSet xs
        , xs ~ DbComponents conf
@@ -119,7 +136,7 @@ sumChangeSetDaaM
        ( Applicative m
        , MappendHChSet xs
        , HIntersectable xs xs
-       , Semigroup (HMap xs)
+       , Semigroup (HMap ValueOp xs)
        , ChgAccum conf ~ SumChangeSet xs
        , xs ~ DbComponents conf
        )
@@ -142,7 +159,7 @@ sumChangeSetDaaU
        ( MonadThrow m
        , MappendHChSet xs
        , HIntersectable xs xs
-       , Semigroup (HMap xs)
+       , Semigroup (HMap ValueOp xs)
        , undo ~ Undo conf
        , undo ~ HChangeSet xs
        , xs ~ DbComponents conf
@@ -194,20 +211,20 @@ chgAccumIter (iter' :& xs) (SumChangeSet (csel' :& ys)) =
                     (_,   Just (i', v')) -> newFoldF (foldF b (i', v'), M.deleteMin newKeys) (i, val)
                     (Nothing,         _) -> (foldF b (i, val) ,newKeys)
                     (Just Rem,        _) -> (b, newKeys)
-                    (Just (Upd newV), _) -> (foldF b (i, newV), newKeys)
+                    (Just newV@(Upd _), _) -> (foldF b (i, newV), newKeys)
 
                     (Just NotExisted, _) -> (b, newKeys) -- TODO shall we throw error here ?
-                    (Just (New _),    _) -> (b, newKeys) -- TODO shall we throw error here?
-        (b, remainedNewKeys) <- runIterAction iter (initB, csNew ac') newFoldF
+                    (Just (New _),    _) -> (b, newKeys) -- TODO shall we throw error here ?
+        (b, remainedNewKeys) <- runIterAction iter (initB, M.map New $ csNew ac') newFoldF
         pure $ M.foldlWithKey' (curry . foldF) b remainedNewKeys
 
 chgAccumGetter
     ::
       ( Applicative m
       , HIntersectable xs xs
-      , Semigroup (HMap xs)
+      , Semigroup (HMap ValueOp xs)
       , RecAll HSetEl xs IsEmpty
-      , RecAll HMapEl xs IsEmpty
+      , RecAll (HMapEl ValueOp) xs IsEmpty
       )
     => DGetter' xs m
     -> SumChangeSet xs

@@ -21,6 +21,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Text.Buildable
 import           Data.Vinyl (Rec (..))
 
+import           Snowdrop.Core (ValueOp)
 import           Snowdrop.Block (BlockRef, Blund)
 import           Snowdrop.Dba.Base (DbModifyActions)
 import           Snowdrop.Dba.Simple (HMapLensEl (..), SimpleConf, simpleDbActions)
@@ -42,8 +43,8 @@ data TipValue blockRef = TipValue {unTipValue :: blockRef}
   deriving (Eq, Ord, Show, Generic)
 
 data BlockStorage blkType = BlockStorage
-    { _bsBlunds :: Map (BlockRef blkType) (Blund blkType)
-    , _bsTip    :: Maybe (TipValue (BlockRef blkType))
+    { _bsBlunds :: Map (BlockRef blkType) (ValueOp (Blund blkType))
+    , _bsTip    :: Maybe (ValueOp (TipValue (BlockRef blkType)))
     }
 
 makeLenses ''BlockStorage
@@ -53,7 +54,7 @@ bsTipMap
      , Buildable (BlockRef blkType)
      , Typeable (BlockRef blkType)
      )
-  => Lens' (BlockStorage blkType) (Map TipKey (TipValue (BlockRef blkType)))
+  => Lens' (BlockStorage blkType) (Map TipKey (ValueOp (TipValue (BlockRef blkType))))
 bsTipMap = bsTip . maybeToMapLens
   where
     maybeToMapLens = lens (maybe def $ M.singleton TipKey) $ const (M.lookup TipKey)

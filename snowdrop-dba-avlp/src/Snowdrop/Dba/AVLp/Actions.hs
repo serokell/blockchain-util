@@ -22,8 +22,8 @@ import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 
 import           Snowdrop.Core (ChgAccum, Undo)
-import           Snowdrop.Dba.AVLp.Accum (AVLChgAccum (..), AVLChgAccums, RootHashes, computeUndo,
-                                          iter, modAccum, modAccumU, query)
+import           Snowdrop.Dba.AVLp.Accum (AVLChgAccum (..), AVLChgAccums, AllAvlHashSerialisable,
+                                          RootHashes, computeUndo, iter, modAccum, modAccumU, query)
 import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
                                         AvlProofs, AvlUndo, IsAvlEntry, KVConstraint,
                                         RootHash (..), RootHashComp (..), avlRootHash,
@@ -45,6 +45,7 @@ avlClientDbActions
     , AvlHashable h
     , RetrieveImpl (ReaderT (ClientTempState h xs n) m) h
     , AllAvlEntries h xs
+    , AllAvlHashSerialisable h xs
 
     , Undo conf ~ AvlUndo h xs
     , ChgAccum conf ~ AVLChgAccums h xs
@@ -94,6 +95,7 @@ avlServerDbActions
     :: forall conf h m n xs .
     ( MonadIO m, MonadCatch m, AvlHashable h, MonadIO n
     , AllAvlEntries h xs
+    , AllAvlHashSerialisable h xs
 
     , AllWholeTree xs
     , Monoid (Rec AMSRequested xs)
@@ -176,7 +178,7 @@ avlServerDbActions = fmap mkActions . newTVarIO
             }
         writeTVar var newState $> s
 
-    saveAVLs :: AllAvlEntries h rs => AVLPureStorage h -> Rec (AVLChgAccum h) rs -> STM (RootHashes h rs, AVLCache h)
+    saveAVLs :: (AllAvlEntries h rs, AllAvlHashSerialisable h rs) => AVLPureStorage h -> Rec (AVLChgAccum h) rs -> STM (RootHashes h rs, AVLCache h)
     saveAVLs _ RNil = pure (RNil, def)
     saveAVLs storage (AVLChgAccum accAvl acc _ :& accums) = do
         (h, acc') <- runAVLCacheT (saveAVL accAvl) acc storage

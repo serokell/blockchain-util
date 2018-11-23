@@ -14,6 +14,9 @@ module Snowdrop.Core.ERoComp.Helpers
        , iterator
        , queryOne
        , queryOneExists
+       , ValGetter
+       , queryV
+       , queryOneV
 
        , ChgAccumCtx (..)
        , StatePException (..)
@@ -47,7 +50,7 @@ import qualified Data.Text.Buildable
 import           Data.Vinyl.Lens (rget)
 
 import           Snowdrop.Core.BaseM (BaseM (..), Effectful (..), effect, hoistEffectful)
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HUpCastableChSet)
+import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HUpCastableChSet, ValueOp, ValGetter)
 
 import           Snowdrop.Core.ERoComp.Types (BException, ChgAccum, Ctx, DbAccess (..),
                                               DbAccessM (..), DbAccessU (..), ERoComp, ERoCompM,
@@ -73,7 +76,7 @@ instance (HUpCastableSet '[t] xs, HIntersectable xs '[t]) => QueryERo xs t
 -- | Creates a DbQuery operation.
 query
     :: forall t xs conf . QueryERo xs t
-    => Set (HKey t) -> ERoComp conf xs (Map (HKey t) (HVal t))
+    => Set (HKey t) -> ERoComp conf xs (Map (HKey t) (ValueOp (HVal t)))
 query req = do
     let hreq :: HSet '[t]
         hreq = hsetFromSet req
@@ -82,11 +85,23 @@ query req = do
             (hupcast @_ @_ @xs hreq)
             (hmapToMap . flip (hintersect @xs @'[t]) hreq)
 
+-- | Creates a DbQuery operation.
+queryV
+    :: forall t xs conf . QueryERo xs t
+    => ValGetter t -> Set (HKey t) -> ERoComp conf xs (Map (HKey t) (HVal t))
+queryV vg req = do
+    let hreq :: HSet '[t]
+        hreq = hsetFromSet req
+    effect @(DbAccess conf xs) $
+        DbQuery
+            (hupcast @_ @_ @xs hreq)
+            (vg . hmapToMap . flip (hintersect @xs @'[t]) hreq)
+
 -- | Creates a DbIterator operation.
 iterator
     :: forall t b xs conf. (HElem t xs)
     => b
-    -> (b -> (HKey t, HVal t) -> b)
+    -> (b -> (HKey t, ValueOp (HVal t)) -> b)
     -> ERoComp conf xs b
 iterator e foldf = effect $ DbIterator @conf @xs @b @t rget (FoldF (e, foldf, id))
 
@@ -124,8 +139,14 @@ modifyAccumOne cs =
 
 queryOne
     :: forall t xs conf . (QueryERo xs t, Ord (HKey t))
-    => HKey t -> ERoComp conf xs (Maybe (HVal t))
+    => HKey t -> ERoComp conf xs (Maybe (ValueOp (HVal t)))
 queryOne k = M.lookup k <$> query @t @_ @conf (S.singleton k)
+
+queryOneV
+    :: forall t xs conf . (QueryERo xs t, Ord (HKey t))
+    => ValGetter t -> HKey t -> ERoComp conf xs (Maybe (HVal t))
+queryOneV vg k = M.lookup k <$>  queryV @t @_ @conf vg (S.singleton k)
+
 
 -- | Check key exists in state.
 queryOneExists
