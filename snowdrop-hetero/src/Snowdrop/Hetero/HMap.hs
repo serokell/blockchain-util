@@ -12,8 +12,8 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Text.Buildable
 import           Data.Vinyl (Rec (..), rappend, rcast)
-import           Data.Vinyl.Lens (RElem, RSubset)
-import           Data.Vinyl.TypeLevel (type (++), AllConstrained, Fst, RImage, RIndex, Snd)
+import           Data.Vinyl.Lens (type (∈), type (<:))
+import           Data.Vinyl.TypeLevel (type (++), AllConstrained, Fst, Snd)
 import           Formatting (bprint, build, (%))
 import           Snowdrop.Util (IsEmpty (..), toDummyMap)
 import           Snowdrop.Hetero.Constraints (NotIntersect, RemoveElem, UnionTypes)
@@ -108,7 +108,7 @@ instance (Buildable (f x), Buildable (Rec f xs')) => Buildable (Rec f (x ': xs')
 -- from @Just@ with corresponding element and rest of the list.
 -- Otherwise it returns @Nothing@ and unchanged list.
 class HRemoveElem (t :: k) (xs :: [k]) where
-    hremoveElem :: Rec f xs -> (Maybe (f t), Rec f (RemoveElem t xs))
+    hremoveElem :: Rec f xs -> (Maybe (f t), Rec f (RemoveElem  t xs))
 
 instance HRemoveElem t '[] where
     hremoveElem _ = (Nothing, RNil)
@@ -134,7 +134,7 @@ instance HUpCastable f '[] '[] where
     hupcast RNil = RNil
 
 instance ( Default (f t)
-         , HUpCastable f (RemoveElem t xs) res'
+         , HUpCastable f (RemoveElem  t xs) res'
          , HRemoveElem t xs
          )
          => HUpCastable f xs (t ': res') where
@@ -169,15 +169,13 @@ castStrip = impl def
 
 
 -- @xs@ must be superset of @res@, i.e. xs ⊇ res
-type HDownCastable xs res = RSubset res xs (RImage res xs)
+type HDownCastable xs res = res <: xs
 
 hdowncast :: HDownCastable xs res => Rec f xs -> Rec f res
 hdowncast = rcast
 
-type HElem r rs = RElem r rs (RIndex r rs)
-
-class HElem x xs => HElemFlipped xs x
-instance HElem x xs => HElemFlipped xs x
+class x ∈ xs => xs ∋ x
+instance x ∈ xs => xs ∋ x
 
 
 ------------------------

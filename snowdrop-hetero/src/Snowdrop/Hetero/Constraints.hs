@@ -27,11 +27,6 @@ instance (Hashable (Rec f xs), Hashable (f x)) => Hashable (Rec f (x ': xs)) whe
     hashWithSalt i (f :& fs) = hashWithSalt (hashWithSalt i f) fs
 
 -- Aux type level fuctions and constraints
-
--- | Project the first component of a type-level tuple.
-type family Fst a where Fst '(x,y) = x
--- | Project the second component of a type-level tuple.
-type family Snd a where Snd '(x,y) = y
 type family Snd' f a where Snd' f '(x,y) = f y
 type family Head xs where Head (x ': xs') = x
 
@@ -162,4 +157,3 @@ rliftA
   => (forall t . c t => f t -> g t)
   -> Rec (Lift (->) f g) ts
 rliftA f = rpureConstrained @c (Lift f)
-

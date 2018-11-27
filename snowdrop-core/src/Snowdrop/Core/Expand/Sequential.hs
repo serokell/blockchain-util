@@ -18,6 +18,7 @@ import           Universum
 
 import           Data.Default (Default (def))
 import           Data.Vinyl (Rec (..), rget)
+import           Data.Vinyl.Lens (type (∈))
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HChangeSetEl,
@@ -30,7 +31,7 @@ import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, Exp
                                             ExpRestriction (..), PreExpander (..), ProofNExp (..),
                                             SeqExpander, SeqExpanderComponents)
 import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw)
-import           Snowdrop.Hetero (Both, HCastable, HElem, UnionTypes, SomeData (..),
+import           Snowdrop.Hetero (Both, HCastable, UnionTypes, SomeData (..),
                                   applySomeData, castStrip, hupcast)
 import           Snowdrop.Util (HasLens (..), throwLocalError)
 
@@ -165,7 +166,7 @@ class (
       , Default (SumChangeSet (TxComponents txtype))
       , MappendHChSet (TxComponents txtype)
       , RestrictTx (UnionSeqExpandersInps txtypes) txtype
-      , HElem txtype txtypes
+      , txtype ∈ txtypes
       )
       => ExpandableTx (txtypes :: [*]) (txtype :: *)
 instance (
@@ -173,7 +174,7 @@ instance (
         , Default (SumChangeSet (TxComponents txtype))
         , MappendHChSet (TxComponents txtype)
         , RestrictTx (UnionSeqExpandersInps txtypes) txtype
-        , HElem txtype txtypes
+        , txtype ∈ txtypes
         )
         => ExpandableTx (txtypes :: [*]) (txtype :: *)
 

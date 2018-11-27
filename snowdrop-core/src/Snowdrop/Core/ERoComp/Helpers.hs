@@ -44,7 +44,7 @@ import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text.Buildable
-import           Data.Vinyl.Lens (rget)
+import           Data.Vinyl.Lens (type (∈), rget)
 
 import           Snowdrop.Core.BaseM (BaseM (..), Effectful (..), effect, hoistEffectful)
 import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HUpCastableChSet)
@@ -52,7 +52,7 @@ import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, H
 import           Snowdrop.Core.ERoComp.Types (BException, ChgAccum, Ctx, DbAccess (..),
                                               DbAccessM (..), DbAccessU (..), ERoComp, ERoCompM,
                                               ERoCompU, FoldF (..), Undo)
-import           Snowdrop.Hetero (HIntersectable, HElem, HKey, HSet, HVal,
+import           Snowdrop.Hetero (HIntersectable, HKey, HSet, HVal,
                                   HUpCastableSet, hintersect, hdowncast, hmapToMap,
                                   hsetFromSet, hupcast)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), HasReviews,
@@ -84,7 +84,7 @@ query req = do
 
 -- | Creates a DbIterator operation.
 iterator
-    :: forall t b xs conf. (HElem t xs)
+    :: forall t b xs conf. (t ∈ xs)
     => b
     -> (b -> (HKey t, HVal t) -> b)
     -> ERoComp conf xs b
