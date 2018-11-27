@@ -26,8 +26,8 @@ import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, H
                                           HUpCastableChSet, MappendHChSet, SumChangeSet (..),
                                           SumChangeSet (..), mappendChangeSet)
 import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), Ctx, ERoCompM, HasBException,
-                                        UpCastableERoM, convertEffect, modifyAccum,
-                                        upcastEffERoCompM, withModifiedAccumCtxOne)
+                                        UpCastableERoM, convertEffect, modifyAccumOne,
+                                        upcastEffERoCompM, withAccum)
 import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, ExpOutComps,
                                             ExpRestriction (..), PreExpander (..), ProofNExp (..),
                                             SeqExpander, SeqExpanderComponents)
@@ -77,19 +77,13 @@ runSeqExpandersSequentially
     -> [SomeData TxRaw (Both (ExpandableTx txtypes) c)]
     -> ERoCompM conf (UnionSeqExpandersInps txtypes) (OldestFirst [] (SomeTx c, ChgAccum conf))
 runSeqExpandersSequentially proofNExps allTxs =  do
-      (someTxs, _) <- foldM runExps ([], def) allTxs
-      let (fch, hch) = unzip someTxs
-      modAccums :: OldestFirst [] (ChgAccum conf) <- modifyAccum (OldestFirst hch)
-      pure $ OldestFirst (zip fch (unOldestFirst modAccums))
-
+    OldestFirst <$> handleTxs allTxs
   where
-    runExps
-        :: ([(SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))], HChangeSet (UnionSeqExpandersInps txtypes))
-        -> SomeData TxRaw (Both (ExpandableTx txtypes) c)
-        -> ERoCompM conf (UnionSeqExpandersInps txtypes) ([(SomeTx c, HChangeSet (UnionSeqExpandersInps txtypes))], HChangeSet (UnionSeqExpandersInps txtypes))
-    runExps (res, currentHcs) rtx = do
-        (someTxAndChs, nextHcs) <- withModifiedAccumCtxOne currentHcs (applySomeData (fmap (second castStrip) . constructStateTx) rtx)
-        pure (((someTxAndChs, nextHcs): res), nextHcs)
+    handleTxs [] = pure []
+    handleTxs (rawTx : restTxs) = do
+        (tx, cs) <- applySomeData (fmap (second castStrip) . constructStateTx) rawTx
+        acc' <- modifyAccumOne cs
+        (:) (tx, acc') <$> withAccum @conf acc' (handleTxs restTxs)
 
     constructStateTx
         :: forall txtype . (ExpandableTx txtypes txtype, c txtype)

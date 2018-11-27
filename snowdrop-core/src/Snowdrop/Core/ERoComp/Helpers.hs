@@ -25,7 +25,6 @@ module Snowdrop.Core.ERoComp.Helpers
 
        , initAccumCtx
        , getCAOrDefault
-       , withModifiedAccumCtxOne
        , withAccum
 
        , UpCastableERo
@@ -157,18 +156,6 @@ data ChgAccumCtx conf = CANotInitialized | CAInitialized (ChgAccum conf)
 getCAOrDefault :: Default (ChgAccum conf) => ChgAccumCtx conf -> ChgAccum conf
 getCAOrDefault CANotInitialized   = def
 getCAOrDefault (CAInitialized cA) = cA
-
--- | Runs computation with modified Change Accumulator from @ctx@.
--- Passed ChangeSet will be appended to the accumulator as a modification.
-withModifiedAccumCtxOne
-  :: forall xs conf a .
-    (HasBException conf CSMappendException, HasLens (Ctx conf) (ChgAccumCtx conf), Default (ChgAccum conf))
-  => HChangeSet xs
-  -> ERoCompM conf xs a
-  -> ERoCompM conf xs a
-withModifiedAccumCtxOne chgSet comp = do
-    acc' <- modifyAccumOne chgSet
-    withAccum @conf acc' comp
 
 withAccum
   :: forall conf ctx m a .
