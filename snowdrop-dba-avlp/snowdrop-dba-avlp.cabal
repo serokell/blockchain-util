@@ -66,3 +66,4 @@ library
                       TypeFamilies
                       GADTs
                       TupleSections
+                      DataKinds

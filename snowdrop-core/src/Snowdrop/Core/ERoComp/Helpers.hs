@@ -67,7 +67,7 @@ type HasBExceptions conf xs = HasReviews (BException conf) xs
 --- Primitive operations inside ERoComp
 ----------------------------------------------------
 
-class (HUpCastableSet '[t] xs, HIntersectable xs '[t] ) => QueryERo xs t
+class (HUpCastableSet '[t] xs, HIntersectable xs '[t]) => QueryERo xs t
 instance (HUpCastableSet '[t] xs, HIntersectable xs '[t]) => QueryERo xs t
 
 -- | Creates a DbQuery operation.

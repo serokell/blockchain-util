@@ -29,7 +29,6 @@ import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
-import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, HChangeSetEl,
                                 ValueOp (..), Undo, hChangeSetElToList)
@@ -102,7 +101,7 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
     Nothing  -> modAccumAll (resolveAvlCA ctx acc') cs'
   where
     modAccumAll
-        :: AllConstrained (IsAvlEntry h) rs
+        :: AllAvlEntries h rs
         => Rec (AVLChgAccum h) rs
         -> OldestFirst [] (HChangeSet rs)
         -> m (Either CSMappendException (OldestFirst [] (Rec (AVLChgAccum h) rs)))
@@ -113,7 +112,7 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
         foldHandler (curAcc, resAccs) hcs = (\acc -> (acc, acc : resAccs)) <$> modAccumOne curAcc hcs
 
     modAccumOne
-        :: AllConstrained (IsAvlEntry h) rs
+        :: AllAvlEntries h rs
         => Rec (AVLChgAccum h) rs
         -> HChangeSet rs
         -> m (Rec (AVLChgAccum h) rs)
@@ -195,12 +194,12 @@ query
    => ctx -> AVLChgAccums h xs -> DGetter' xs m
 query ctx (Just ca) hset = queryAll ca hset
   where
-    queryAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
+    queryAll :: forall rs . AllAvlEntries h rs => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
     queryAll RNil RNil                       = pure RNil
     queryAll accums'@(_ :& _) reqs'@(_ :& _) = query' accums' reqs'
 
     query'
-        :: forall r rs rs' . (rs ~ (r ': rs'), AllConstrained (IsAvlEntry h) rs)
+        :: forall r rs rs' . (rs ~ (r ': rs'), AllAvlEntries h rs)
         => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
     query' (AVLChgAccum initAvl initAcc _ :& accums) (HSetEl req :& reqs) = reThrowAVLEx @(HKey r) @h $ do
         let queryDo = fst <$> foldM queryDoOne (mempty, initAvl) req
@@ -225,7 +224,7 @@ iter
     -> m (DIter' xs m)
 iter ctx (Just ca) = pure $ iterAll ca
   where
-    iterAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> DIter' rs m
+    iterAll :: forall rs . AllAvlEntries h rs => Rec (AVLChgAccum h) rs -> DIter' rs m
     iterAll RNil = RNil
     iterAll (AVLChgAccum initAvl initAcc _ :& accums) =
         IterAction

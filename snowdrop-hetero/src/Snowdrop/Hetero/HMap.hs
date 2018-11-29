@@ -11,8 +11,8 @@ import           Data.Kind
 import qualified Data.Map as M
 import qualified Data.Set as S
 import qualified Data.Text.Buildable
-import           Data.Vinyl (Rec (..), rappend, rcast)
-import           Data.Vinyl.Lens (type (∈), type (<:))
+import           Data.Vinyl (Rec (..), type (∈), rappend, rcast)
+import           Data.Vinyl.Lens (type (<:))
 import           Data.Vinyl.TypeLevel (type (++), AllConstrained, Fst, Snd)
 import           Formatting (bprint, build, (%))
 import           Snowdrop.Util (IsEmpty (..), toDummyMap)
@@ -175,8 +175,7 @@ hdowncast :: HDownCastable xs res => Rec f xs -> Rec f res
 hdowncast = rcast
 
 class x ∈ xs => xs ∋ x
-instance x ∈ xs => xs ∋ x
-
+-- instance x ∈ xs => xs ∋ x
 
 ------------------------
 -- Intersection && Difference && Mappend
