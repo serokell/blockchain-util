@@ -21,7 +21,7 @@ import           Snowdrop.Block.Exec.Storage (BlundComponent, TipComponent, TipK
                                               TipValue (..))
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
                                 ERoComp, ERwComp, ExpandRawTxsMode, ExpandableTx, HChangeSet,
-                                HUpCastableChSet, HasBExceptions, MappendHChSet, ProofNExp (..),
+                                HUpCastableChSet, HasBExceptions, ProofNExp (..),
                                 QueryERo, SomeTx, StatePException (..), StateTx (..), TxComponents,
                                 TxRaw (..), Undo, UnionSeqExpandersInps, UnitedTxType,
                                 UpCastableERoM, Validator, ValueOp (..), applySomeTx, computeUndo,
@@ -29,7 +29,7 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (
                                 modifyAccum, modifyAccumOne, modifyAccumUndo, queryOne,
                                 queryOneExists, runSeqExpandersSequentially, runValidator,
                                 upcastEffERoComp, upcastEffERoCompM)
-import           Snowdrop.Hetero (Both, RContains, SomeData, UnionTypes, hupcast)
+import           Snowdrop.Hetero (Both, ExnHKeyConstr, RContains, SomeData, UnionTypes, hupcast)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), OldestFirst (..))
 
 instance Hashable bRef => Hashable (TipValue bRef)
@@ -82,7 +82,7 @@ inmemoryBlkStateConfiguration
     , HasGetter (BlockRawTx blkType) (SomeData TxRaw (Both (ExpandableTx txtypes) c))
     , Default (ChgAccum conf)
     , ExpandRawTxsMode conf txtypes
-    , MappendHChSet xs
+    , ExnHKeyConstr xs
     , QueryERo xs (TipComponent blkType)
     , QueryERo xs (BlundComponent blkType)
     , HUpCastableChSet '[TipComponent blkType] xs

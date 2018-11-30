@@ -24,7 +24,7 @@ import           Data.Vinyl (Rec (..))
 import           Snowdrop.Block (BlockRef, Blund)
 import           Snowdrop.Dba.Base (DbModifyActions)
 import           Snowdrop.Dba.Simple (HMapLensEl (..), SimpleConf, simpleDbActions)
-import           Snowdrop.Hetero (HKeyVal)
+import           Snowdrop.Hetero (ExnHKeyConstr, HKeyVal)
 
 data TipComponent blkType
 data BlundComponent blkType
@@ -49,10 +49,7 @@ data BlockStorage blkType = BlockStorage
 makeLenses ''BlockStorage
 
 bsTipMap
-  :: ( Show (BlockRef blkType)
-     , Buildable (BlockRef blkType)
-     , Typeable (BlockRef blkType)
-     )
+  :: ExnHKeyConstr '[BlockRef blkType]
   => Lens' (BlockStorage blkType) (Map TipKey (TipValue (BlockRef blkType)))
 bsTipMap = bsTip . maybeToMapLens
   where
@@ -60,11 +57,11 @@ bsTipMap = bsTip . maybeToMapLens
 
 simpleBlockDbActions
   :: forall blkType .
-    ( Ord (BlockRef blkType)
-    , Show (BlockRef blkType)
-    , Buildable (BlockRef blkType)
-    , Typeable (BlockRef blkType)
-    )
+  ( ExnHKeyConstr '[ BlockRef blkType
+                   , TipComponent blkType
+                   , BlundComponent blkType
+                   ]
+  )
   => STM (DbModifyActions (SimpleConf '[TipComponent blkType, BlundComponent blkType]) STM)
 simpleBlockDbActions =
     simpleDbActions (BlockStorage def def)

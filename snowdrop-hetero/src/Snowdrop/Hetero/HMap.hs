@@ -32,7 +32,10 @@ class Ord (HKey t) => OrdHKey t
 instance Ord (HKey t) => OrdHKey t
 
 class (AllAllSat '[Ord, Show, Buildable, Typeable] '[HKey t]) => ExnHKey t
-instance (AllAllSat '[Ord, Show, Buildable, Typeable] '[HKey t]) => ExnHKey t
+
+type ExnHKeyConstr xs = AllAllSat '[Ord, Show, Buildable, Typeable, ExnHKey] xs
+
+-- instance (AllSatisfied '[Ord, Show, Buildable, Typeable] (HKey t)) => ExnHKey t -}
 
 -- HMap
 newtype HMapEl (t :: u) = HMapEl {unHMapEl :: Map (HKey t) (HVal t)}

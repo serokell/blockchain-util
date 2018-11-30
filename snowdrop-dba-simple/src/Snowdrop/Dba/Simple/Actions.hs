@@ -16,14 +16,14 @@ import qualified Data.Map as M
 import           Data.Vinyl (RApply (..), RMap (..), RPureConstrained (..), Rec (..), rlens,
                              rtraverse, (<<*>>))
 import           Data.Vinyl.Lens (type (∈))
-import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
+import           Data.Vinyl.TypeLevel (RecAll)
 
 import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), SumChangeSet (..),
                                 Undo, ValueOp (..))
 import           Snowdrop.Dba.Simple.SumChangeSet (sumChangeSetDaa, sumChangeSetDaaU)
 import           Snowdrop.Dba.Base (DbActionsException (..), DbApplyProof,
                                     DbComponents, DbModifyActions (..), IterAction (..))
-import           Snowdrop.Hetero (ExnHKey, HElemFlipped, HIntersectable, HKey, HMap, HMapEl (..),
+import           Snowdrop.Hetero (ExnHKey, ExnHKeyConstr, HElemFlipped, HIntersectable, HKey, HMap, HMapEl (..),
                                   HSetEl (..), HVal, OrdHKey, rliftA2)
 import           Snowdrop.Util (IsEmpty (..), toDummyMap)
 
@@ -40,7 +40,7 @@ type SimpleDbActionsConstr conf xs =
       , RPureConstrained OrdHKey xs
       , RPureConstrained ExnHKey xs
       , RApply xs
-      , AllConstrained ExnHKey xs
+      , ExnHKeyConstr xs
       )
 
 simpleDbActions'

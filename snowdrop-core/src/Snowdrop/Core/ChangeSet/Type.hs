@@ -10,7 +10,6 @@ module Snowdrop.Core.ChangeSet.Type
        , hChangeSetFromMap
        , HUpCastableChSet
 
-       , MappendHChSet
        , mappendChangeSet
        , mconcatChangeSets
        , hChangeSetElToList
@@ -31,14 +30,13 @@ import qualified Data.Text.Buildable as Buildable
 import           Data.Typeable (cast)
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
-import           Data.Vinyl.TypeLevel (AllConstrained)
 import           Formatting (bprint, shown, (%))
 
 import qualified Data.Map.Strict as M
 
 import           Snowdrop.Core.ChangeSet.ValueOp (ValueOp (..), ValueOpEx (..), (<->))
-import           Snowdrop.Hetero (ExnHKey, DifferenceF (..), HKey, HMap, HMapEl (..),
-                                  HSetEl (..), HSet, HVal, HUpCastable (..),
+import           Snowdrop.Hetero (ExnHKey, ExnHKeyConstr, DifferenceF (..), HKey, HMap,
+                                  HMapEl (..), HSetEl (..), HSet, HVal, HUpCastable (..),
                                   IntersectionF (..))
 import           Snowdrop.Util (toDummyMap)
 
@@ -127,8 +125,6 @@ instance Buildable CSMappendException where
     build (CSMappendException i) =
         bprint ("Failed to mappend ChangeSets due to conflict for key "%shown) i
 
-type MappendHChSet xs = AllConstrained ExnHKey xs
-
 -- | Combine @ValueOp@s corresponding the same keys.
 -- @CSMappendException@ will be returned if after an aplication of
 -- the first ChangeSet to a state it won't be possible to apply the second ChangeSet
@@ -136,7 +132,7 @@ type MappendHChSet xs = AllConstrained ExnHKey xs
 -- Don't apply any changes to state itself.
 -- This implementation works for O(min(N, M) * log(max(N, M)))
 mappendChangeSet
-    :: MappendHChSet xs
+    :: ExnHKeyConstr xs
     => HChangeSet xs
     -> HChangeSet xs
     -> Either CSMappendException (HChangeSet xs)
@@ -170,14 +166,14 @@ mappendChangeSetEl (HChangeSetEl m1) (HChangeSetEl m2) = if leftAppRight
 
 -- | Like @mconcatChangeSet@ but for list of ChangeSet.
 mconcatChangeSets
-  :: (MappendHChSet xs, Default (HChangeSet xs))
+  :: (ExnHKeyConstr xs, Default (HChangeSet xs))
     => [HChangeSet xs] -> Either CSMappendException (HChangeSet xs)
 mconcatChangeSets = foldM mappendChangeSet def
 
 -- | Calculates diff of two changesets, namely
 -- @c `diffChangeSet` a = Right b@ iff @a `mappendChangeSet` b = Right c@
 diffChangeSet
-    :: MappendHChSet xs
+    :: ExnHKeyConstr xs
     => HChangeSet xs
     -> HChangeSet xs
     -> Either CSMappendException (HChangeSet xs)

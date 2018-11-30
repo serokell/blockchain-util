@@ -21,11 +21,11 @@ import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, HChangeSetEl (..),
-                                MappendHChSet, SumChangeSet (..), Undo, ValueOp (..), csNew,
+                                SumChangeSet (..), Undo, ValueOp (..), csNew,
                                 diffChangeSet, hChangeSetToHMap, hChangeSetToHSet, modifySumChgSet)
 import           Snowdrop.Dba.Base (DGetter, DGetter', DIter', DbAccessActions (..), DbAccessActionsM (..),
                                     DbAccessActionsU (..), DbApplyProof, DbComponents, IterAction (..))
-import           Snowdrop.Hetero (ExnHKey, HIntersectable, HMap, HSet, HMapEl (..), HSetEl,
+import           Snowdrop.Hetero (ExnHKey, ExnHKeyConstr, HIntersectable, HMap, HSet, HMapEl (..), HSetEl,
                                   OrdHKey, hdifference, hintersect, rAllEmpty)
 import           Snowdrop.Util (IsEmpty (..), NewestFirst (..), OldestFirst (..))
 
@@ -60,7 +60,7 @@ querySumChSet (SumChangeSet accum) reqIds = (reqIds', resp)
 computeHChSetUndo
   :: forall conf m xs.
      ( Monad m
-     , MappendHChSet xs
+     , ExnHKeyConstr xs
      , ChgAccum conf ~ SumChangeSet xs
      , xs ~ DbComponents conf
      )
@@ -73,7 +73,7 @@ computeHChSetUndo getter sch chs = do
     pure $ computeHChSetUndo' vals chs
   where
     computeHChSetUndo'
-      :: forall xs1 . MappendHChSet xs1
+      :: forall xs1 . ExnHKeyConstr xs1
       => HMap xs1
       -> HChangeSet xs1
       -> Either CSMappendException (HChangeSet xs1)
@@ -100,7 +100,7 @@ computeHChSetUndo getter sch chs = do
 sumChangeSetDaa
     :: forall conf m xs .
        ( Monad m
-       , MappendHChSet xs
+       , ExnHKeyConstr xs
        , HIntersectable xs xs
        , Semigroup (HMap xs)
        , RecAll HMapEl xs IsEmpty
@@ -117,7 +117,7 @@ sumChangeSetDaa getterImpl iterImpl =
 sumChangeSetDaaM
     :: forall conf m xs .
        ( Applicative m
-       , MappendHChSet xs
+       , ExnHKeyConstr xs
        , HIntersectable xs xs
        , Semigroup (HMap xs)
        , ChgAccum conf ~ SumChangeSet xs
@@ -140,7 +140,7 @@ sumChangeSetDaaM daa = DbAccessActionsM daa (pure ... modifyAccum)
 sumChangeSetDaaU
     :: forall conf m undo xs .
        ( MonadThrow m
-       , MappendHChSet xs
+       , ExnHKeyConstr xs
        , HIntersectable xs xs
        , Semigroup (HMap xs)
        , undo ~ Undo conf

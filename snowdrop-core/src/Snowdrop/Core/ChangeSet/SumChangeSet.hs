@@ -8,11 +8,9 @@ module Snowdrop.Core.ChangeSet.SumChangeSet
 import           Universum
 
 import           Data.Default (Default (def))
-import           Data.Vinyl.TypeLevel (AllConstrained)
 
-import           Snowdrop.Core.ChangeSet.Type (HChangeSet, CSMappendException, MappendHChSet,
-                                               mappendChangeSet)
-import           Snowdrop.Hetero (ExnHKey)                                               
+import           Snowdrop.Core.ChangeSet.Type (HChangeSet, CSMappendException, mappendChangeSet)
+import           Snowdrop.Hetero (ExnHKeyConstr)
 import           Snowdrop.Util (HasReview (..))
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
@@ -24,7 +22,7 @@ instance Default (HChangeSet xs) => Default (SumChangeSet xs) where
     def = SumChangeSet def
 
 modifySumChgSet
-    :: AllConstrained ExnHKey xs
+    :: ExnHKeyConstr xs
     => SumChangeSet xs
     -> HChangeSet xs
     -> Either CSMappendException (SumChangeSet xs)
@@ -35,7 +33,7 @@ mappendStOrThrow
     ( Monad m
     , MonadState (SumChangeSet xs) m
     , HasReview e CSMappendException
-    , MappendHChSet xs
+    , ExnHKeyConstr xs
     )
     => HChangeSet xs
     -> m (Either e ())

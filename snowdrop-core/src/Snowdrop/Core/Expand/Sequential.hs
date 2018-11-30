@@ -22,7 +22,7 @@ import           Data.Vinyl.Lens (type (∈))
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HChangeSetEl,
-                                          HUpCastableChSet, MappendHChSet, SumChangeSet (..),
+                                          HUpCastableChSet, SumChangeSet (..),
                                           mappendChangeSet, mappendStOrThrow)
 import           Snowdrop.Core.ERoComp (BException, ChgAccum, ChgAccumCtx (..), Ctx, ERoCompM,
                                         HasBException, UpCastableERoM, convertEffect,
@@ -31,14 +31,14 @@ import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, Exp
                                             ExpRestriction (..), PreExpander (..), ProofNExp (..),
                                             SeqExpander, SeqExpanderComponents)
 import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw)
-import           Snowdrop.Hetero (Both, HCastable, UnionTypes, SomeData (..),
+import           Snowdrop.Hetero (Both, ExnHKeyConstr, HCastable, UnionTypes, SomeData (..),
                                   applySomeData, castStrip, hupcast)
 import           Snowdrop.Util (HasLens (..), throwLocalError)
 
 type ExpandRawTxsMode conf txtypes =
     ( HasBException conf CSMappendException
     , HasLens (Ctx conf) (ChgAccumCtx conf)
-    , MappendHChSet (UnionSeqExpandersInps txtypes)
+    , ExnHKeyConstr (UnionSeqExpandersInps txtypes)
 
     , Default (ChgAccum conf)
     , Default (SumChangeSet (UnionSeqExpandersInps txtypes))
@@ -46,7 +46,7 @@ type ExpandRawTxsMode conf txtypes =
 
 type ExpandOneTxMode txtype =
     ( Default (SumChangeSet (TxComponents txtype))
-    , MappendHChSet (TxComponents txtype)
+    , ExnHKeyConstr (TxComponents txtype)
     , RestrictTx (TxComponents txtype) txtype
     )
 
@@ -68,7 +68,7 @@ runSeqExpandersSequentially
     :: forall txtypes (c :: * -> Constraint) conf .
     ( HasBException conf CSMappendException
     , HasLens (Ctx conf) (ChgAccumCtx conf)
-    , MappendHChSet (UnionSeqExpandersInps txtypes)
+    , ExnHKeyConstr (UnionSeqExpandersInps txtypes)
 
     , Default (ChgAccum conf)
     , Default (SumChangeSet (UnionSeqExpandersInps txtypes))
@@ -104,7 +104,7 @@ runSeqExpanderForTx
     :: forall txtype components conf .
     ( HasBException conf CSMappendException
     , Default (SumChangeSet (TxComponents txtype))
-    , MappendHChSet (TxComponents txtype)
+    , ExnHKeyConstr (TxComponents txtype)
     , RestrictTx components txtype
     )
     => TxRaw txtype
@@ -115,7 +115,7 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
     runSeqExpanderForTxAll
         :: forall (rs :: [ExpRestriction [*] [*]]) .
            ( AllConstrained (RestrictIo components txtype) rs
-           , MappendHChSet (TxComponents txtype)
+           , ExnHKeyConstr (TxComponents txtype)
            )
         => Rec (PreExpander conf (TxRaw txtype)) rs
         -> ERoCompM conf components (SumChangeSet (TxComponents txtype))
@@ -126,7 +126,7 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
         :: forall (rs :: [ExpRestriction [*] [*]]) r rs'.
         ( rs ~ (r ': rs')
         , AllConstrained (RestrictIo components txtype) rs
-        , MappendHChSet (TxComponents txtype)
+        , ExnHKeyConstr (TxComponents txtype)
         )
         => Rec (PreExpander conf (TxRaw txtype))  rs
         -> ERoCompM conf components (SumChangeSet (TxComponents txtype))
@@ -138,7 +138,7 @@ applyPreExpander
     :: forall txtype rawtx conf ioRestr .
     ( HasBException conf CSMappendException
     , HUpCastableChSet (ExpOutComps ioRestr) (TxComponents txtype)
-    , MappendHChSet (TxComponents txtype)
+    , ExnHKeyConstr (TxComponents txtype)
     )
     => rawtx
     -> PreExpander conf rawtx ioRestr
@@ -164,7 +164,7 @@ type UnionSeqExpandersInps txtypes = UnionExpandersInps (UnionSeqExpanders txtyp
 class (
         HCastable HChangeSetEl (UnionSeqExpandersInps txtypes) (TxComponents txtype)
       , Default (SumChangeSet (TxComponents txtype))
-      , MappendHChSet (TxComponents txtype)
+      , ExnHKeyConstr (TxComponents txtype)
       , RestrictTx (UnionSeqExpandersInps txtypes) txtype
       , txtype ∈ txtypes
       )
@@ -172,7 +172,7 @@ class (
 instance (
           HCastable HChangeSetEl (UnionSeqExpandersInps txtypes) (TxComponents txtype)
         , Default (SumChangeSet (TxComponents txtype))
-        , MappendHChSet (TxComponents txtype)
+        , ExnHKeyConstr (TxComponents txtype)
         , RestrictTx (UnionSeqExpandersInps txtypes) txtype
         , txtype ∈ txtypes
         )
