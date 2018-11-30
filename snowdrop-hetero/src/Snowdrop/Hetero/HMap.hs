@@ -13,7 +13,7 @@ import qualified Data.Set as S
 import qualified Data.Text.Buildable
 import           Data.Vinyl (Rec (..), type (∈), rappend, rcast)
 import           Data.Vinyl.Lens (type (<:))
-import           Data.Vinyl.TypeLevel (type (++), AllConstrained, Fst, Snd)
+import           Data.Vinyl.TypeLevel (type (++), AllAllSat, AllConstrained, Fst, Snd)
 import           Formatting (bprint, build, (%))
 import           Snowdrop.Util (IsEmpty (..), toDummyMap)
 import           Snowdrop.Hetero.Constraints (NotIntersect, RemoveElem, UnionTypes)
@@ -31,8 +31,8 @@ type HVal t = Snd (HKeyVal t)
 class Ord (HKey t) => OrdHKey t
 instance Ord (HKey t) => OrdHKey t
 
-class (Ord (HKey t), Show (HKey t), Buildable (HKey t), Typeable (HKey t)) => ExnHKey t
-instance (Ord (HKey t), Show (HKey t), Buildable (HKey t), Typeable (HKey t)) => ExnHKey t
+class (AllAllSat '[Ord, Show, Buildable, Typeable] '[HKey t]) => ExnHKey t
+instance (AllAllSat '[Ord, Show, Buildable, Typeable] '[HKey t]) => ExnHKey t
 
 -- HMap
 newtype HMapEl (t :: u) = HMapEl {unHMapEl :: Map (HKey t) (HVal t)}
