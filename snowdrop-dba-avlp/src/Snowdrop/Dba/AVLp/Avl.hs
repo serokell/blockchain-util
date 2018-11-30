@@ -28,7 +28,7 @@ import           Control.Monad.Free (Free (Free))
 import           Data.Tree.AVL (MapLayer (..), Serialisable (..))
 import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
-import           Data.Vinyl.TypeLevel (AllConstrained)
+import           Data.Vinyl.TypeLevel (AllAllSat)
 
 import           Data.Default (Default (def))
 import qualified Data.Text.Buildable as Buildable
@@ -61,11 +61,11 @@ class ( KVConstraint (HKey t) (HVal t)
       , Serialisable (MapLayer h (HKey t) (HVal t) h)
       , AVL.Hash h (HKey t) (HVal t)
       ) => IsAvlEntry h t
-instance ( KVConstraint (HKey t) (HVal t)
+{- instance ( KVConstraint (HKey t) (HVal t)
       , Serialisable (MapLayer h (HKey t) (HVal t) h)
       , AVL.Hash h (HKey t) (HVal t)
-      ) => IsAvlEntry h t
-type AllAvlEntries h xs = AllConstrained (IsAvlEntry h) xs
+      ) => IsAvlEntry h t -}
+type AllAvlEntries h xs = AllAllSat '[IsAvlEntry h] xs
 
 type AvlUndo h = RootHashes h
 

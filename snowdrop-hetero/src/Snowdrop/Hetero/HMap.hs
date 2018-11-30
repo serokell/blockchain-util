@@ -174,8 +174,8 @@ type HDownCastable xs res = res <: xs
 hdowncast :: HDownCastable xs res => Rec f xs -> Rec f res
 hdowncast = rcast
 
-class x ∈ xs => xs ∋ x
--- instance x ∈ xs => xs ∋ x
+class x ∈ xs => HElemFlipped xs x
+-- instance x ∈ xs => HElemFlipped xs x
 
 ------------------------
 -- Intersection && Difference && Mappend

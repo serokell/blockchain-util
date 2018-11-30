@@ -23,7 +23,7 @@ import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), SumChan
 import           Snowdrop.Dba.Simple.SumChangeSet (sumChangeSetDaa, sumChangeSetDaaU)
 import           Snowdrop.Dba.Base (DbActionsException (..), DbApplyProof,
                                     DbComponents, DbModifyActions (..), IterAction (..))
-import           Snowdrop.Hetero (type (∋), ExnHKey, HIntersectable, HKey, HMap, HMapEl (..),
+import           Snowdrop.Hetero (ExnHKey, HElemFlipped, HIntersectable, HKey, HMap, HMapEl (..),
                                   HSetEl (..), HVal, OrdHKey, rliftA2)
 import           Snowdrop.Util (IsEmpty (..), toDummyMap)
 
@@ -46,12 +46,12 @@ type SimpleDbActionsConstr conf xs =
 simpleDbActions'
     :: forall conf xs.
       ( SimpleDbActionsConstr conf xs
-      , RPureConstrained ((∋) xs) xs
+      , RPureConstrained (HElemFlipped xs) xs
       )
     => HMap xs
     -> STM (DbModifyActions conf STM)
 simpleDbActions' = flip simpleDbActions $
-    rpureConstrained @((∋) xs) mkHMapLensEl
+    rpureConstrained @(HElemFlipped xs) mkHMapLensEl
   where
     mkHMapLensEl :: forall t . t ∈ xs => HMapLensEl (HMap xs) t
     mkHMapLensEl = HMapLensEl $ rlens @t . iso unHMapEl HMapEl
