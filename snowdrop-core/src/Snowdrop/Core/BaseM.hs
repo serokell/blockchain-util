@@ -82,7 +82,7 @@ instance Applicative (BaseM e eff ctx) where
     BaseM a <*> BaseM b = BaseM $ a <*> b
 
 instance Monad (BaseM e eff ctx) where
-    a >>= b = BaseM $ unBaseM a >>= unBaseM . b
+    a >>= b = unBaseM a >>= b
 
 instance MonadReader ctx (BaseM e eff ctx) where
     local f a = BaseM $ local f $ unBaseM a
@@ -90,7 +90,7 @@ instance MonadReader ctx (BaseM e eff ctx) where
 
 instance MonadError e (BaseM e eff ctx) where
     throwError e = BaseM $ throwError e
-    catchError (BaseM ma) cont = BaseM $ ma `catchError` \e -> unBaseM $ cont e
+    catchError (BaseM ma) cont = ma `catchError` cont
 
 instance Log.MonadLogging (BaseM e eff ctx) where
     log l s t = BaseM (Log.log l s t)
