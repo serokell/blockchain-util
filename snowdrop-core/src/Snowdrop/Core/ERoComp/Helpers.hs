@@ -88,7 +88,7 @@ iterator
     => b
     -> (b -> (HKey t, HVal t) -> b)
     -> ERoComp conf xs b
-iterator e foldf = effect $ DbIterator @conf @xs @b @t rget (FoldF (e, foldf, id))
+iterator e foldf = effect $ DbIterator @conf @xs @b @t rget (FoldF (e, foldf))
 
 -- | Creates a DbComputeUndo operation.
 computeUndo

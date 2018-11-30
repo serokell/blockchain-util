@@ -121,8 +121,8 @@ instance (chgAccum ~ ChgAccum conf, Monad m, xs ~ DbComponents conf) =>
 
     executeEffect (DbQuery req cont) daa conf =
         cont <$> daaGetter daa conf req
-    executeEffect (DbIterator getComp (FoldF (e, acc, cont))) daa conf =
-        cont <$> ((\record -> runIterAction (getComp record) e acc) =<< daaIter daa conf)
+    executeEffect (DbIterator getComp (FoldF (e, acc))) daa conf =
+        (\record -> runIterAction (getComp record) e acc) =<< daaIter daa conf
 
 instance (chgAccum ~ ChgAccum conf, Monad m, xs ~ DbComponents conf) =>
     DbActions (DbAccessM conf xs) (DbAccessActionsM conf) chgAccum m where

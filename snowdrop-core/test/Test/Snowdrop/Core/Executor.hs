@@ -44,7 +44,7 @@ simpleStateAccessor
     -> DbAccess conf xs res
     -> res
 simpleStateAccessor st (DbQuery q cont) = cont (st `hintersect` q)
-simpleStateAccessor st (DbIterator getComp (FoldF (e, foldf, applier))) = applier $
+simpleStateAccessor st (DbIterator getComp (FoldF (e, foldf))) =
     foldl
       foldf
       e

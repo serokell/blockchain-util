@@ -18,8 +18,6 @@ module Snowdrop.Core.ERoComp.Types
 
        , DbAccessU (..)
        , ERoCompU
-
-       , foldFMappend
        ) where
 
 import           Universum
@@ -144,31 +142,11 @@ data DbAccessU (conf :: *) (components :: [*]) (res :: *)
     -- ^ Object for simple access to state (query, iteration)
     -- and change accumulator construction.
 
-deriving instance Functor (DbAccess conf xs)
-deriving instance Functor (DbAccessM conf xs)
-deriving instance Functor (DbAccessU conf xs)
-
--- | FoldF holds functions which are intended to accumulate result of iteratio
+-- | FoldF holds functions which are intended to accumulate result of iteration
 -- over entries.
 -- The first field is an initial value.
 -- The second one is an accumulator.
--- The third one is convertor result of iteration to continuation (a next request to state).
-data FoldF a res = forall b. FoldF (b, b -> a -> b, b -> res)
-
-instance Functor (FoldF a) where
-    fmap f (FoldF (e, foldf, applier)) = FoldF (e, foldf, f . applier)
-
--- | Mappend operation for two @FoldF@s.
-foldFMappend :: (res -> res -> res) -> FoldF a res -> FoldF a res -> FoldF a res
-foldFMappend resMappend (FoldF (e1, f1, applier1)) (FoldF (e2, f2, applier2)) = FoldF (e, f, applier)
-  where
-    e = (e1, e2)
-    f (b1, b2) a = (f1 b1 a, f2 b2 a)
-    applier (b1, b2) = applier1 b1 `resMappend` applier2 b2
-
--- It can't be defined Monoid instance for @FoldF@ because @mempty@ can't be defined.
-instance Semigroup res => Semigroup (FoldF a res) where
-    f1 <> f2 = foldFMappend (<>) f1 f2
+data FoldF a r = FoldF (r, r -> a -> r)
 
 -- | Reader computation which allows you to query for part of bigger state
 -- and build computation considering returned result.
