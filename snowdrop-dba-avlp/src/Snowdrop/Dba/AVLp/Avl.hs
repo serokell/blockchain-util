@@ -61,10 +61,10 @@ class ( KVConstraint (HKey t) (HVal t)
       , Serialisable (MapLayer h (HKey t) (HVal t) h)
       , AVL.Hash h (HKey t) (HVal t)
       ) => IsAvlEntry h t
-{- instance ( KVConstraint (HKey t) (HVal t)
+instance ( KVConstraint (HKey t) (HVal t)
       , Serialisable (MapLayer h (HKey t) (HVal t) h)
       , AVL.Hash h (HKey t) (HVal t)
-      ) => IsAvlEntry h t -}
+      ) => IsAvlEntry h t
 type AllAvlEntries h xs = AllAllSat '[IsAvlEntry h] xs
 
 type AvlUndo h = RootHashes h
