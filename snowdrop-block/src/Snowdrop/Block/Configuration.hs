@@ -18,9 +18,11 @@ import           Snowdrop.Util (OldestFirst (..))
 
 newtype BlockIntegrityVerifier blkType = BIV { unBIV :: ExpandedBlk blkType -> Bool }
 
+instance Semigroup (BlockIntegrityVerifier blkType) where
+    BIV f <> BIV g = BIV $ \blk -> f blk && g blk
+
 instance Monoid (BlockIntegrityVerifier blkType) where
     mempty = BIV $ const True
-    BIV f `mappend` BIV g = BIV $ \blk -> f blk && g blk
 
 -- | Block validation configuration. Contains necessary methods for to perform structural
 -- validation of block sequence (chain) and come up with decision on whether
