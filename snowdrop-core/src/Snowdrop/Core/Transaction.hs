@@ -48,6 +48,7 @@ newtype TxRaw txtype = TxRaw { unTxRaw :: TxRawImpl txtype }
 instance UElem x xs (RIndex x xs) => HasReview (Union TxRaw xs) (TxRaw x) where
     inj = ulift
 
+deriving instance Show (TxRawImpl t) => Show (TxRaw t)
 deriving instance Hashable (TxRawImpl t) => Hashable (TxRaw t)
 deriving instance DBuildable (TxRawImpl t) => DBuildable (TxRaw t)
 

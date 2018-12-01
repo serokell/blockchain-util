@@ -136,13 +136,13 @@ processFork
     -> OldestFirst NonEmpty (RawBlk blkType)
     -> chgAccum
     -> m (ForkApplyAction chgAccum blkType)
-processFork bcs@(BlkStateConfiguration {..}) osParams fork acc0 = do
+processFork bcs@BlkStateConfiguration {..} osParams fork acc0 = do
 
     -- 1. Expand headers from raw blocks of fork.
-    headers <- bscExpandHeaders acc0 fork
+    forkHeaders <- bscExpandHeaders acc0 fork
 
     -- 2. Perform structured validation of chain (via verifyFork), which requires access to headers of fork, cur
-    verifyForkStructure @_ @chgAccum bcs osParams headers
+    verifyForkStructure @_ @chgAccum bcs osParams forkHeaders
 
     -- 3. Verify integrity of each raw block
     let verifyBlkIntegrity (rawBlk, header) =
@@ -152,11 +152,11 @@ processFork bcs@(BlkStateConfiguration {..}) osParams fork acc0 = do
                in VErr (IntegrityVerificationFailed ref reason)
             VRes x -> VRes x
 
-    case foldMap verifyBlkIntegrity $ NE.zip (unOldestFirst fork) (unOldestFirst headers) of
+    case foldMap verifyBlkIntegrity $ NE.zip (unOldestFirst fork) (unOldestFirst forkHeaders) of
         VErr err -> throwLocalError err
         VRes ()  -> pure ()
 
-    let mRollbackTo = unPrevBlockRef $ bcPrevBlockRef bscVerifyConfig $ head $ unOldestFirst headers
+    let mRollbackTo = unPrevBlockRef $ bcPrevBlockRef bscVerifyConfig $ head $ unOldestFirst forkHeaders
 
     -- 4. Retrieve blunds (block + undo pairs) from the storage, apply undos to in-memory accumulator acc0
     (acc1, rollbackedRefs) <- bscInmemRollback acc0 mRollbackTo
@@ -168,6 +168,6 @@ processFork bcs@(BlkStateConfiguration {..}) osParams fork acc0 = do
     -- containing pairs of transactions along with chg accumulators for after the tx is applied
     chgAccums <- bscValidatePayloads acc1 fork
 
-    let applyBlocks = NE.zip (unOldestFirst headers) (unOldestFirst chgAccums)
+    let applyBlocks = NE.zip (unOldestFirst forkHeaders) (unOldestFirst chgAccums)
 
     pure $ ForkApplyAction rollbackedRefs (OldestFirst applyBlocks)

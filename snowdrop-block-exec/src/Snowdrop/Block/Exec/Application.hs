@@ -50,9 +50,8 @@ faaToChangeSet cfg fork ForkApplyAction{..} = do
         remBlundPairs = (,Rem) <$> unNewestFirst faaRollbackedRefs
         -- Invariant: rollbackedRefs ∩ newBlundRefs = ∅
         blundChg = M.fromList $ newBlundPairs <> remBlundPairs
-        newTipHeader = last headers
-        newTipChgCons = maybe New (const Upd) (unPrevBlockRef $ bcPrevBlockRef cfg newTipHeader)
-        newTipValue = TipValue $ unCurrentBlockRef $ bcBlockRef cfg newTipHeader
+        newTipChgCons = maybe New (const Upd) $ unPrevBlockRef $ bcPrevBlockRef cfg (head headers)
+        newTipValue = TipValue $ unCurrentBlockRef $ bcBlockRef cfg (last headers)
         tipChg = M.singleton TipKey (newTipChgCons newTipValue)
         blkChg =
           hupcast @_ @'[TipComponent blkType, BlundComponent blkType] $

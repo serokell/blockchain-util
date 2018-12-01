@@ -53,7 +53,7 @@ mapTx_
   => (forall txtype . c txtype => StateTx txtype -> ERoComp conf (TxComponents txtype) ())
   -> (ChgAccum conf, SomeTx c)
   -> ERoComp conf xs ()
-mapTx_ handleTxDo (acc, tx) = local (lensFor .~ CAInitialized @conf acc) $ handleTx tx
+mapTx_ handleTxDo (acc, tx) = withAccum @conf acc (handleTx tx)
   where
     handleTx =
       applySomeTx $ \(stx :: StateTx txtype) ->
