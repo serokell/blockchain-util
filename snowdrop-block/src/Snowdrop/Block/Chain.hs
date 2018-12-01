@@ -30,6 +30,7 @@ data IterationException blkRef
     -- ^ Origin of blockchain reached before an LCA is found.
     | BlockDoesntExistInChain blkRef
     -- ^ Wrong block reference occurred during chain traversal (of block that is not present in storage).
+  deriving Show
 
 instance Buildable blkRef => Buildable (IterationException blkRef) where
     build TooDeepFork = "Provided fork is too deep."

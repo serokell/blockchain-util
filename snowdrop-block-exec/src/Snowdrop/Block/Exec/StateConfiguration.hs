@@ -10,10 +10,9 @@ module Snowdrop.Block.Exec.StateConfiguration
 
 import           Universum
 
-import           Data.Default (Default)
 import           Data.List.NonEmpty ((<|))
 import qualified Data.List.NonEmpty as NE
-import           Data.Union (USubset, Union, urelax)
+import           Data.Union (USubset, Union, ulift, urelax)
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.TypeLevel (AllConstrained, RImage)
 
@@ -26,13 +25,13 @@ import           Snowdrop.Block.Exec.RawTx (CloseBlockRawTx (..), CloseBlockRawT
 import           Snowdrop.Block.Exec.Storage (BlockUndo, Blund (..), BlundComponent, TipComponent,
                                               TipKey (..), TipValue (..))
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, ERoComp,
-                                ERoCompU, ExpandableTx, HChangeSet, HasBExceptions, MappendHChSet,
-                                ProofNExp (..), QueryERo, SomeTx, StateTx (..), TxComponents, TxRaw,
-                                Undo, UnionSeqExpandersInps, UnitedTxType, UpCastableERoM,
+                                ERoCompU, ExpandableTx, HasBExceptions, ProofNExp (..), QueryERo,
+                                SomeTx, StateTx (..), TxComponents, TxRaw (..), Undo,
+                                UnionSeqExpandersInps, UnionSeqExpandersOuts, UpCastableERoM,
                                 Validator, applySomeTx, convertEffect, modifyAccumUndo, queryOne,
                                 queryOneExists, runSeqExpandersSequentially, runValidator,
                                 upcastEffERoComp, upcastEffERoCompM, withAccum)
-import           Snowdrop.Hetero (Both, NotElem, RContains, SomeData, UnionTypes)
+import           Snowdrop.Hetero (Both, NotIntersect, RContains, SomeData, UnionTypes)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), OldestFirst (..))
 
 class ( RContains txtypes txtype
@@ -44,7 +43,7 @@ instance ( RContains txtypes txtype
 
 type BlkProcComponents blkType (txtypes :: [*])
     = UnionTypes [TipComponent blkType, BlundComponent blkType]
-                 (TxComponents (UnitedTxType txtypes))
+                 (UnionSeqExpandersOuts txtypes)
 
 mapTx_
   :: forall conf xs txtypes c .
@@ -63,29 +62,25 @@ mapTx_ handleTxDo (acc, tx) = local (lensFor .~ CAInitialized @conf acc) $ handl
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-  :: forall blkType txtypes conf xs c openBlockTxType closeBlockTxType txtypes' .
+  :: forall blkType txtypes conf openExpRestr closeExpRestr xs c openBlockTxType closeBlockTxType txtypes' .
     ( xs ~ BlkProcComponents blkType txtypes'
     , c ~ Both (ExpandableTx txtypes') (BlkProcConstr txtypes' xs)
-    , openBlockTxType ~ OpenBlockRawTxType (BlockHeader blkType)
-    , closeBlockTxType ~ CloseBlockRawTxType (BlockHeader blkType)
+    , openBlockTxType ~ OpenBlockRawTxType (BlockHeader blkType) openExpRestr
+    , closeBlockTxType ~ CloseBlockRawTxType (BlockHeader blkType) closeExpRestr
     , txtypes' ~ (openBlockTxType ': closeBlockTxType ': txtypes)
     , HasBExceptions conf '[ CSMappendException
                            , ForkVerificationException (BlockRef blkType)
                            , IterationException (BlockRef blkType)
                            ]
-    , NotElem openBlockTxType txtypes'
-    , NotElem closeBlockTxType txtypes'
-    , Default (ChgAccum conf)
+    , NotIntersect '[ openBlockTxType, closeBlockTxType ] txtypes
     , HasReview (Undo conf) (BlockUndo blkType)
     , HasGetter (RawBlk blkType) (BlockHeader blkType)
-    , HasGetter (RawBlk blkType) [Union TxRaw txtypes]
-    , HasLens (ChgAccum conf) (ChgAccum conf)
+    , Element (RawBlk blkType) ~ Union TxRaw txtypes
+    , Container (RawBlk blkType)
     , HasLens (Ctx conf) (ChgAccumCtx conf)
     , QueryERo xs (BlundComponent blkType)
     , QueryERo xs (TipComponent blkType)
-    , MappendHChSet (UnionSeqExpandersInps txtypes')
     , UpCastableERoM (UnionSeqExpandersInps txtypes') xs
-    , Default (HChangeSet (UnionSeqExpandersInps txtypes'))
     , AllConstrained c txtypes'
     , HasGetter (Union TxRaw txtypes) (SomeData TxRaw c)
     , USubset txtypes txtypes' (RImage txtypes txtypes')
@@ -161,9 +156,9 @@ inmemoryBlkStateConfiguration cfg validator expander = fix $ \this ->
 
       toRawTxs :: RawBlk blkType -> [Union TxRaw txtypes']
       toRawTxs rawBlk =
-          [inj $ OpenBlockRawTx header]
+          [ulift $ TxRaw @openBlockTxType $ OpenBlockRawTx header]
             ++ (map urelax rawTxs)
-            ++ [inj $ CloseBlockRawTx header]
+            ++ [ulift $ TxRaw @closeBlockTxType $ CloseBlockRawTx header]
         where
-          rawTxs = gett @_ @[Union TxRaw txtypes] rawBlk
+          rawTxs = toList rawBlk
           header = gett @_ @(BlockHeader blkType) rawBlk

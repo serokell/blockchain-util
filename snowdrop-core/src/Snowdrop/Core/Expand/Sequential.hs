@@ -12,6 +12,7 @@ module Snowdrop.Core.Expand.Sequential
        , ProofNExp (..)
        , ExpandableTx
        , UnionSeqExpandersInps
+       , UnionSeqExpandersOuts
        , UnionExpandersInps
        , UnionSeqExpanders
        ) where
@@ -31,7 +32,8 @@ import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), Ctx, ERoComp
 import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, ExpOutComps,
                                             ExpRestriction (..), PreExpander (..), ProofNExp (..),
                                             SeqExpander, SeqExpanderComponents)
-import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw)
+import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw,
+                                            UnionExpandersOuts)
 import           Snowdrop.Hetero (Both, HCastable, HElem, SomeData (..), UnionTypes, applySomeData,
                                   castStrip, hupcast)
 import           Snowdrop.Util (HasLens (..), OldestFirst (..), throwLocalError)
@@ -53,8 +55,8 @@ type ExpandOneTxMode txtype =
 
 expandOneTx
     :: forall txtype conf .
-    ( HasBException conf CSMappendException
-    , ExpandOneTxMode txtype
+    ( ExpandOneTxMode txtype
+    , HasBException conf CSMappendException
     , HasLens (Ctx conf) (ChgAccumCtx conf)
     , Default (ChgAccum conf)
     )
@@ -69,9 +71,6 @@ runSeqExpandersSequentially
     :: forall txtypes (c :: * -> Constraint) conf .
     ( HasBException conf CSMappendException
     , HasLens (Ctx conf) (ChgAccumCtx conf)
-    , MappendHChSet (UnionSeqExpandersInps txtypes)
-    , Default (ChgAccum conf)
-    , Default (HChangeSet (UnionSeqExpandersInps txtypes))
     )
     => Rec (ProofNExp conf) txtypes
     -> [SomeData TxRaw (Both (ExpandableTx txtypes) c)]
@@ -155,6 +154,7 @@ type family UnionSeqExpanders (txtypes :: [*]) where
     UnionSeqExpanders (a ': xs) = UnionTypes (SeqExpanderComponents a) (UnionSeqExpanders xs)
 
 type UnionSeqExpandersInps txtypes = UnionExpandersInps (UnionSeqExpanders txtypes)
+type UnionSeqExpandersOuts txtypes = UnionExpandersOuts (UnionSeqExpanders txtypes)
 
 class (
         HCastable HChangeSetEl (UnionSeqExpandersInps txtypes) (TxComponents txtype)

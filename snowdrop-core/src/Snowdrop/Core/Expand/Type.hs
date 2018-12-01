@@ -21,12 +21,12 @@ module Snowdrop.Core.Expand.Type
 import           Universum
 
 import           Data.Default (Default)
-import           Data.Kind
 import           Data.Vinyl (Rec (..))
 
 import           Snowdrop.Core.ChangeSet (HChangeSet)
 import           Snowdrop.Core.ERoComp (ERoComp)
-import           Snowdrop.Core.Transaction (TxProof, TxRaw)
+import           Snowdrop.Core.Transaction (ExpRestriction (..), SeqExpanderComponents, TxProof,
+                                            TxRaw)
 
 newtype ProofNExp conf txtype =
     ProofNExp (TxRaw txtype -> TxProof txtype, SeqExpander conf txtype)
@@ -61,19 +61,5 @@ deriving instance Semigroup (HChangeSet xs) => Semigroup (DiffChangeSet xs)
 deriving instance Monoid (HChangeSet xs) => Monoid (DiffChangeSet xs)
 deriving instance Default (HChangeSet xs) => Default (DiffChangeSet xs)
 
-------------------------------------------
--- Restrictions of expanders
-------------------------------------------
-
--- This datatype to be intended to use as kind and constructor of types instead of pair
-data ExpRestriction i o = ExRestriction i o -- different type and constructor names to avoid going crazy
 type family ExpInpComps r where ExpInpComps ('ExRestriction i o) = i
 type family ExpOutComps r where ExpOutComps ('ExRestriction i o) = o
-
--- This type family should be defined for each seq expander like
--- type instance SeqExpanderComponents DlgTx =
---                  '[ ExRestriction '[TxIn] '[UtxoComponent],
---                     ExRestriction '[DlgIssuer, DlgDelegate] '[DlgIssuerComponent, DlgDelegateComponent]
---                   ]
--- this SeqExpander contains two PreExpanders
-type family SeqExpanderComponents (txtype :: *) :: [ExpRestriction [*] [*]]

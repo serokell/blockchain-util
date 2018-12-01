@@ -16,6 +16,10 @@ module Snowdrop.Core.Transaction
        , SomeTx
        , applySomeTx
        , usingSomeTx
+
+       , UnionExpandersOuts
+       , SeqExpanderComponents
+       , ExpRestriction (..)
        ) where
 
 import           Universum
@@ -24,7 +28,7 @@ import           Data.Union (UElem, Union, ulift)
 import           Data.Vinyl.TypeLevel (RIndex)
 
 import           Snowdrop.Core.ChangeSet (HChangeSet)
-import           Snowdrop.Hetero (HDownCastable, SomeData (..), hdowncast)
+import           Snowdrop.Hetero (HDownCastable, SomeData (..), UnionTypes, hdowncast)
 import           Snowdrop.Util (DBuildable (..), HasGetter (..), HasReview (..))
 
 ------------------------------------------
@@ -35,7 +39,7 @@ import           Snowdrop.Util (DBuildable (..), HasGetter (..), HasReview (..))
 type family TxProof      (txtype :: k) :: *
 
 -- | Determines components of HChangeSet by txtype.
-type family TxComponents (txtype :: k) :: [*]
+type TxComponents (txtype :: k) = UnionExpandersOuts (SeqExpanderComponents txtype)
 
 type family TxRawImpl (txtype :: k) :: *
 
@@ -70,12 +74,6 @@ downcastStateTx
     => StateTx txtype1 -> StateTx txtype2
 downcastStateTx StateTx {..} = StateTx (gett txProof) (hdowncast txBody)
 
--- castStateTx
---     :: forall id value txtype1 txtype2 .
---        (TxProof txtype1 -> Maybe (TxProof txtype2))
---     -> StateTx id value txtype1 -> Maybe (StateTx id value txtype2)
--- castStateTx castProof StateTx {..} = (\x -> StateTx x txBody) <$> castProof txProof
-
 type SomeTx = SomeData StateTx
 
 applySomeTx :: forall a c . (forall txtype . c txtype => StateTx txtype -> a) -> SomeTx c -> a
@@ -84,12 +82,22 @@ applySomeTx f (SomeData x) = f x
 usingSomeTx :: forall a c . SomeTx c -> (forall txtype . c txtype => StateTx txtype -> a) -> a
 usingSomeTx tx f = applySomeTx f tx
 
--- class HUpCastableChSet (TxComponents txtype) xs => UpCastableTxBody xs txtype
--- instance HUpCastableChSet (TxComponents txtype) xs => UpCastableTxBody xs txtype
+------------------------------------------
+-- Restrictions of expanders
+------------------------------------------
 
--- mappendSomeTxBody
---     :: forall xs c .
---        HChangeSet xs
---     -> SomeTx c
---     -> Either CSMappendException (HChangeSet xs)
--- mappendSomeTxBody cs = applySomeTx (\StateTx{..} -> cs `mappendChangeSet` gupcast txBody)
+-- This datatype to be intended to use as kind and constructor of types instead of pair
+data ExpRestriction i o = ExRestriction i o -- different type and constructor names to avoid going crazy
+
+-- This type family should be defined for each seq expander like
+-- type instance SeqExpanderComponents DlgTx =
+--                  '[ ExRestriction '[TxIn] '[UtxoComponent],
+--                     ExRestriction '[DlgIssuer, DlgDelegate] '[DlgIssuerComponent, DlgDelegateComponent]
+--                   ]
+-- this SeqExpander contains two PreExpanders
+type family SeqExpanderComponents (txtype :: k) :: [ExpRestriction [*] [*]]
+
+-- These typeclass should be satisfied automatically if everything is correct
+type family UnionExpandersOuts (restrictions :: [ExpRestriction [*] [*]]) where
+    UnionExpandersOuts '[] = '[]
+    UnionExpandersOuts ('ExRestriction _ o ': xs) = UnionTypes o (UnionExpandersOuts xs)
