@@ -100,7 +100,7 @@ instance Hashable AVL.Tilt
 instance Hashable b => Hashable (AVL.WithBounds b)
 instance (Hashable h, Hashable k, Hashable v, Hashable s) => Hashable (MapLayer h k v s)
 
-instance Default h => Default (MapLayer h k v s) where
+instance Default (MapLayer h k v s) where
     def = MLEmpty def def
 
 instance (Show h, Show k, Show v) => Buildable (AVL.Map h k v) where

@@ -21,6 +21,7 @@ library
       AVL
     , containers
     , data-default
+    , formatting < 6.3
     , free
     , loot-log
     , snowdrop-core
@@ -28,6 +29,7 @@ library
     , snowdrop-hetero
     , snowdrop-util
     , text-format
+    , text
     , vinyl
     , universum
   build-tool-depends:

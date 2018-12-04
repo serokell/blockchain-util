@@ -1,9 +1,9 @@
 {-# LANGUAGE DataKinds           #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE InstanceSigs        #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE InstanceSigs #-}
 
 module Snowdrop.Dba.AVLp.State
        ( AVLServerState (..)
@@ -31,10 +31,9 @@ import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
 import           Loot.Log (MonadLogging, logDebug)
 
-import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
-                                        AvlProofs, IsAvlEntry, RootHash (..),
-                                        RootHashComp (..), RootHashes, deserialiseM,
-                                        materialize, mkAVL, saveAVL)
+import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
+                                        IsAvlEntry, RootHash (..), RootHashComp (..), RootHashes,
+                                        deserialiseM, materialize, mkAVL, saveAVL)
 import           Snowdrop.Dba.Base (ClientMode (..), DbActionsException (..))
 import           Snowdrop.Hetero (HKey, HMap, HVal, unHMapEl)
 import           Snowdrop.Util (HasGetter (..), Serialisable (..))
@@ -168,7 +167,7 @@ initAVLPureStorage xs = initAVLPureStorageAll xs def
         logDebug "Initializing AVL+ pure storage"
         (rootH, unAVLCache -> cache') <-
             runAVLCacheT
-                (foldM (\b (k, v) -> snd <$> AVL.insert @h k v b) AVL.empty kvs >>= saveAVL)
+                (AVL.fromList kvs >>= saveAVL)
                 def
                 cache
         let newCache = AVLPureStorage $ unAVLPureStorage cache <> cache'
@@ -194,13 +193,14 @@ newtype AVLCacheT h m a = AVLCacheT (StateT (AVLCache h) m a)
 
 deriving instance MonadIO m => MonadIO (AVLCacheT h m)
 
-instance (MonadThrow m, AvlHashable h, RetrieveImpl m h, Serialisable (MapLayer h k v h))
+instance (MonadThrow m, AvlHashable h, RetrieveImpl m h, MonadIO m, Serialisable (MapLayer h k v h))
          => AVL.KVRetrieve h (AVL.MapLayer h k v h) (AVLCacheT h m) where
     retrieve :: h -> AVLCacheT h m (AVL.MapLayer h k v h)
     retrieve k = checkInAccum >>= deserialiseM
       where
-        checkInAccum = M.lookup k . unAVLCache <$> get >>= maybe checkInState pure
-        checkInState = lift (retrieveImpl k) >>= maybe (throwM $ AVL.NotFound k) pure
+        checkInAccum = M.lookup k . unAVLCache <$> get
+                          >>= maybe checkInState (\x -> putTextLn ("Found in cache: "<> show k) $> x)
+        checkInState = lift (retrieveImpl k) >>= maybe (putTextLn ("Not found in state: "<> show k) *> throwM (AVL.NotFound k) ) (\x -> putTextLn ("Found in state: "<> show k) $> x)
 
 -- TODO: implement
 instance (MonadThrow m, AvlHashable h, RetrieveImpl m h, Serialisable (MapLayer h k v h))

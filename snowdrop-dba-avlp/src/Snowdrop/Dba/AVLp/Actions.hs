@@ -11,14 +11,16 @@ module Snowdrop.Dba.AVLp.Actions
        , AllWholeTree
        ) where
 
-import           Universum
+import           Universum hiding (Const)
 
 import           Data.Tree.AVL (MapLayer (..))
 import qualified Data.Tree.AVL as AVL
 
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
-import           Data.Vinyl (Rec (..))
+import qualified Data.Text as T
+import           Data.Vinyl (Rec (..), RecordToList (..))
+import           Data.Vinyl.Functor (Const (..))
 import           Data.Vinyl.Recursive (rmap)
 
 import           Snowdrop.Core (ChgAccum, Undo)
@@ -27,7 +29,7 @@ import           Snowdrop.Dba.AVLp.Accum (AVLChgAccum (..), AVLChgAccums, RootHa
 import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
                                         AvlUndo, IsAvlEntry, KVConstraint, RootHash (..),
                                         RootHashComp (..), avlRootHash, materialize, mkAVL, saveAVL)
-import           Snowdrop.Dba.AVLp.Constraints (RHashable, rmapWithHash)
+import           Snowdrop.Dba.AVLp.Constraints (RHashable, RMapWithC (..), rmapWithHash)
 import           Snowdrop.Dba.AVLp.State (AMSRequested (..), AVLCache (..), AVLCacheT,
                                           AVLPureStorage (..), AVLServerState (..), ClientTempState,
                                           RetrieveF, RetrieveImpl, clientModeToTempSt, runAVLCacheT)
@@ -48,6 +50,8 @@ avlClientDbActions
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ ()
     , xs ~ DbComponents conf
+    , RMapWithC (IsAvlEntry h) xs
+    , RecordToList xs
     )
     => RetrieveF h n
     -> RootHashes h xs
@@ -74,14 +78,15 @@ avlClientDbActions retrieveF = fmap mkActions . newTVarIO
             -- setting amsRequested to AMSWholeTree as iteration with
             -- current implementation requires whole tree traversal
           (\cA -> createState >>= \ctx -> iter ctx cA)
-        daaM = DbAccessActionsM daa (\cA cs -> createState >>= \ctx -> modAccum ctx cA cs)
+        daaM = DbAccessActionsM daa (\cA cs -> createState >>= \ctx -> putTextLn "avl client mod accum" *> modAccum ctx cA cs)
         daaU = DbAccessActionsU daaM
                   (withProjUndo . modAccumU)
                   (\cA _cs -> pure . Right . computeUndo cA =<< createState)
         createState = clientModeToTempSt retrieveF ctMode =<< atomically (readTVar var)
 
     apply :: AvlHashable h => TVar (RootHashes h xs) -> AVLChgAccums h xs -> m ()
-    apply var (Just accums) =
+    apply var (Just accums) = do
+        putTextLn $ T.intercalate ", " $ recordToList $ rmapWithC @(IsAvlEntry h) (Const . pretty . acaMap) accums
         liftIO $ atomically $ writeTVar var $ rmapWithHash @h (RootHashComp . avlRootHash . acaMap) accums
     apply _ Nothing = pure ()
 
@@ -201,19 +206,20 @@ computeProof
     -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h (HKey t) (HVal t))
 computeProof (mkAVL -> oldAvl) accTouched requested =
     case requested of
-        AMSWholeTree -> computeProofWhole oldAvl
-        AMSKeys ks   -> computeProofKeys oldAvl ks
+        _ -> computeProofWhole oldAvl
+        --AMSWholeTree -> computeProofWhole oldAvl
+        --AMSKeys ks   -> computeProofKeys oldAvl ks
   where
     computeProofWhole
         :: AVL.Map h (HKey t) (HVal t)
         -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h (HKey t) (HVal t))
     computeProofWhole = fmap AVL.Proof . materialize
 
-    computeProofKeys
+    _computeProofKeys
         :: AVL.Map h (HKey t) (HVal t)
         -> Set (HKey t)
         -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h (HKey t) (HVal t))
-    computeProofKeys tree ks = do
+    _computeProofKeys tree ks = do
         (avl', allTouched) <- foldM computeTouched (tree, mempty) ks
 
         -- FIXME: I just stole this lines from Disciplina

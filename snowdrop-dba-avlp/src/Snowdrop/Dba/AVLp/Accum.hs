@@ -30,6 +30,7 @@ import qualified Data.Map.Strict as M
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 import           Data.Vinyl.TypeLevel (AllConstrained)
+import           Formatting (build, sformat, shown, (%))
 
 import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, HChangeSetEl, Undo,
                                 ValueOp (..), hChangeSetElToList)
@@ -143,7 +144,10 @@ modAVL
       , AVL.Hash h k v
       , AvlHashable h
       , MonadCatch m
+      , MonadIO m
       , RetrieveImpl (ReaderT ctx m) h
+      , Show k
+      , Show (ValueOp v)
       )
     => (AVL.Map h k v, Set AVL.Revision)
     -> (k, ValueOp v)
@@ -152,13 +156,16 @@ modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup k avl
   where
     processResp :: ((Maybe v, Set AVL.Revision), AVL.Map h k v)
                 -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set AVL.Revision)
-    processResp ((lookupRes, (<> touched) -> touched'), avl') =
-      case (valueop, lookupRes) of
+    processResp ((lookupRes, (<> touched) -> touched'), avl') = do
+      putTextLn $ sformat ("Key: "%shown%", op: "%shown%", map: \n"%build%"\n\n") k valueop avl'
+      res@(avl_, _) <- case (valueop, lookupRes) of
         (NotExisted, Nothing) -> pure (avl', touched')
         (New v     , Nothing) -> (, touched') . snd <$> AVL.insert' k v avl'
         (Rem       , Just _)  -> (, touched') . snd <$> AVL.delete' k avl'
         (Upd v     , Just _)  -> (, touched') . snd <$> AVL.insert' k v avl'
         _                     -> throwM $ CSMappendException k
+      putTextLn $ sformat ("  modified map: \n"%build%"\n\n") avl_
+      pure res
 
 modAccumU
     :: forall h xs . AVLChgAccums h xs
