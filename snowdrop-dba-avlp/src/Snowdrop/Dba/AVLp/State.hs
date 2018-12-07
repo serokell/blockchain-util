@@ -31,9 +31,9 @@ import           Loot.Log (MonadLogging, logDebug)
 
 import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
                                         IsAvlEntry, RootHash (..), RootHashComp (..), RootHashes,
-                                        deserialiseM, mkAVL, saveAVL)
+                                        deserialiseM, saveAVL)
 import           Snowdrop.Dba.Base (ClientMode (..), DbActionsException (..))
-import           Snowdrop.Hetero (HKey, HMap, HVal, unHMapEl)
+import           Snowdrop.Hetero (HKey, HMap, unHMapEl)
 import           Snowdrop.Util (HasGetter (..), Serialisable (..))
 
 ----------------------------------------------------------------------------
@@ -142,19 +142,13 @@ initAVLPureStorage xs = initAVLPureStorageAll xs def
         -> m (AVLServerState h rs)
     initAVLPureStorage' ((M.toList . unHMapEl -> kvs) :& accums) cache = reThrowAVLEx @(HKey r) @h $ do
         logDebug "Initializing AVL+ pure storage"
-        (rootH, unAVLCache -> cache') <-
-            runAVLCacheT
-                (foldM (\b (k, v) -> snd <$> AVL.insert @h k v b) AVL.empty kvs >>= saveAVL)
-                def
-                cache
+        ((tree, rootH), unAVLCache -> cache') <-
+            let body = do t <- AVL.fromList kvs
+                          h <- saveAVL t
+                          pure (t, h)
+            in runAVLCacheT body def cache
+        logDebug . fromString $ "Built AVL+ tree: " <> show rootH <> "\n" <> (AVL.showMap tree)
         let newCache = AVLPureStorage $ unAVLPureStorage cache <> cache'
-        logDebug "Materializing AVL+ pure storage"
-        fullAVL <-
-            runAVLCacheT @_ @h
-                (AVL.materialize @h @(HKey r) @(HVal r) $ mkAVL rootH)
-                def
-                newCache
-        logDebug . fromString $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)
         AMS{..} <- initAVLPureStorageAll accums newCache
         pure $ AMS (RootHashComp rootH :& amsRootHashes) amsState (mempty :& amsVisited)
 
