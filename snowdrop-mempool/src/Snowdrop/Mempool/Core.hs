@@ -22,14 +22,14 @@ import           Universum
 
 import           Control.Lens (lens)
 import           Data.Default (Default (..))
-import           Data.Vinyl (Rec, rget)
+import           Data.Vinyl (rget)
 
 import           Snowdrop.Core (BException, CSMappendException, ChgAccum, ChgAccumCtx,
                                 ConvertEffect, Ctx, DbAccessM, ERwComp, ExpandOneTxMode,
-                                HasBException, HasBExceptions, ProofNExp, StatePException,
-                                StateTx (..), TxComponents, TxRaw, UpCastableERoM, Validator,
+                                HasBException, HasBExceptions, SeqExp (..), SeqExpanders,
+                                StatePException, StateTx (..), TxComponents, TxRaw, UpCastableERoM,
                                 convertERwComp, convertEffect, expandOneTx, liftERoComp,
-                                modifyAccumOne, runValidator)
+                                modifyAccumOne)
 import           Snowdrop.Dba.Base (DbActions, IOCtx, IOExecEffect, runERwCompIO)
 import           Snowdrop.Hetero (Both, RContains, SomeData (..), usingSomeData)
 import           Snowdrop.Util (ExecM, HasGetter (..), HasLens (..))
@@ -149,10 +149,9 @@ defaultMempoolConfig
     , c' ~ Both (MempoolTx txtypes xs) c
     , HasGetter rawtx (SomeData TxRaw c')
     )
-    => Rec (ProofNExp conf) txtypes
-    -> Validator conf txtypes
+    => SeqExpanders conf txtypes
     -> MempoolConfig conf c' rawtx
-defaultMempoolConfig exps validator = MempoolConfig handler
+defaultMempoolConfig exps = MempoolConfig handler
   where
     handler :: rawtx -> SomeStateTxHandler conf c' rawtx
     handler rawtx =
@@ -164,8 +163,7 @@ defaultMempoolConfig exps validator = MempoolConfig handler
         => TxRaw txtype
         -> RwMempoolAct conf (TxComponents txtype) rawtx (StateTx txtype)
     processTx rawtx = do
-        let prfNexp = rget @txtype exps
-        tx@StateTx{..} <- liftERoComp (expandOneTx prfNexp rawtx)
-        liftERoComp $ runValidator validator tx
+        let exd = unSeqExp $ rget @txtype exps
+        tx@StateTx{..} <- liftERoComp (expandOneTx exd rawtx)
         liftERoComp (modifyAccumOne @_ @conf txBody) >>= modify . flip sett
         pure tx

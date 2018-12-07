@@ -3,8 +3,7 @@
 {-# LANGUAGE RankNTypes          #-}
 
 module Snowdrop.Core.Transaction
-       ( TxProof
-       , TxComponents
+       ( TxComponents
        , TxRaw (..)
        , TxRawImpl
 
@@ -29,14 +28,11 @@ import           Data.Vinyl.TypeLevel (RIndex)
 
 import           Snowdrop.Core.ChangeSet (HChangeSet)
 import           Snowdrop.Hetero (HDownCastable, SomeData (..), UnionTypes, hdowncast)
-import           Snowdrop.Util (DBuildable (..), HasGetter (..), HasReview (..))
+import           Snowdrop.Util (DBuildable (..), HasReview (..))
 
 ------------------------------------------
 -- Basic storage: model
 ------------------------------------------
-
--- | Determines Proof by txtype.
-type family TxProof      (txtype :: k) :: *
 
 -- | Determines components of HChangeSet by txtype.
 type TxComponents (txtype :: k) = UnionExpandersOuts (SeqExpanderComponents txtype)
@@ -56,24 +52,22 @@ deriving instance DBuildable (TxRawImpl t) => DBuildable (TxRaw t)
 -- There is also RawTx, which is posted on the blockchain.
 -- Ideally, RawStateTx and any action which modifies a state can be converted into StateStateTx.
 data StateTx (txtype :: *) = StateTx
-    { txProof :: TxProof txtype
-    , txBody  :: HChangeSet (TxComponents txtype)
+    { txBody  :: HChangeSet (TxComponents txtype)
     } deriving (Generic)
 
-instance (Hashable (HChangeSet (TxComponents txtype)), Hashable (TxProof txtype)) => Hashable (StateTx txtype)
-deriving instance (Eq (HChangeSet (TxComponents txtype)), Eq (TxProof txtype)) => Eq (StateTx txtype)
-deriving instance (Ord (HChangeSet (TxComponents txtype)), Ord (TxProof txtype)) => Ord (StateTx txtype)
-deriving instance (Show (HChangeSet (TxComponents txtype)), Show (TxProof txtype)) => Show (StateTx txtype)
+instance Hashable (HChangeSet (TxComponents txtype)) => Hashable (StateTx txtype)
+deriving instance Eq (HChangeSet (TxComponents txtype)) => Eq (StateTx txtype)
+deriving instance Ord (HChangeSet (TxComponents txtype)) => Ord (StateTx txtype)
+deriving instance Show (HChangeSet (TxComponents txtype)) => Show (StateTx txtype)
 
 type DownCastableTx txtype1 txtype2 =
-    ( HasGetter (TxProof txtype1) (TxProof txtype2)
-    , HDownCastable (TxComponents txtype1) (TxComponents txtype2)
+    ( HDownCastable (TxComponents txtype1) (TxComponents txtype2)
     )
 
 downcastStateTx
     :: forall txtype1 txtype2 . DownCastableTx txtype1 txtype2
     => StateTx txtype1 -> StateTx txtype2
-downcastStateTx StateTx {..} = StateTx (gett txProof) (hdowncast txBody)
+downcastStateTx StateTx {..} = StateTx (hdowncast txBody)
 
 type SomeTx = SomeData StateTx
 

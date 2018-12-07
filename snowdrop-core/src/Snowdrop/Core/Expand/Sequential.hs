@@ -9,7 +9,6 @@ module Snowdrop.Core.Expand.Sequential
        , ExpandOneTxMode
        , expandOneTx
        , runSeqExpandersSequentially
-       , ProofNExp (..)
        , ExpandableTx
        , UnionSeqExpandersInps
        , UnionSeqExpandersOuts
@@ -30,8 +29,8 @@ import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), Ctx, ERoComp
                                         UpCastableERoM, convertEffect, modifyAccumOne,
                                         upcastEffERoCompM, withAccum)
 import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, ExpOutComps,
-                                            ExpRestriction (..), PreExpander (..), ProofNExp (..),
-                                            SeqExpander, SeqExpanderComponents)
+                                            ExpRestriction (..), PreExpander (..), SeqExp (..),
+                                            SeqExpander, SeqExpanderComponents, SeqExpanders)
 import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw,
                                             UnionExpandersOuts)
 import           Snowdrop.Hetero (Both, HCastable, HElem, SomeData (..), UnionTypes, applySomeData,
@@ -60,22 +59,22 @@ expandOneTx
     , HasLens (Ctx conf) (ChgAccumCtx conf)
     , Default (ChgAccum conf)
     )
-    => ProofNExp conf txtype
+    => SeqExpander conf txtype
     -> TxRaw txtype
     -> ERoCompM conf (TxComponents txtype) (StateTx txtype)
-expandOneTx (ProofNExp (prf, sexp)) tx = do
+expandOneTx sexp tx = do
     hcs <- unSumCS <$> runSeqExpanderForTx @txtype tx sexp
-    pure $ StateTx (prf tx) hcs
+    pure $ StateTx hcs
 
 runSeqExpandersSequentially
     :: forall txtypes (c :: * -> Constraint) conf .
     ( HasBException conf CSMappendException
     , HasLens (Ctx conf) (ChgAccumCtx conf)
     )
-    => Rec (ProofNExp conf) txtypes
+    => SeqExpanders conf txtypes
     -> [SomeData TxRaw (Both (ExpandableTx txtypes) c)]
     -> ERoCompM conf (UnionSeqExpandersInps txtypes) (OldestFirst [] (SomeTx c, ChgAccum conf))
-runSeqExpandersSequentially proofNExps allTxs =  do
+runSeqExpandersSequentially seqExps allTxs =  do
     OldestFirst <$> handleTxs allTxs
   where
     handleTxs [] = pure []
@@ -89,9 +88,9 @@ runSeqExpandersSequentially proofNExps allTxs =  do
         => TxRaw txtype
         -> ERoCompM conf (UnionSeqExpandersInps txtypes) (SomeTx c, HChangeSet (TxComponents txtype))
     constructStateTx tx = do
-        let ProofNExp (prf, sexp) = rget @txtype proofNExps
+        let sexp = unSeqExp $ rget @txtype seqExps
         hcs <- unSumCS <$> runSeqExpanderForTx @txtype tx sexp
-        pure (SomeData (StateTx @txtype (prf tx) hcs), hcs)
+        pure (SomeData (StateTx @txtype hcs), hcs)
 
 runSeqExpanderForTx
     :: forall txtype components conf .

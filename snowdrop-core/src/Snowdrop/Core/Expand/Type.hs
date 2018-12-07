@@ -5,7 +5,8 @@
 {-# LANGUAGE TypeInType          #-}
 
 module Snowdrop.Core.Expand.Type
-       ( ProofNExp (..)
+       ( SeqExpanders
+       , SeqExp (..)
        , SeqExpander
        , PreExpander (..)
        , contramapSeqExpander
@@ -25,11 +26,11 @@ import           Data.Vinyl (Rec (..))
 
 import           Snowdrop.Core.ChangeSet (HChangeSet)
 import           Snowdrop.Core.ERoComp (ERoComp)
-import           Snowdrop.Core.Transaction (ExpRestriction (..), SeqExpanderComponents, TxProof,
-                                            TxRaw)
+import           Snowdrop.Core.Transaction (ExpRestriction (..), SeqExpanderComponents, TxRaw)
 
-newtype ProofNExp conf txtype =
-    ProofNExp (TxRaw txtype -> TxProof txtype, SeqExpander conf txtype)
+type SeqExpanders conf = Rec (SeqExp conf)
+
+newtype SeqExp conf txtype     = SeqExp {unSeqExp :: SeqExpander conf txtype}
 
 -- | Sequence of expand stages to be consequently executed upon a given transaction.
 type SeqExpander conf txtype = Rec (PreExpander conf (TxRaw txtype)) (SeqExpanderComponents txtype)
