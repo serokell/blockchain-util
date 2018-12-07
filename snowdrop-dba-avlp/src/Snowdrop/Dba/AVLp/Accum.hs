@@ -155,9 +155,9 @@ modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup k avl
     processResp ((lookupRes, (<> touched) -> touched'), avl') =
       case (valueop, lookupRes) of
         (NotExisted, Nothing) -> pure (avl', touched')
-        (New v     , Nothing) -> (, touched') . snd <$> AVL.insert' k v avl'
-        (Rem       , Just _)  -> (, touched') . snd <$> AVL.delete' k avl'
-        (Upd v     , Just _)  -> (, touched') . snd <$> AVL.insert' k v avl'
+        (New v     , Nothing) -> (, touched') . snd <$> AVL.insert k v avl'
+        (Rem       , Just _)  -> (, touched') . snd <$> AVL.delete k avl'
+        (Upd v     , Just _)  -> (, touched') . snd <$> AVL.insert k v avl'
         _                     -> throwM $ CSMappendException k
 
 modAccumU
@@ -208,7 +208,7 @@ query ctx (Just ca) hset = queryAll ca hset
         => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
     query' (AVLChgAccum initAvl initAcc _ :& accums) (HSetEl req :& reqs) = reThrowAVLEx @(HKey r) @h $ do
         let queryDo = fst <$> foldM queryDoOne (mempty, initAvl) req
-            queryDoOne (resp, avl) key = first (processResp resp key) <$> AVL.lookup' key avl
+            queryDoOne (resp, avl) key = first (processResp resp key) <$> AVL.lookup key avl
 
             processResp resp key (Just v, _touched) = M.insert key v resp
             processResp resp _ _                    = resp
