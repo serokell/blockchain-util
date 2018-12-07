@@ -30,10 +30,9 @@ import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
 import           Loot.Log (MonadLogging, logDebug)
 
-import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
-                                        AvlProofs, IsAvlEntry, RootHash (..),
-                                        RootHashComp (..), RootHashes, deserialiseM,
-                                        materialize, mkAVL, saveAVL)
+import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
+                                        IsAvlEntry, RootHash (..), RootHashComp (..), RootHashes,
+                                        deserialiseM, materialize, mkAVL, saveAVL)
 import           Snowdrop.Dba.Base (ClientMode (..), DbActionsException (..))
 import           Snowdrop.Hetero (HKey, HMap, HVal, unHMapEl)
 import           Snowdrop.Util (HasGetter (..))
@@ -185,7 +184,7 @@ initAVLPureStorage xs = initAVLPureStorageAll xs def
 -- | Accumulator for changes emerging from `save` operations
 -- being performed on AVL tree
 newtype AVLCache h = AVLCache { unAVLCache :: Map h ByteString }
-    deriving (Default, Semigroup, Monoid)
+  deriving (Default, Semigroup, Monoid, Show)
 
 -- | Monad transformer for caching `save` operations resulting from AVL+ actions
 newtype AVLCacheT h m a = AVLCacheT (StateT (AVLCache h) m a)

@@ -1,48 +1,42 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE PolyKinds #-}
 
 module Snowdrop.Block.Exec.RawTx
        ( OpenBlockRawTxType
        , CloseBlockRawTxType
+       , OpenBlockRawTx (..)
+       , CloseBlockRawTx (..)
        ) where
 
 import           Universum
 
-import           Data.Union (UElem, USubset, Union, absurdUnion, ulift, union, urelax)
-import           Data.Vinyl.TypeLevel (RImage, RIndex)
+import qualified Data.Text.Buildable
 
-import           Snowdrop.Block (BlockHeader, CloseBlockRawTx (..), OpenBlockRawTx (..))
-import           Snowdrop.Core (TxRaw (..), TxRawImpl)
-import           Snowdrop.Util (HasGetter (..), HasReview (..))
+import           Snowdrop.Core (ExpRestriction, SeqExpanderComponents, TxProof, TxRawImpl)
+import           Snowdrop.Util (DBuildable)
 
-data OpenBlockRawTxType blkType
-data CloseBlockRawTxType blkType
+newtype OpenBlockRawTx header  = OpenBlockRawTx  { unOpenBlockRawTx :: header }
+newtype CloseBlockRawTx header = CloseBlockRawTx { unCloseBlockRawTx :: header }
 
-instance UElem (OpenBlockRawTxType blkType) ts (RIndex (OpenBlockRawTxType blkType) ts)
-  => HasReview (Union TxRaw ts) (OpenBlockRawTx blkType) where
-    inj = inj . TxRaw @(OpenBlockRawTxType blkType)
+instance Buildable (CloseBlockRawTx h) where
+    build _ = "Block close tx"
+instance DBuildable (CloseBlockRawTx h)
 
-instance UElem (CloseBlockRawTxType blkType) ts (RIndex (CloseBlockRawTxType blkType) ts)
-  => HasReview (Union TxRaw ts) (CloseBlockRawTx blkType) where
-    inj = inj . TxRaw @(CloseBlockRawTxType blkType)
+instance Buildable (OpenBlockRawTx h) where
+    build _ = "Block open tx"
+instance DBuildable (OpenBlockRawTx h)
 
-type instance TxRawImpl (OpenBlockRawTxType blkType) = OpenBlockRawTx blkType
-type instance TxRawImpl (CloseBlockRawTxType blkType) = CloseBlockRawTx blkType
+deriving instance Hashable header => Hashable (OpenBlockRawTx header)
+deriving instance Hashable header => Hashable (CloseBlockRawTx header)
 
-type BlockRawTxs blkType = '[OpenBlockRawTxType blkType, CloseBlockRawTxType blkType]
+data OpenBlockRawTxType header (expRestr :: [ExpRestriction [*] [*]])
+data CloseBlockRawTxType header (expRestr :: [ExpRestriction [*] [*]])
 
-instance
-  BlockHeader blkType1 ~ BlockHeader blkType2
-  => HasGetter (Union TxRaw ( BlockRawTxs blkType1 )) (Union TxRaw ( BlockRawTxs blkType2 )) where
-    gett =
-      union (union absurdUnion
-        (ulift . TxRaw @(CloseBlockRawTxType blkType2) . CloseBlockRawTx . unCloseBlockRawTx . unTxRaw) )
-      (ulift . TxRaw @(OpenBlockRawTxType blkType2) . OpenBlockRawTx . unOpenBlockRawTx . unTxRaw)
+type instance TxRawImpl (OpenBlockRawTxType header expRestr) = OpenBlockRawTx header
+type instance TxRawImpl (CloseBlockRawTxType header expRestr) = CloseBlockRawTx header
 
-instance
-  ( HasGetter (Union TxRaw (t2 : t3 : t4)) (Union TxRaw (t2' : t3' : t4'))
-  , UElem t2' (t1 : t2' : t3' : t4') (RIndex t2' (t1 : t2' : t3' : t4'))
-  , UElem t3' (t1 : t2' : t3' : t4') (RIndex t3' (t1 : t2' : t3' : t4'))
-  , USubset t4' (t1 : t2' : t3' : t4') (RImage t4' (t1 : t2' : t3' : t4'))
-  )
-  => HasGetter (Union TxRaw (t1 : t2 : t3 : t4)) (Union TxRaw (t1 : t2' : t3' : t4')) where
-    gett = union (urelax . gett @_ @(Union TxRaw (t2' : t3' : t4'))) ulift
+type instance TxProof (OpenBlockRawTxType header exp) = ()
+type instance TxProof (CloseBlockRawTxType header exp) = ()
+
+type instance SeqExpanderComponents (OpenBlockRawTxType header exp) = exp
+type instance SeqExpanderComponents (CloseBlockRawTxType header exp) = exp

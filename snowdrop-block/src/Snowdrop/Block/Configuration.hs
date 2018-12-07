@@ -3,24 +3,20 @@
 module Snowdrop.Block.Configuration
        ( BlockIntegrityVerifier (..)
        , BlkConfiguration (..)
-       , blkSeqIsConsistent
-       , getCurrentBlockRef
-       , getPreviousBlockRef
        ) where
 
 import qualified Prelude as P
 import           Universum
 
-import           Snowdrop.Block.Types (Block (..), BlockHeader, BlockRef, Blund (buHeader),
-                                       CurrentBlockRef (..), ExpandedBlk, OSParams,
-                                       PrevBlockRef (..))
-import           Snowdrop.Util (OldestFirst (..))
+import           Snowdrop.Block.Types (BlockHeader, BlockRef, CurrentBlockRef (..), OSParams,
+                                       PrevBlockRef (..), RawBlk)
+import           Snowdrop.Util (OldestFirst (..), VerRes)
 
-newtype BlockIntegrityVerifier blkType = BIV { unBIV :: ExpandedBlk blkType -> Bool }
+newtype BlockIntegrityVerifier blkType = BIV { unBIV :: RawBlk blkType -> VerRes Text () }
 
 instance Monoid (BlockIntegrityVerifier blkType) where
-    mempty = BIV $ const True
-    BIV f `mappend` BIV g = BIV $ \blk -> f blk && g blk
+    mempty = BIV mempty
+    BIV f `mappend` BIV g = BIV $ \rawB -> f rawB <> g rawB
 
 -- | Block validation configuration. Contains necessary methods for to perform structural
 -- validation of block sequence (chain) and come up with decision on whether
@@ -51,7 +47,7 @@ data BlkConfiguration blkType = BlkConfiguration
     -- Block integrity verifier is by intention made a pure function:
     -- all stateful checks shall be made in scope of validators for individual transactions.
 
-    , bcIsBetterThan :: OldestFirst [] (BlockHeader blkType) -> OldestFirst [] (BlockHeader blkType) -> Bool
+    , bcIsBetterThan :: OldestFirst [] (BlockHeader blkType) -> OldestFirst NonEmpty (BlockHeader blkType) -> Bool
     -- ^ Comparison of two chains.
     -- Left operand is the currently adopted "best" chain, right operand is a proposed
     -- chain. `bcIsBetterThan` function is to make up a decision on whether proposed block
@@ -61,7 +57,7 @@ data BlkConfiguration blkType = BlkConfiguration
     -- it means that if proposed chain is considered valid over the latter course of validation, it
     -- is to be applied instead of currently adopted "best" chain.
 
-    , bcValidateFork :: OSParams blkType -> OldestFirst [] (BlockHeader blkType) -> Bool
+    , bcValidateFork :: OSParams blkType -> OldestFirst NonEmpty (BlockHeader blkType) -> VerRes Text ()
     -- ^ Check of chain with OS Params.
 
     , bcMaxForkDepth :: Int
@@ -81,64 +77,3 @@ data BlkConfiguration blkType = BlkConfiguration
     -- value for `bcMaxForkDepth`. In case, such definition is impossible to come up with,
     -- `maxBound @Int` is advised to be used as value.
     }
-
--- FIXME TODO actually it's valid to have `bfMaxForkDepth` forks,
--- we might be terribly out of sync with network
-
--- | Validate block container integrity:
---      a. integrity of each block
---      b. sequencing by prevBlock
--- DOESN'T validate that the last block refers to current tip
-blkSeqIsConsistent
-    :: forall blkType .
-    ( Eq (BlockRef blkType)
-    )
-    => BlkConfiguration blkType
-    -> OldestFirst [] (ExpandedBlk blkType)
-    -> Bool
-blkSeqIsConsistent _ (OldestFirst []) = True
-blkSeqIsConsistent BlkConfiguration {..} (OldestFirst blks) =
-    and [ doValidate $ OldestFirst $ zip blks prevRefs
-        , unBIV bcBlkVerify $ unsafeLast blks -- validate last block
-        ]
-  where
-    prevRefs = unsafeTail (map getPrevRef blks)
-
-    getBlockRef, getPrevRef :: ExpandedBlk blkType -> Maybe (BlockRef blkType)
-    getBlockRef = Just . unCurrentBlockRef . bcBlockRef . blkHeader
-    getPrevRef  = unPrevBlockRef . bcPrevBlockRef . blkHeader
-
-    emptyListErr = "expected non-empty list of blocks"
-
-    unsafeTail []     = error emptyListErr
-    unsafeTail (_:xs) = xs
-
-    unsafeLast :: [a] -> a
-    unsafeLast [] = error emptyListErr
-    unsafeLast xs = P.last xs
-
-    doValidate ::
-        OldestFirst [] (ExpandedBlk blkType, Maybe (BlockRef blkType))
-        -> Bool
-    doValidate (OldestFirst []) = True
-    doValidate (OldestFirst ((b, prevRef):xs)) =
-        and [ unBIV bcBlkVerify b
-            , prevRef == getBlockRef b
-            , doValidate $ OldestFirst xs
-            ]
-
-getCurrentBlockRef
-    :: forall blkType .
-       BlkConfiguration blkType
-    -> Blund blkType
-    -> CurrentBlockRef (BlockRef blkType)
-getCurrentBlockRef BlkConfiguration{..} =
-    bcBlockRef . buHeader
-
-getPreviousBlockRef
-    :: forall blkType .
-       BlkConfiguration blkType
-    -> Blund blkType
-    -> PrevBlockRef (BlockRef blkType)
-getPreviousBlockRef BlkConfiguration{..} =
-    bcPrevBlockRef . buHeader

@@ -12,6 +12,9 @@ module Snowdrop.Core.Expand.Sequential
        , ProofNExp (..)
        , ExpandableTx
        , UnionSeqExpandersInps
+       , UnionSeqExpandersOuts
+       , UnionExpandersInps
+       , UnionSeqExpanders
        ) where
 
 import           Universum
@@ -22,17 +25,18 @@ import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HChangeSetEl,
                                           HUpCastableChSet, MappendHChSet, SumChangeSet (..),
-                                          mappendChangeSet, mappendStOrThrow)
-import           Snowdrop.Core.ERoComp (BException, ChgAccum, ChgAccumCtx (..), Ctx, ERoCompM,
-                                        HasBException, UpCastableERoM, convertEffect,
-                                        withModifiedAccumCtxOne, upcastEffERoCompM)
+                                          SumChangeSet (..), mappendChangeSet)
+import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), Ctx, ERoCompM, HasBException,
+                                        UpCastableERoM, convertEffect, modifyAccumOne,
+                                        upcastEffERoCompM, withAccum)
 import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, ExpOutComps,
                                             ExpRestriction (..), PreExpander (..), ProofNExp (..),
                                             SeqExpander, SeqExpanderComponents)
-import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw)
-import           Snowdrop.Hetero (Both, HCastable, HElem, UnionTypes, SomeData (..),
-                                  applySomeData, castStrip, hupcast)
-import           Snowdrop.Util (HasLens (..), throwLocalError)
+import           Snowdrop.Core.Transaction (SomeTx, StateTx (..), TxComponents, TxRaw,
+                                            UnionExpandersOuts)
+import           Snowdrop.Hetero (Both, HCastable, HElem, SomeData (..), UnionTypes, applySomeData,
+                                  castStrip, hupcast)
+import           Snowdrop.Util (HasLens (..), OldestFirst (..), throwLocalError)
 
 type ExpandRawTxsMode conf txtypes =
     ( HasBException conf CSMappendException
@@ -49,11 +53,12 @@ type ExpandOneTxMode txtype =
     , RestrictTx (TxComponents txtype) txtype
     )
 
--- TODO there is assumption that tx can be expanded within own TxComponents txtype
 expandOneTx
     :: forall txtype conf .
-    ( HasBException conf CSMappendException
-    , ExpandOneTxMode txtype
+    ( ExpandOneTxMode txtype
+    , HasBException conf CSMappendException
+    , HasLens (Ctx conf) (ChgAccumCtx conf)
+    , Default (ChgAccum conf)
     )
     => ProofNExp conf txtype
     -> TxRaw txtype
@@ -62,33 +67,22 @@ expandOneTx (ProofNExp (prf, sexp)) tx = do
     hcs <- unSumCS <$> runSeqExpanderForTx @txtype tx sexp
     pure $ StateTx (prf tx) hcs
 
--- TODO: make up a united raw tx type via Union and make this code compile
 runSeqExpandersSequentially
     :: forall txtypes (c :: * -> Constraint) conf .
     ( HasBException conf CSMappendException
     , HasLens (Ctx conf) (ChgAccumCtx conf)
-    , MappendHChSet (UnionSeqExpandersInps txtypes)
-
-    , Default (ChgAccum conf)
-    , Default (SumChangeSet (UnionSeqExpandersInps txtypes))
     )
     => Rec (ProofNExp conf) txtypes
     -> [SomeData TxRaw (Both (ExpandableTx txtypes) c)]
-    -> ERoCompM conf (UnionSeqExpandersInps txtypes) [SomeTx c]
-runSeqExpandersSequentially proofNExps allTxs =
-    reverse <$> evalStateT (foldM runExps [] allTxs) def
+    -> ERoCompM conf (UnionSeqExpandersInps txtypes) (OldestFirst [] (SomeTx c, ChgAccum conf))
+runSeqExpandersSequentially proofNExps allTxs =  do
+    OldestFirst <$> handleTxs allTxs
   where
-    runExps
-        :: [SomeTx c]
-        -> SomeData TxRaw (Both (ExpandableTx txtypes) c)
-        -> StateT (SumChangeSet (UnionSeqExpandersInps txtypes))
-              (ERoCompM conf (UnionSeqExpandersInps txtypes)) [SomeTx c]
-    runExps res rtx = do
-        chgAcc <- get
-        (stx, txbody) <- lift $
-            withModifiedAccumCtxOne (unSumCS chgAcc) $
-              applySomeData (fmap (second castStrip) . constructStateTx) rtx
-        (stx : res) <$ mappendStOrThrow @(BException conf) txbody
+    handleTxs [] = pure []
+    handleTxs (rawTx : restTxs) = do
+        (tx, cs) <- applySomeData (fmap (second castStrip) . constructStateTx) rawTx
+        acc' <- modifyAccumOne cs
+        (:) (tx, acc') <$> withAccum @conf acc' (handleTxs restTxs)
 
     constructStateTx
         :: forall txtype . (ExpandableTx txtypes txtype, c txtype)
@@ -105,6 +99,7 @@ runSeqExpanderForTx
     , Default (SumChangeSet (TxComponents txtype))
     , MappendHChSet (TxComponents txtype)
     , RestrictTx components txtype
+    , HasLens (Ctx conf) (ChgAccumCtx conf)
     )
     => TxRaw txtype
     -> SeqExpander conf txtype
@@ -127,7 +122,7 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
         , AllConstrained (RestrictIo components txtype) rs
         , MappendHChSet (TxComponents txtype)
         )
-        => Rec (PreExpander conf (TxRaw txtype))  rs
+        => Rec (PreExpander conf (TxRaw txtype)) rs
         -> ERoCompM conf components (SumChangeSet (TxComponents txtype))
     runSeqExpanderForTx' (ex :& rest) = do
         sm <- runSeqExpanderForTxAll rest
@@ -159,6 +154,7 @@ type family UnionSeqExpanders (txtypes :: [*]) where
     UnionSeqExpanders (a ': xs) = UnionTypes (SeqExpanderComponents a) (UnionSeqExpanders xs)
 
 type UnionSeqExpandersInps txtypes = UnionExpandersInps (UnionSeqExpanders txtypes)
+type UnionSeqExpandersOuts txtypes = UnionExpandersOuts (UnionSeqExpanders txtypes)
 
 class (
         HCastable HChangeSetEl (UnionSeqExpandersInps txtypes) (TxComponents txtype)

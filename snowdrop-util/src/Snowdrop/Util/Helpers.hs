@@ -1,4 +1,6 @@
-{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE Rank2Types    #-}
+
 module Snowdrop.Util.Helpers
        (
          VerRes (..)
@@ -106,7 +108,12 @@ instance (Buildable (PublicKey sigScheme),
 -- | Data type, similar to `Either` which provides instances of 'Semigroup' and 'Monoid',
 -- well suited for error handling.
 data VerRes e a = VErr e | VRes a
-    deriving (Show, Eq)
+  deriving (Show, Eq, Functor)
+
+instance Applicative (VerRes e) where
+  pure          = VRes
+  VErr  e <*> _ = VErr e
+  VRes f <*> r = fmap f r
 
 instance Semigroup a => Semigroup (VerRes e a) where
     VRes a <> VRes b = VRes $ a <> b

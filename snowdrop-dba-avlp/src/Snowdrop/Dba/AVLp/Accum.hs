@@ -31,16 +31,15 @@ import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, HChangeSetEl,
-                                ValueOp (..), Undo, hChangeSetElToList)
-import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProofs,
-                                        AvlUndo, IsAvlEntry, KVConstraint,
-                                        RootHash (unRootHash), RootHashComp (..),
+import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, HChangeSetEl, Undo,
+                                ValueOp (..), hChangeSetElToList)
+import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProofs, AvlUndo, IsAvlEntry,
+                                        KVConstraint, RootHash (unRootHash), RootHashComp (..),
                                         RootHashes, avlRootHash, mkAVL)
-import           Snowdrop.Dba.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl,
-                                          reThrowAVLEx, runAVLCacheT)
-import           Snowdrop.Dba.Base (DGetter', DIter', DModify', DbApplyProof,
-                                    DbComponents, IterAction (..))
+import           Snowdrop.Dba.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl, reThrowAVLEx,
+                                          runAVLCacheT)
+import           Snowdrop.Dba.Base (DGetter', DIter', DModify', DbApplyProof, DbComponents,
+                                    IterAction (..))
 import           Snowdrop.Hetero (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, Head)
 import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..))
 
@@ -67,6 +66,8 @@ data AVLChgAccum h t = AVLChgAccum
     , acaTouched :: Set h
     -- ^ Set of nodes, which were touched during all of change operations applied on tree
     }
+
+deriving instance (Show h, Show (HVal t), Show (HKey t)) => Show (AVLChgAccum h t)
 
 -- | Change accumulator type for AVL tree, wrapped with Maybe.
 -- `Nothing` is treated identically to `Just $ AVLChgAccum (Pure rootHash) def mempty`,

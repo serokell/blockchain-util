@@ -10,56 +10,50 @@ module Snowdrop.Block.Exec.StateConfiguration
 
 import           Universum
 
-import           Data.Default (Default)
-import qualified Data.Map as M
-import           Data.Vinyl (Rec)
+import           Data.List.NonEmpty ((<|))
+import qualified Data.List.NonEmpty as NE
+import           Data.Union (USubset, Union, ulift, urelax)
+import           Data.Vinyl (Rec (..))
+import           Data.Vinyl.TypeLevel (AllConstrained, RImage)
 
-import           Snowdrop.Block (BlkConfiguration (..), BlkStateConfiguration (..), BlockExpandedTx,
-                                 BlockRawTx, BlockUndo, Blund (..), CurrentBlockRef (..))
-import           Snowdrop.Block.Exec.RawTx ()
-import           Snowdrop.Block.Exec.Storage (BlundComponent, TipComponent, TipKey (..),
-                                              TipValue (..))
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, DbAccessU,
-                                ERoComp, ERwComp, ExpandRawTxsMode, ExpandableTx, HChangeSet,
-                                HUpCastableChSet, HasBExceptions, MappendHChSet, ProofNExp (..),
-                                QueryERo, SomeTx, StatePException (..), StateTx (..), TxComponents,
-                                TxRaw (..), Undo, UnionSeqExpandersInps, UnitedTxType,
-                                UpCastableERoM, Validator, ValueOp (..), applySomeTx, computeUndo,
-                                convertEffect, getCAOrDefault, hChangeSetFromMap, liftERoComp,
-                                modifyAccum, modifyAccumOne, modifyAccumUndo, queryOne,
+import           Snowdrop.Block (BlkConfiguration (..), BlkStateConfiguration (..), BlockHeader,
+                                 BlockRef, ForkVerificationException, FromRef (..),
+                                 IterationException, RawBlk, ToRef (..), loadBlocksFromTo,
+                                 unCurrentBlockRef)
+import           Snowdrop.Block.Exec.RawTx (CloseBlockRawTx (..), CloseBlockRawTxType,
+                                            OpenBlockRawTx (..), OpenBlockRawTxType)
+import           Snowdrop.Block.Exec.Storage (BlockUndo, Blund (..), BlundComponent, TipComponent,
+                                              TipKey (..), TipValue (..))
+import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, ERoComp,
+                                ERoCompU, ExpandableTx, HasBExceptions, ProofNExp (..), QueryERo,
+                                SomeTx, StateTx (..), TxComponents, TxRaw (..), Undo,
+                                UnionSeqExpandersInps, UnionSeqExpandersOuts, UpCastableERoM,
+                                Validator, applySomeTx, convertEffect, modifyAccumUndo, queryOne,
                                 queryOneExists, runSeqExpandersSequentially, runValidator,
-                                upcastEffERoComp, upcastEffERoCompM)
-import           Snowdrop.Hetero (Both, RContains, SomeData, UnionTypes, hupcast)
+                                upcastEffERoComp, upcastEffERoCompM, withAccum)
+import           Snowdrop.Hetero (Both, NotIntersect, RContains, SomeData, UnionTypes)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), OldestFirst (..))
 
-instance Hashable bRef => Hashable (TipValue bRef)
-
 class ( RContains txtypes txtype
-      , HUpCastableChSet (TxComponents txtype) xs
       , UpCastableERoM (TxComponents txtype) xs
       ) => BlkProcConstr txtypes xs txtype
 instance ( RContains txtypes txtype
-         , HUpCastableChSet (TxComponents txtype) xs
          , UpCastableERoM (TxComponents txtype) xs
          ) => BlkProcConstr txtypes xs txtype
 
-type BlkProcComponents blkType (txtypes :: [*]) (c :: * -> Constraint)
+type BlkProcComponents blkType (txtypes :: [*])
     = UnionTypes [TipComponent blkType, BlundComponent blkType]
-                 (TxComponents (UnitedTxType txtypes))
+                 (UnionSeqExpandersOuts txtypes)
 
-mapTxs_
+mapTx_
   :: forall conf xs txtypes c .
     ( HasLens (Ctx conf) (ChgAccumCtx conf)
     , c ~ BlkProcConstr txtypes xs
     )
   => (forall txtype . c txtype => StateTx txtype -> ERoComp conf (TxComponents txtype) ())
-  -> [(ChgAccum conf, SomeTx c)]
+  -> (ChgAccum conf, SomeTx c)
   -> ERoComp conf xs ()
-mapTxs_ handleTxDo txsWithAccs =
-    mconcat $
-    flip map txsWithAccs $ \(acc, tx) ->
-    local ( lensFor .~ CAInitialized @conf acc ) $
-    handleTx tx
+mapTx_ handleTxDo (acc, tx) = withAccum @conf acc (handleTx tx)
   where
     handleTx =
       applySomeTx $ \(stx :: StateTx txtype) ->
@@ -68,70 +62,103 @@ mapTxs_ handleTxDo txsWithAccs =
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-  :: forall blkType txtypes conf xs c m .
-    ( xs ~ BlkProcComponents blkType txtypes c
-    , c ~ BlkProcConstr txtypes xs
-    , m ~ ERwComp conf (DbAccessU conf xs) (ChgAccum conf)
-    , HasBExceptions conf
-        [ StatePException
-        , CSMappendException
-        ]
-    , BlockExpandedTx blkType ~ SomeTx c
-    , HasLens (ChgAccum conf) (ChgAccum conf)
-    , HasLens (Ctx conf) (ChgAccumCtx conf)
-    , HasGetter (BlockRawTx blkType) (SomeData TxRaw (Both (ExpandableTx txtypes) c))
-    , Default (ChgAccum conf)
-    , ExpandRawTxsMode conf txtypes
-    , MappendHChSet xs
-    , QueryERo xs (TipComponent blkType)
-    , QueryERo xs (BlundComponent blkType)
-    , HUpCastableChSet '[TipComponent blkType] xs
-    , HUpCastableChSet '[BlundComponent blkType] xs
-    , UpCastableERoM (UnionSeqExpandersInps txtypes) xs
-    , Default (HChangeSet xs)
-    , HasGetter (Undo conf) (BlockUndo blkType)
+  :: forall blkType txtypes conf openExpRestr closeExpRestr xs c openBlockTxType closeBlockTxType txtypes' .
+    ( xs ~ BlkProcComponents blkType txtypes'
+    , c ~ Both (ExpandableTx txtypes') (BlkProcConstr txtypes' xs)
+    , openBlockTxType ~ OpenBlockRawTxType (BlockHeader blkType) openExpRestr
+    , closeBlockTxType ~ CloseBlockRawTxType (BlockHeader blkType) closeExpRestr
+    , txtypes' ~ (openBlockTxType ': closeBlockTxType ': txtypes)
+    , HasBExceptions conf '[ CSMappendException
+                           , ForkVerificationException (BlockRef blkType)
+                           , IterationException (BlockRef blkType)
+                           ]
+    , NotIntersect '[ openBlockTxType, closeBlockTxType ] txtypes
     , HasReview (Undo conf) (BlockUndo blkType)
+    , HasGetter (RawBlk blkType) (BlockHeader blkType)
+    , Element (RawBlk blkType) ~ Union TxRaw txtypes
+    , Container (RawBlk blkType)
+    , HasLens (Ctx conf) (ChgAccumCtx conf)
+    , QueryERo xs (BlundComponent blkType)
+    , QueryERo xs (TipComponent blkType)
+    , UpCastableERoM (UnionSeqExpandersInps txtypes') xs
+    , AllConstrained c txtypes'
+    , HasGetter (Union TxRaw txtypes) (SomeData TxRaw c)
+    , USubset txtypes txtypes' (RImage txtypes txtypes')
     )
     => BlkConfiguration blkType
-    -> Validator conf txtypes
-    -> Rec (ProofNExp conf) txtypes
-    -> BlkStateConfiguration blkType m
-inmemoryBlkStateConfiguration cfg validator exps = fix $ \this ->
+    -> Validator conf txtypes'
+    -> Rec (ProofNExp conf) txtypes'
+    -> BlkStateConfiguration (ChgAccum conf) blkType (ERoCompU conf xs)
+inmemoryBlkStateConfiguration cfg validator expander = fix $ \this ->
     BlkStateConfiguration {
-      bscConfig = cfg
-    , bscExpand = liftERoComp . upcastEffERoCompM @_ @xs . runSeqExpandersSequentially exps . map gett
-    , bscApplyPayload = \txs -> do
-          (newSt, undo) <- liftERoComp $ do
-              curAcc <- asks (getCAOrDefault @conf . gett)
-              OldestFirst accs <-
-                  convertEffect @conf $ modifyAccum @xs @conf (OldestFirst $ map (applySomeTx $ hupcast . txBody) txs)
-              let preAccs = init (curAcc :| accs)
-                  lastAcc = last (curAcc :| accs)
-              convertEffect @conf $ mapTxs_ @conf (runValidator validator) (zip preAccs txs)
-              (lastAcc,) . gett <$> computeUndo @xs @conf lastAcc
-          undo <$ modify (flip sett newSt)
-     , bscApplyUndo = liftERoComp . modifyAccumUndo @xs @conf . pure . inj >=> modify . flip sett
-     , bscStoreBlund = \blund -> do
-           let blockRef = unCurrentBlockRef $ bcBlockRef cfg (buHeader blund)
-           let chg = hChangeSetFromMap @(BlundComponent blkType) $ M.singleton blockRef (New blund)
-           applyBlkChg chg
-     , bscRemoveBlund = \blockRef -> do
-           let chg = hChangeSetFromMap @(BlundComponent blkType) $ M.singleton blockRef Rem
-           applyBlkChg chg
-     , bscGetBlund = liftERoComp . queryOne @(BlundComponent blkType) @xs @conf
-     , bscBlockExists = liftERoComp . queryOneExists @(BlundComponent blkType) @xs @conf
-     , bscGetTip = unTipValue <<$>> liftERoComp (queryOne @(TipComponent blkType) @xs @conf TipKey)
-     , bscSetTip = \newTip' -> do
-           oldTip <- bscGetTip this
-           let applyChg tipMod = applyBlkChg $ hChangeSetFromMap @(TipComponent blkType) $ M.singleton TipKey tipMod
-           case (newTip', oldTip) of
-             (Nothing, Nothing) -> pure ()
-             (Just v, Nothing)  -> applyChg $ New (TipValue v)
-             (Just v, Just _)   -> applyChg $ Upd (TipValue v)
-             (Nothing, Just _)  -> applyChg Rem
+      bscVerifyConfig = cfg
+    , bscExpandHeaders = \_ rawBlocks -> pure $ gett <$> rawBlocks
+    , bscValidatePayloads = \acc0 rawBlks -> do
+        let rawTxs = toRawTxs <$> rawBlks
+            lengths = unOldestFirst $ length <$> rawTxs
+            indicies = cummulativeSums lengths
+            flatRawTxs = gett @_ @(SomeData TxRaw c) <$> mconcat (toList $ unOldestFirst rawTxs)
+        OldestFirst txsWithAccs <-
+            convertEffect @conf $
+              upcastEffERoCompM @_ @xs $
+              withAccum @conf acc0 $
+              runSeqExpandersSequentially expander flatRawTxs
+        let txsWithPreAccs = zip accs (fst <$> txsWithAccs)
+            accs = acc0 : (snd <$> txsWithAccs)
+        convertEffect @conf $ mapM_ (mapTx_ @conf (runValidator validator)) txsWithPreAccs
+        pure $ OldestFirst $ pickElements (NE.zip lengths indicies) accs
+    , bscGetHeader = \blockRef -> convertEffect @conf $ do
+        blund <- queryOne @(BlundComponent blkType) @xs @conf $ blockRef
+        pure $ gett . buRawBlk <$> blund
+    --  sequentially rollback every block from the tip down to blockRef
+    , bscInmemRollback = \acc0 mBlockRef -> do
+        mTip <- bscGetTip this
+        blunds <- getBlunds mBlockRef mTip
+        let refs = unCurrentBlockRef . bcBlockRef cfg . gett . buRawBlk <$> blunds
+        fmap (, refs) $ withAccum @conf acc0 $
+          modifyAccumUndo @xs @conf $ inj . buUndo <$> blunds
+    , bscBlockExists = convertEffect @conf . queryOneExists @(BlundComponent blkType) @xs @conf
+    , bscGetTip = unTipValue <<$>> convertEffect @conf (queryOne @(TipComponent blkType) @xs @conf TipKey)
     }
     where
-      applyBlkChg :: forall t . HUpCastableChSet '[t] xs => HChangeSet '[t] -> m ()
-      applyBlkChg chg =
-          liftERoComp (modifyAccumOne @xs @conf $ hupcast @_ @'[t] @xs chg)
-              >>= modify . flip sett
+      getBlunds fromRef toRef =
+          loadBlocksFromTo
+              (convertEffect @conf . queryOne @(BlundComponent blkType) @xs @conf)
+              (bcPrevBlockRef cfg . gett @(RawBlk blkType) . buRawBlk)
+              (bcMaxForkDepth cfg)
+              (Just $ FromRef fromRef)
+              (ToRef toRef)
+
+      drop' (toDrop, i) chgAccs =
+        case drop toDrop chgAccs of
+          ca : caRest -> (ca, ca : caRest)
+          _ -> error $
+                  "inmemoryBlkStateConfiguration:"
+                    <> " runSeqExpandersSequentially returned list"
+                    <> " with no chgAccum for tx #" <> show i
+
+      pickElements :: NonEmpty (Int, Int) -> [ChgAccum conf] -> NonEmpty (ChgAccum conf)
+      pickElements (i0 :| iRest) chgAccs = fstChgAcc :| pickElementsDo iRest chgAccsRest
+        where
+          (fstChgAcc, chgAccsRest) = drop' i0 chgAccs
+
+      pickElementsDo :: [(Int, Int)] -> [ChgAccum conf] -> [ChgAccum conf]
+      pickElementsDo (i : iRest) chgAccs = chgAcc : pickElementsDo iRest chgAccsRest
+        where
+          (chgAcc, chgAccsRest) = drop' i chgAccs
+      pickElementsDo [] _ = []
+
+      -- | Functions transforms list of ints to list of cummulative sums
+      -- E.g. cummulativeSums [0, 1, 0, 7, 4] == [0, 1, 1, 8, 12]
+      cummulativeSums :: NonEmpty Int -> NonEmpty Int
+      cummulativeSums (f :| rest) = NE.reverse $ snd $
+          foldl' (\(s, ls) i -> (s + i, s + i <| ls)) (f, f :| []) rest
+
+      toRawTxs :: RawBlk blkType -> [Union TxRaw txtypes']
+      toRawTxs rawBlk =
+          [ulift $ TxRaw @openBlockTxType $ OpenBlockRawTx header]
+            ++ (map urelax rawTxs)
+            ++ [ulift $ TxRaw @closeBlockTxType $ CloseBlockRawTx header]
+        where
+          rawTxs = toList rawBlk
+          header = gett @_ @(BlockHeader blkType) rawBlk
