@@ -37,6 +37,12 @@ deriving instance Traversable b => Traversable (NewestFirst b)
 deriving instance Eq (b a) => Eq (NewestFirst b a)
 deriving instance Show (b a) => Show (NewestFirst b a)
 
+instance Foldable b => Container (NewestFirst b a) where
+  type Element (NewestFirst b a) = a
+
+instance Foldable b => Container (OldestFirst b a) where
+  type Element (OldestFirst b a) = a
+
 oldestFirstFContainer :: (b a -> c a) -> OldestFirst b a -> OldestFirst c a
 oldestFirstFContainer f (OldestFirst xs) = OldestFirst $ f xs
 
