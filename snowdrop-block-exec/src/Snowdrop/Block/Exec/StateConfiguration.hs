@@ -13,7 +13,6 @@ import           Universum
 import           Data.List.NonEmpty ((<|))
 import qualified Data.List.NonEmpty as NE
 import           Data.Union (USubset, Union, ulift, urelax)
-import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.TypeLevel (AllConstrained, RImage)
 
 import           Snowdrop.Block (BlkConfiguration (..), BlkStateConfiguration (..), BlockHeader,
@@ -24,13 +23,12 @@ import           Snowdrop.Block.Exec.RawTx (CloseBlockRawTx (..), CloseBlockRawT
                                             OpenBlockRawTx (..), OpenBlockRawTxType)
 import           Snowdrop.Block.Exec.Storage (BlockUndo, Blund (..), BlundComponent, TipComponent,
                                               TipKey (..), TipValue (..))
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, ERoComp,
-                                ERoCompU, ExpandableTx, HasBExceptions, ProofNExp (..), QueryERo,
-                                SomeTx, StateTx (..), TxComponents, TxRaw (..), Undo,
-                                UnionSeqExpandersInps, UnionSeqExpandersOuts, UpCastableERoM,
-                                Validator, applySomeTx, convertEffect, modifyAccumUndo, queryOne,
-                                queryOneExists, runSeqExpandersSequentially, runValidator,
-                                upcastEffERoComp, upcastEffERoCompM, withAccum)
+import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, ERoCompU,
+                                ExpandableTx, HasBExceptions, QueryERo, SeqExpanders, TxComponents,
+                                TxRaw (..), Undo, UnionSeqExpandersInps, UnionSeqExpandersOuts,
+                                UpCastableERoM, convertEffect, modifyAccumUndo, queryOne,
+                                queryOneExists, runSeqExpandersSequentially, upcastEffERoCompM,
+                                withAccum)
 import           Snowdrop.Hetero (Both, NotIntersect, RContains, SomeData, UnionTypes)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), OldestFirst (..))
 
@@ -44,20 +42,6 @@ instance ( RContains txtypes txtype
 type BlkProcComponents blkType (txtypes :: [*])
     = UnionTypes [TipComponent blkType, BlundComponent blkType]
                  (UnionSeqExpandersOuts txtypes)
-
-mapTx_
-  :: forall conf xs txtypes c .
-    ( HasLens (Ctx conf) (ChgAccumCtx conf)
-    , c ~ BlkProcConstr txtypes xs
-    )
-  => (forall txtype . c txtype => StateTx txtype -> ERoComp conf (TxComponents txtype) ())
-  -> (ChgAccum conf, SomeTx c)
-  -> ERoComp conf xs ()
-mapTx_ handleTxDo (acc, tx) = withAccum @conf acc (handleTx tx)
-  where
-    handleTx =
-      applySomeTx $ \(stx :: StateTx txtype) ->
-          upcastEffERoComp @(TxComponents txtype) @xs @conf (handleTxDo stx)
 
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
@@ -86,10 +70,9 @@ inmemoryBlkStateConfiguration
     , USubset txtypes txtypes' (RImage txtypes txtypes')
     )
     => BlkConfiguration blkType
-    -> Validator conf txtypes'
-    -> Rec (ProofNExp conf) txtypes'
+    -> SeqExpanders conf txtypes'
     -> BlkStateConfiguration (ChgAccum conf) blkType (ERoCompU conf xs)
-inmemoryBlkStateConfiguration cfg validator expander = fix $ \this ->
+inmemoryBlkStateConfiguration cfg  expander = fix $ \this ->
     BlkStateConfiguration {
       bscVerifyConfig = cfg
     , bscExpandHeaders = \_ rawBlocks -> pure $ gett <$> rawBlocks
@@ -103,9 +86,7 @@ inmemoryBlkStateConfiguration cfg validator expander = fix $ \this ->
               upcastEffERoCompM @_ @xs $
               withAccum @conf acc0 $
               runSeqExpandersSequentially expander flatRawTxs
-        let txsWithPreAccs = zip accs (fst <$> txsWithAccs)
-            accs = acc0 : (snd <$> txsWithAccs)
-        convertEffect @conf $ mapM_ (mapTx_ @conf (runValidator validator)) txsWithPreAccs
+        let accs = acc0 : (snd <$> txsWithAccs)
         pure $ OldestFirst $ pickElements (NE.zip lengths indicies) accs
     , bscGetHeader = \blockRef -> convertEffect @conf $ do
         blund <- queryOne @(BlundComponent blkType) @xs @conf $ blockRef

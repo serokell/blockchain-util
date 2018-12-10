@@ -74,9 +74,7 @@ library
       Snowdrop.Core.Expand.Type
       Snowdrop.Core.Expand.Sequential
       Snowdrop.Core.Transaction
-      Snowdrop.Core.Validator
-      Snowdrop.Core.Validator.Basic
-      Snowdrop.Core.Validator.Types
+      Snowdrop.Core.Validate
 
   default-language: Haskell2010
   ghc-options:         -Wall

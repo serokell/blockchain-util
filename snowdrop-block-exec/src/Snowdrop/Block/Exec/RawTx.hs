@@ -12,7 +12,7 @@ import           Universum
 
 import qualified Data.Text.Buildable
 
-import           Snowdrop.Core (ExpRestriction, SeqExpanderComponents, TxProof, TxRawImpl)
+import           Snowdrop.Core (ExpRestriction, SeqExpanderComponents, TxRawImpl)
 import           Snowdrop.Util (DBuildable)
 
 newtype OpenBlockRawTx header  = OpenBlockRawTx  { unOpenBlockRawTx :: header }
@@ -34,9 +34,6 @@ data CloseBlockRawTxType header (expRestr :: [ExpRestriction [*] [*]])
 
 type instance TxRawImpl (OpenBlockRawTxType header expRestr) = OpenBlockRawTx header
 type instance TxRawImpl (CloseBlockRawTxType header expRestr) = CloseBlockRawTx header
-
-type instance TxProof (OpenBlockRawTxType header exp) = ()
-type instance TxProof (CloseBlockRawTxType header exp) = ()
 
 type instance SeqExpanderComponents (OpenBlockRawTxType header exp) = exp
 type instance SeqExpanderComponents (CloseBlockRawTxType header exp) = exp

@@ -5,7 +5,8 @@
 {-# LANGUAGE TypeInType          #-}
 
 module Snowdrop.Core.Expand.Type
-       ( ProofNExp (..)
+       ( SeqExpanders
+       , SeqExp (..)
        , SeqExpander
        , PreExpander (..)
        , contramapSeqExpander
@@ -20,23 +21,26 @@ module Snowdrop.Core.Expand.Type
 
 import           Universum
 
-import           Data.Default (Default)
-import           Data.Vinyl (Rec (..))
+import           Data.Default (Default (..))
+import           Data.Vinyl (RMap (..), Rec (..))
 
 import           Snowdrop.Core.ChangeSet (HChangeSet)
 import           Snowdrop.Core.ERoComp (ERoComp)
-import           Snowdrop.Core.Transaction (ExpRestriction (..), SeqExpanderComponents, TxProof,
-                                            TxRaw)
+import           Snowdrop.Core.Transaction (ExpRestriction (..), SeqExpanderComponents, TxRaw)
 
-newtype ProofNExp conf txtype =
-    ProofNExp (TxRaw txtype -> TxProof txtype, SeqExpander conf txtype)
+type SeqExpanders conf = Rec (SeqExp conf)
+
+newtype SeqExp conf txtype = SeqExp {unSeqExp :: SeqExpander conf txtype}
 
 -- | Sequence of expand stages to be consequently executed upon a given transaction.
 type SeqExpander conf txtype = Rec (PreExpander conf (TxRaw txtype)) (SeqExpanderComponents txtype)
 
-contramapSeqExpander :: (a -> b) -> Rec (PreExpander conf b) xs -> Rec (PreExpander conf a) xs
-contramapSeqExpander _ RNil         = RNil
-contramapSeqExpander f (ex :& rest) = contramapPreExpander f ex :& contramapSeqExpander f rest
+contramapSeqExpander
+  :: RMap xs
+  => (a -> b)
+  -> Rec (PreExpander conf b) xs
+  -> Rec (PreExpander conf a) xs
+contramapSeqExpander f = rmap (contramapPreExpander f)
 
 -- | PreExpander allows you to convert one raw tx to StateTx.
 --  _inpSet_ is set of Prefixes which expander gets access to during computation.
@@ -48,6 +52,10 @@ newtype PreExpander conf rawTx ioRestr = PreExpander
     { runExpander :: rawTx
                   -> ERoComp conf (ExpInpComps ioRestr) (DiffChangeSet (ExpOutComps ioRestr))
     }
+
+instance Semigroup (DiffChangeSet (ExpOutComps ioRestr)) =>
+    Semigroup (PreExpander conf rawTx ioRestr) where
+    PreExpander a <> PreExpander b = PreExpander $ a <> b
 
 contramapPreExpander :: (a -> b) -> PreExpander conf b ioRestr -> PreExpander conf a ioRestr
 contramapPreExpander f (PreExpander act) = PreExpander $ act . f
