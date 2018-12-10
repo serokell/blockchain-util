@@ -21,8 +21,8 @@ module Snowdrop.Core.Expand.Type
 
 import           Universum
 
-import           Data.Default (Default)
-import           Data.Vinyl (Rec (..))
+import           Data.Default (Default (..))
+import           Data.Vinyl (RMap (..), Rec (..))
 
 import           Snowdrop.Core.ChangeSet (HChangeSet)
 import           Snowdrop.Core.ERoComp (ERoComp)
@@ -30,14 +30,17 @@ import           Snowdrop.Core.Transaction (ExpRestriction (..), SeqExpanderComp
 
 type SeqExpanders conf = Rec (SeqExp conf)
 
-newtype SeqExp conf txtype     = SeqExp {unSeqExp :: SeqExpander conf txtype}
+newtype SeqExp conf txtype = SeqExp {unSeqExp :: SeqExpander conf txtype}
 
 -- | Sequence of expand stages to be consequently executed upon a given transaction.
 type SeqExpander conf txtype = Rec (PreExpander conf (TxRaw txtype)) (SeqExpanderComponents txtype)
 
-contramapSeqExpander :: (a -> b) -> Rec (PreExpander conf b) xs -> Rec (PreExpander conf a) xs
-contramapSeqExpander _ RNil         = RNil
-contramapSeqExpander f (ex :& rest) = contramapPreExpander f ex :& contramapSeqExpander f rest
+contramapSeqExpander
+  :: RMap xs
+  => (a -> b)
+  -> Rec (PreExpander conf b) xs
+  -> Rec (PreExpander conf a) xs
+contramapSeqExpander f = rmap (contramapPreExpander f)
 
 -- | PreExpander allows you to convert one raw tx to StateTx.
 --  _inpSet_ is set of Prefixes which expander gets access to during computation.
