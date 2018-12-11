@@ -50,6 +50,10 @@ newtype RIO ctx a = RIO (ReaderT ctx IO a)
               MonadThrow, MonadCatch, MonadMask, MonadBase IO)
 
 deriving instance MonadBase IO (RIO ctx) => MonadBaseControl IO (RIO ctx)
+deriving instance Monoid a => Monoid (ReaderT ctx IO a)
+deriving instance Monoid a => Monoid (RIO ctx a)
+deriving instance Semigroup a => Semigroup (ReaderT ctx IO a)
+deriving instance Semigroup a => Semigroup (RIO ctx a)
 
 -- | Executor for 'RIO' monad
 runRIO :: MonadIO m => ctx -> RIO ctx a -> m a
