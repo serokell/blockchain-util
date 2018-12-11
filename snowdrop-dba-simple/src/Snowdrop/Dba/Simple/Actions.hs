@@ -6,6 +6,7 @@ module Snowdrop.Dba.Simple.Actions
     ( simpleDbActions
     , simpleDbActions'
     , HMapLensEl (..)
+    , SimpleDbActionsConstr
     ) where
 
 import           Universum hiding (Compose)
@@ -17,13 +18,13 @@ import           Data.Vinyl (RApply (..), RMap (..), RPureConstrained (..), Rec 
                              rtraverse, (<<*>>))
 import           Data.Vinyl.TypeLevel (AllConstrained, RecAll)
 
-import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), SumChangeSet (..),
-                                Undo, ValueOp (..))
+import           Snowdrop.Core (ChgAccum, HChangeSet, HChangeSetEl (..), SumChangeSet (..), Undo,
+                                ValueOp (..))
+import           Snowdrop.Dba.Base (DbActionsException (..), DbApplyProof, DbComponents,
+                                    DbModifyActions (..), IterAction (..))
 import           Snowdrop.Dba.Simple.SumChangeSet (sumChangeSetDaa, sumChangeSetDaaU)
-import           Snowdrop.Dba.Base (DbActionsException (..), DbApplyProof,
-                                    DbComponents, DbModifyActions (..), IterAction (..))
-import           Snowdrop.Hetero (HElem, HElemFlipped, ExnHKey, HIntersectable, HKey, HMap, HMapEl (..),
-                                  HSetEl (..), HVal, OrdHKey, rliftA2)
+import           Snowdrop.Hetero (ExnHKey, HElem, HElemFlipped, HIntersectable, HKey, HMap,
+                                  HMapEl (..), HSetEl (..), HVal, OrdHKey, rliftA2)
 import           Snowdrop.Util (IsEmpty (..), toDummyMap)
 
 type SimpleDbActionsConstr conf xs =
