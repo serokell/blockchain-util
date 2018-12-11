@@ -94,7 +94,7 @@ modAccum
     :: forall h xs ctx m .
     ( AvlHashable h, HasGetter ctx (RootHashes h xs)
     , RetrieveImpl (ReaderT ctx m) h
-    , MonadIO m, MonadCatch m
+    , MonadCatch m
     , AllAvlEntries h xs
     )
     => ctx
@@ -194,7 +194,7 @@ query
     :: forall h xs ctx m .
     ( AvlHashable h, HasGetter ctx (RootHashes h xs)
     , RetrieveImpl (ReaderT ctx m) h
-    , MonadIO m, MonadCatch m
+    , MonadCatch m
     , AllAvlEntries h xs
     )
    => ctx -> AVLChgAccums h xs -> DGetter' xs m
@@ -222,7 +222,7 @@ iter
     ( AvlHashable h
     , HasGetter ctx (RootHashes h xs)
     , RetrieveImpl (ReaderT ctx m) h
-    , MonadIO m, MonadCatch m
+    , MonadCatch m
     , AllAvlEntries h xs
     )
     => ctx

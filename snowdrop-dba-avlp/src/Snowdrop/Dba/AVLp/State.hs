@@ -102,7 +102,7 @@ reThrowAVLEx m =
 clientModeToTempSt
     :: forall h xs m n .
     ( AvlHashable h
-    , MonadCatch m, MonadIO n, MonadCatch n
+    , MonadCatch m, MonadCatch n
     , AllAvlEntries h xs
     )
     => RetrieveF h n
