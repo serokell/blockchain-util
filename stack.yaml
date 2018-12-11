@@ -28,8 +28,9 @@ extra-deps:
     - code/network
     - code/prelude
 
-- git: https://github.com/kevroletin/auth-data-structures.git
-  commit: e5c793a42ccf93c8e383bed38ab9d90a0be9acd4
+# vasiliy.kevroletin/sd226-fixes
+- git: https://github.com/serokell/auth-data-structures.git
+  commit: 1d56975a9bcdc3007566e593968864a6a916cf5f
 
 # Forced by lootbox #
 - base-noprelude-4.10.1.0

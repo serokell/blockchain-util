@@ -1,9 +1,9 @@
 {-# LANGUAGE DataKinds           #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE InstanceSigs        #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE InstanceSigs #-}
 
 module Snowdrop.Dba.AVLp.State
        ( AVLServerState (..)
@@ -31,10 +31,9 @@ import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
 import           Loot.Log (MonadLogging, logDebug)
 
-import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
-                                        AvlProofs, IsAvlEntry, RootHash (..),
-                                        RootHashComp (..), RootHashes, deserialiseM,
-                                        materialize, mkAVL, saveAVL)
+import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
+                                        IsAvlEntry, RootHash (..), RootHashComp (..), RootHashes,
+                                        deserialiseM, mkAVL, saveAVL)
 import           Snowdrop.Dba.Base (ClientMode (..), DbActionsException (..))
 import           Snowdrop.Hetero (HKey, HMap, HVal, unHMapEl)
 import           Snowdrop.Util (HasGetter (..), Serialisable (..))
@@ -175,7 +174,7 @@ initAVLPureStorage xs = initAVLPureStorageAll xs def
         logDebug "Materializing AVL+ pure storage"
         fullAVL <-
             runAVLCacheT @_ @h
-                (materialize @h @(HKey r) @(HVal r) $ mkAVL rootH)
+                (AVL.materialize @h @(HKey r) @(HVal r) $ mkAVL rootH)
                 def
                 newCache
         logDebug . fromString $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)

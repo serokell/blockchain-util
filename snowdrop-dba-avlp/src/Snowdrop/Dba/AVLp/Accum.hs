@@ -65,7 +65,7 @@ data AVLChgAccum h t = AVLChgAccum
     -- ^ AVL map, which contains avl tree with most-recent updates
     , acaStorage :: AVLCache h
     -- ^ AVL tree cache, which stores results of all `save` operations performed on AVL tree
-    , acaTouched :: Set AVL.Revision
+    , acaTouched :: Set h
     -- ^ Set of nodes, which were touched during all of change operations applied on tree
     }
 
@@ -145,13 +145,13 @@ modAVL
       , MonadCatch m
       , RetrieveImpl (ReaderT ctx m) h
       )
-    => (AVL.Map h k v, Set AVL.Revision)
+    => (AVL.Map h k v, Set h)
     -> (k, ValueOp v)
-    -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set AVL.Revision)
+    -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
 modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup k avl
   where
-    processResp :: ((Maybe v, Set AVL.Revision), AVL.Map h k v)
-                -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set AVL.Revision)
+    processResp :: ((Maybe v, Set h), AVL.Map h k v)
+                -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
     processResp ((lookupRes, (<> touched) -> touched'), avl') =
       case (valueop, lookupRes) of
         (NotExisted, Nothing) -> pure (avl', touched')

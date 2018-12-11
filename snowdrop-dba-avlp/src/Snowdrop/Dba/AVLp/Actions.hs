@@ -26,7 +26,7 @@ import           Snowdrop.Dba.AVLp.Accum (AVLChgAccum (..), AVLChgAccums, RootHa
                                           iter, modAccum, modAccumU, query)
 import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
                                         AvlUndo, IsAvlEntry, KVConstraint, RootHash (..),
-                                        RootHashComp (..), avlRootHash, materialize, mkAVL, saveAVL)
+                                        RootHashComp (..), avlRootHash, mkAVL, saveAVL)
 import           Snowdrop.Dba.AVLp.Constraints (RHashable, rmapWithHash)
 import           Snowdrop.Dba.AVLp.State (AMSRequested (..), AVLCache (..), AVLCacheT,
                                           AVLPureStorage (..), AVLServerState (..), ClientTempState,
@@ -196,7 +196,7 @@ computeProofAll (RootHashComp rootH :& roots) (AVLChgAccum _ _ accTouched :& acc
 computeProof
     :: forall t h . (IsAvlEntry h t, AvlHashable h)
     => RootHash h
-    -> Set AVL.Revision
+    -> Set h
     -> AMSRequested t
     -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h (HKey t) (HVal t))
 computeProof (mkAVL -> oldAvl) accTouched requested =
@@ -207,7 +207,7 @@ computeProof (mkAVL -> oldAvl) accTouched requested =
     computeProofWhole
         :: AVL.Map h (HKey t) (HVal t)
         -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Proof h (HKey t) (HVal t))
-    computeProofWhole = fmap AVL.Proof . materialize
+    computeProofWhole = fmap AVL.Proof . AVL.materialize
 
     computeProofKeys
         :: AVL.Map h (HKey t) (HVal t)
@@ -222,9 +222,9 @@ computeProof (mkAVL -> oldAvl) accTouched requested =
 
     computeTouched
         :: (KVConstraint k v, AVL.Hash h k v, Serialisable (MapLayer h k v h))
-        => (AVL.Map h k v, Set AVL.Revision)
+        => (AVL.Map h k v, Set h)
         -> k
-        -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Map h k v, Set AVL.Revision)
+        -> AVLCacheT h (ReaderT (AVLPureStorage h) IO) (AVL.Map h k v, Set h)
     computeTouched (avl, touched) key = do
         ((_res, touched'), avl') <- AVL.lookup key avl
         pure (avl', touched' <> touched)

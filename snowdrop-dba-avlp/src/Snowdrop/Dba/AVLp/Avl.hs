@@ -16,7 +16,6 @@ module Snowdrop.Dba.AVLp.Avl
        , RootHash (..)
        , AvlUndo
        , saveAVL
-       , materialize
        , mkAVL
        , avlRootHash
        , deserialiseM
@@ -24,7 +23,6 @@ module Snowdrop.Dba.AVLp.Avl
 
 import           Universum
 
-import           Control.Monad.Free (Free (Free))
 import           Data.Tree.AVL (MapLayer (..))
 import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
@@ -73,20 +71,11 @@ type AvlUndo h = RootHashes h
 saveAVL :: forall h k v m . (AVL.Stores h k v m, MonadCatch m) => AVL.Map h k v -> m (RootHash h)
 saveAVL avl = avlRootHash <$> AVL.save avl
 
--- TODO: AVL no longer exports load
--- TODO: is this method even used somewhere?
-materialize :: forall h k v m . AVL.Retrieves h k v m => AVL.Map h k v -> m (AVL.Map h k v)
-materialize initAVL = flip AVL.loadAndM initAVL $ \case
-    MLBranch rev h m c t l r -> fmap Free $ MLBranch rev h m c t <$> materialize l <*> materialize r
-    rest -> pure $ Free rest
-
 mkAVL :: RootHash h -> AVL.Map h k v
 mkAVL = pure . unRootHash
 
--- | Get root hash of AVL tree.
--- TODO: in which cases it returns Nothing?
 avlRootHash :: AVL.Hash h k v => AVL.Map h k v -> RootHash h
-avlRootHash x = maybe (error "FIXME") RootHash (AVL.rootHash . AVL.getFreshlyRehashed . AVL.fullRehash $ x)
+avlRootHash = RootHash . AVL.rootHash'
 
 deserialiseM :: (MonadThrow m, Serialisable v) => ByteString -> m v
 deserialiseM =
@@ -101,7 +90,7 @@ instance Hashable b => Hashable (AVL.WithBounds b)
 instance (Hashable h, Hashable k, Hashable v, Hashable s) => Hashable (MapLayer h k v s)
 
 instance Default h => Default (MapLayer h k v s) where
-    def = MLEmpty def def
+    def = MLEmpty def
 
 instance (Show h, Show k, Show v) => Buildable (AVL.Map h k v) where
     build = Buildable.build . AVL.showMap
