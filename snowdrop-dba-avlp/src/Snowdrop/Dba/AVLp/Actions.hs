@@ -216,7 +216,7 @@ computeProof (mkAVL -> oldAvl) accTouched requested =
     computeProofKeys tree ks = do
         (avl', allTouched) <- foldM computeTouched (tree, mempty) ks
 
-        AVL.prune (allTouched <> accTouched) (AVL.fullRehash avl')
+        AVL.prune (allTouched <> accTouched) . AVL.fullRehash =<< AVL.materialize avl'
 
     computeTouched
         :: (KVConstraint k v, AVL.Hash h k v, Serialisable (MapLayer h k v h))
