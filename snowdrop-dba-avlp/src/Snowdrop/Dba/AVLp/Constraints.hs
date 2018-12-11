@@ -26,11 +26,8 @@ instance (c x, RMapWithC c xs) => RMapWithC c (x ': xs) where
     rmapWithC f (x :& xs) = f x :& rmapWithC @c f xs
     {-# INLINE rmapWithC #-}
 
--- Although this definition is more abstract, it leads to worse error messages
---
--- TODO: `AllConstrained (HAvlHash h) xs` entails `RHashable h xs` but how to tell it to the compiler?
--- type RHashable h = RMapWithC (HAvlHash h)
-
+-- Although RHashable definition using RMapWithC is more abstract, it leads to
+-- worse error messages
 class RHashable h rs where
     rmapWithHash :: (forall x. HAvlHash h x => f x -> g x) -> Rec f rs -> Rec g rs
 

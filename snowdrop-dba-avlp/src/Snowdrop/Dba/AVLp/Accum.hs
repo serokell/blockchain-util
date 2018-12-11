@@ -98,7 +98,6 @@ modAccum
     => ctx
     -> AVLChgAccums h xs
     -> DModify' (AVLChgAccums h xs) xs m
--- modAccum = undefined
 modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
     Just acc -> modAccumAll acc cs'
     Nothing  -> modAccumAll (resolveAvlCA ctx acc') cs'

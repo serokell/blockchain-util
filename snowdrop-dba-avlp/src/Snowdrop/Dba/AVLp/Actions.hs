@@ -216,8 +216,6 @@ computeProof (mkAVL -> oldAvl) accTouched requested =
     computeProofKeys tree ks = do
         (avl', allTouched) <- foldM computeTouched (tree, mempty) ks
 
-        -- FIXME: I just stole this lines from Disciplina
-        -- proof <- run $ AVL.prune preproof (AVL.fullRehash old)
         AVL.prune (allTouched <> accTouched) (AVL.fullRehash avl')
 
     computeTouched
