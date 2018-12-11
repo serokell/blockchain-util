@@ -15,6 +15,11 @@ import           Snowdrop.Hetero (HKey, HVal)
 class AVL.Hash h (HKey x) (HVal x) => HAvlHash h x
 instance AVL.Hash h (HKey x) (HVal x) => HAvlHash h x
 
+-- This class provides function which is similar to Vinyl's rmap but allows
+-- using functions with constraints as a transformation. The limitation of rmap
+-- is that it takes (forall x. f x -> g x) as it's argument so one can't use
+-- (forall x. c x => f x -> g x) here. The later is useful, for example to show
+-- record elements like this: rmapWithC @Show (Const . show)
 class RMapWithC (c :: (* -> Constraint)) rs where
     rmapWithC :: (forall x. c x => f x -> g x) -> Rec f rs -> Rec g rs
 
