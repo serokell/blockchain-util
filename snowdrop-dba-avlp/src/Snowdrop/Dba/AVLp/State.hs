@@ -201,7 +201,6 @@ instance (MonadThrow m, AvlHashable h, RetrieveImpl m h, Serialisable (MapLayer 
         checkInAccum = M.lookup k . unAVLCache <$> get >>= maybe checkInState pure
         checkInState = lift (retrieveImpl k) >>= maybe (throwM $ AVL.NotFound k) pure
 
--- TODO: implement
 instance (MonadThrow m, AvlHashable h, RetrieveImpl m h, Serialisable (MapLayer h k v h))
          => AVL.KVStore h (AVL.MapLayer h k v h) (AVLCacheT h m) where
     massStore :: [(h, AVL.MapLayer h k v h)] -> AVLCacheT h m ()

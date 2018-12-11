@@ -139,8 +139,8 @@ propagateSecondF (fa, b) = (,b) <$> fa
 class Serialisable a where
     serialise   :: a -> ByteString
     deserialise :: ByteString -> Either String a
--- | Higher-order version of Functor class.
 
+-- | Higher-order version of Functor class.
 class HFunctor t where
     fmapH :: Functor a => (forall x . a x -> b x) -> t a -> t b
 
