@@ -46,3 +46,8 @@ To build haddock use the following command (currently building Haddock for one o
 ```
 stack haddock --fast --no-haddock-deps
 ```
+## About Serokell
+
+`blockchain-util` is maintained and funded with :heart: by [Serokell](https://serokell.io/). The names and logo for Serokell are trademark of Serokell OÜ.
+
+We love open source software! See [our other projects](https://serokell.io/community?utm_source=github) or [hire us](https://serokell.io/hire-us?utm_source=github) to design, develop and grow your idea!

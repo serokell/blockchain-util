@@ -184,7 +184,7 @@ initAVLPureStorage xs = initAVLPureStorageAll xs def
 -- | Accumulator for changes emerging from `save` operations
 -- being performed on AVL tree
 newtype AVLCache h = AVLCache { unAVLCache :: Map h ByteString }
-    deriving (Default, Semigroup, Monoid)
+  deriving (Default, Semigroup, Monoid, Show)
 
 -- | Monad transformer for caching `save` operations resulting from AVL+ actions
 newtype AVLCacheT h m a = AVLCacheT (StateT (AVLCache h) m a)

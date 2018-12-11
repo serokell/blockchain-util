@@ -1,7 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 
 module Snowdrop.Block.Exec.Storage
-       ( TipComponent
+       ( BlockUndo
+       , Blund (..)
+       , TipComponent
        , BlundComponent
 
        , TipKey (..)
@@ -21,10 +23,29 @@ import qualified Data.Map.Strict as M
 import qualified Data.Text.Buildable
 import           Data.Vinyl (Rec (..))
 
-import           Snowdrop.Block (BlockRef, Blund)
+import           Snowdrop.Block (BlockRef, RawBlk)
 import           Snowdrop.Dba.Base (DbModifyActions)
 import           Snowdrop.Dba.Simple (HMapLensEl (..), SimpleConf, simpleDbActions)
 import           Snowdrop.Hetero (HKeyVal)
+
+-- | Block undo type, parametrized by unified parameter of block configuration @blkType@
+type family BlockUndo blkType :: *
+
+-- | Type for a block header with respective undo object.
+-- Isomorphic to a tuple @(header, undo)@.
+-- Note, payload is not stored as for the block handling it's of no interest.
+data Blund blkType = Blund
+    { buRawBlk :: RawBlk blkType
+    , buUndo   :: BlockUndo blkType
+    }
+    deriving Generic
+
+deriving instance (Eq (RawBlk blkType), Eq (BlockUndo blkType)) => Eq (Blund blkType)
+deriving instance (Show (RawBlk blkType), Show (BlockUndo blkType)) => Show (Blund blkType)
+
+instance ( Hashable (RawBlk blkType)
+         , Hashable (BlockUndo blkType)
+         ) => Hashable (Blund blkType)
 
 data TipComponent blkType
 data BlundComponent blkType

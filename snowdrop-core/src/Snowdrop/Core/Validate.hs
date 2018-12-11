@@ -1,4 +1,6 @@
-module Snowdrop.Core.Validator.Basic
+{-# LANGUAGE AllowAmbiguousTypes #-}
+
+module Snowdrop.Core.Validate
        ( valid
        , validateIff
        , validateAll
@@ -19,8 +21,6 @@ import           Formatting (bprint, build, (%))
 
 import           Snowdrop.Core.ChangeSet (HChangeSet, csNew, csRemove)
 import           Snowdrop.Core.ERoComp (ERoComp, HasBException, QueryERo, query)
-import           Snowdrop.Core.Transaction (TxComponents, txBody)
-import           Snowdrop.Core.Validator.Types (PreValidator (..))
 import           Snowdrop.Hetero (ExnHKey)
 import           Snowdrop.Util (HasReview (..), throwLocalError)
 
@@ -71,24 +71,31 @@ instance Buildable StructuralValidationException where
             -- this is an error as soon as we have separated 'New' and 'Upd'
             -- 'ValueOp's.
 
-type StructuralConstr txtype xs = (
-    AllConstrained (QueryERo (TxComponents txtype)) xs
+type StructuralConstr components xs = (
+    AllConstrained (QueryERo components) xs
   , AllConstrained ExnHKey xs
   )
 
 csRemoveExist
-    :: forall conf txtype .
+    :: forall xs components conf .
     ( HasBException conf StructuralValidationException
-    , StructuralConstr txtype (TxComponents txtype)
+    , StructuralConstr components xs
     )
-    => PreValidator conf txtype
-csRemoveExist = PreValidator $ checkBody . txBody
+    => HChangeSet xs
+    -> ERoComp conf components ()
+csRemoveExist = checkBody
   where
-    checkBody :: forall xs . StructuralConstr txtype xs => HChangeSet xs -> ERoComp conf (TxComponents txtype) ()
+    checkBody
+        :: forall rs . StructuralConstr components rs
+        => HChangeSet rs
+        -> ERoComp conf components ()
     checkBody RNil         = pure ()
     checkBody gs'@(_ :& _) = checkBody' gs'
 
-    checkBody' :: forall t xs' . StructuralConstr txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp conf (TxComponents txtype) ()
+    checkBody'
+        :: forall t xs' . StructuralConstr components (t ': xs')
+        => HChangeSet (t ': xs')
+        -> ERoComp conf components ()
     checkBody' (cs :& gs) = do
         let inRefs = csRemove cs
         ins <- query @t @_ @conf inRefs
@@ -96,17 +103,25 @@ csRemoveExist = PreValidator $ checkBody . txBody
         checkBody gs
 
 csNewNotExist
-    :: forall conf txtype .
+    :: forall xs components conf .
     ( HasBException conf StructuralValidationException
-    , StructuralConstr txtype (TxComponents txtype)
-    ) => PreValidator conf txtype
-csNewNotExist = PreValidator $ checkBody . txBody
+    , StructuralConstr components xs
+    )
+    => HChangeSet xs
+    -> ERoComp conf components ()
+csNewNotExist = checkBody
   where
-    checkBody :: forall xs . StructuralConstr txtype xs => HChangeSet xs -> ERoComp conf (TxComponents txtype) ()
+    checkBody
+        :: forall rs . StructuralConstr components rs
+        => HChangeSet rs
+        -> ERoComp conf components ()
     checkBody RNil         = pure ()
     checkBody gs'@(_ :& _) = checkBody' gs'
 
-    checkBody' :: forall t xs' . StructuralConstr txtype (t ': xs') => HChangeSet (t ': xs') -> ERoComp conf (TxComponents txtype) ()
+    checkBody'
+        :: forall t xs' . StructuralConstr components (t ': xs')
+        => HChangeSet (t ': xs')
+        -> ERoComp conf components ()
     checkBody' (cs :& gs) = do
         let ks = M.keysSet (csNew cs)
         mp <- query @t @_ @conf ks
@@ -116,8 +131,10 @@ csNewNotExist = PreValidator $ checkBody . txBody
 -- | Structural validation checks whether the ids which are to be removed
 -- (or to be modified) exist in state and vice versa.
 structuralPreValidator
-    :: forall conf txtype .
+    :: forall xs components conf .
     ( HasBException conf StructuralValidationException
-    , StructuralConstr txtype (TxComponents txtype)
-    ) => PreValidator conf txtype
-structuralPreValidator = csRemoveExist <> csNewNotExist
+    , StructuralConstr components xs
+    )
+    => HChangeSet xs
+    -> ERoComp conf components ()
+structuralPreValidator xs = csRemoveExist @xs @components @conf xs <> csNewNotExist @xs @components @conf xs

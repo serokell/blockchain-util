@@ -7,7 +7,8 @@ module Snowdrop.Block.StateConfiguration
 import           Universum
 
 import           Snowdrop.Block.Configuration (BlkConfiguration (..))
-import           Snowdrop.Block.Types (BlockExpandedTx, BlockRawTx, BlockRef, BlockUndo, Blund)
+import           Snowdrop.Block.Types (BlockHeader, BlockRef, RawBlk)
+import           Snowdrop.Util (NewestFirst, OldestFirst)
 
 -- | Block handling configuration.
 -- Contains methods for to perform handling of block sequence (chain):
@@ -23,42 +24,19 @@ import           Snowdrop.Block.Types (BlockExpandedTx, BlockRawTx, BlockRef, Bl
 --  (including tip block, currently adopted "best" chain),
 --  while state contains actual blockchain state
 --  as result of application of currently adopted "best" chain on initial blockchain state.
-data BlkStateConfiguration blkType m = BlkStateConfiguration
-    { bscApplyPayload :: [BlockExpandedTx blkType] -> m (BlockUndo blkType)
-    -- ^ Apply block payload to state. Note, that this method encapsulates validation of
-    -- payload (and inidividual transactions contained in it) as well as actual application
-    -- of payload to state.
-    -- Payload application produces an undo object, which may further be used to revert
-    -- the changes of payload application.
-
-    , bscExpand       :: [BlockRawTx blkType] -> m [BlockExpandedTx blkType]
-    -- ^ Expand raw block
-
-    , bscApplyUndo    :: BlockUndo blkType -> m ()
-    -- ^ Apply undo: revert changes made by application of block,
-    -- which produced the passed undo object.
-
-    , bscRemoveBlund  :: BlockRef blkType -> m ()
-    -- ^ Remove block from block storage
-
-    , bscStoreBlund   :: Blund blkType -> m ()
-    -- ^ Store block along with undo in block storage
-
-    , bscGetBlund     :: BlockRef blkType
-                      -> m (Maybe (Blund blkType))
-    -- ^ Retrieve block along with undo from block storage
-
-    , bscBlockExists  :: BlockRef blkType -> m Bool
-    -- ^ Check on whether block with given reference exists in block storage
-
-    , bscGetTip       :: m (Maybe (BlockRef blkType))
-    -- ^ Retrieve tip block reference
-    -- (`Nothing` in case of empty chain being a currently adopted "best" chain)
-
-    , bscSetTip       :: Maybe (BlockRef blkType) -> m ()
-    -- ^ Update tip block reference for new adopted "best" chain
-    -- (`Nothing` in case of empty chain)
-
-    , bscConfig       :: BlkConfiguration blkType
-    -- ^ Configuration for block sequence validation
+data BlkStateConfiguration chgAccum blkType m = BlkStateConfiguration
+    { bscExpandHeaders   :: chgAccum -> OldestFirst NonEmpty (RawBlk blkType) -> m ( OldestFirst NonEmpty (BlockHeader blkType) )
+    -- ^ Required for step 1
+    , bscValidatePayloads  :: chgAccum -> OldestFirst NonEmpty (RawBlk blkType) -> m ( OldestFirst NonEmpty chgAccum )
+    -- ^ Required for step 6
+    , bscGetHeader       :: BlockRef blkType -> m (Maybe (BlockHeader blkType))
+    -- ^ Required for step 2
+    , bscBlockExists     :: BlockRef blkType -> m Bool
+    -- ^ Required for step 2
+    , bscGetTip          :: m (Maybe (BlockRef blkType))
+    -- ^ Required for step 2
+    , bscInmemRollback   :: chgAccum -> Maybe (BlockRef blkType) -> m (chgAccum, NewestFirst [] (BlockRef blkType))
+    -- ^ Required for step 3
+    , bscVerifyConfig    :: BlkConfiguration blkType
+    -- ^ Required for step 2
     }

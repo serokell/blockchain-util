@@ -1,4 +1,6 @@
-{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE Rank2Types    #-}
+
 module Snowdrop.Util.Helpers
        (
          VerRes (..)
@@ -16,7 +18,7 @@ module Snowdrop.Util.Helpers
        , SecretKey
        , SignKeyPair (..)
        , SecureHash (..)
-       , SignedNoMessage (..)
+       , SignedNoMsg (..)
        ) where
 
 import           Universum hiding (head, init, last)
@@ -39,6 +41,9 @@ class SignKeyPair sigScheme where
 class SignKeyPair sigScheme => Sign sigScheme a where
     sign :: SecretKey sigScheme -> a -> Signature sigScheme a
 
+    mkSignedNoMsg :: SecretKey sigScheme -> a -> SignedNoMsg sigScheme a
+    mkSignedNoMsg sk msg = SignedNoMsg (toPublicKey sk) (sign sk msg)
+
     mkSigned :: SecretKey sigScheme -> a -> Signed sigScheme a
     mkSigned sk msg = Signed msg (toPublicKey sk) (sign sk msg)
 
@@ -53,29 +58,29 @@ class VerifySigned sigScheme a where
     verifySignature pk msg = verifySigned . Signed msg pk
 
     -- | Verify signature of the supplied data which is assumed to be made by a given public key
-    verifySignedNoMessage :: SignedNoMessage sigScheme a -> a -> Bool
-    verifySignedNoMessage (SignedNoMessage pk sig) msg = verifySignature pk msg sig
+    verifySignedNoMsg :: SignedNoMsg sigScheme a -> a -> Bool
+    verifySignedNoMsg (SignedNoMsg pk sig) msg = verifySignature pk msg sig
 
 -- | Helper data type to hold data along with its signature
 -- and a public key corresponding to the signature.
-data SignedNoMessage sigScheme msg = SignedNoMessage
+data SignedNoMsg sigScheme msg = SignedNoMsg
     { snPublicKey :: PublicKey sigScheme
     , snSignature :: Signature sigScheme msg
     } deriving (Generic)
 
 deriving instance (Show (PublicKey sigScheme),
-                   Show (Signature sigScheme msg)) => Show (SignedNoMessage sigScheme msg)
+                   Show (Signature sigScheme msg)) => Show (SignedNoMsg sigScheme msg)
 deriving instance (Eq (PublicKey sigScheme),
-                   Eq (Signature sigScheme msg)) => Eq (SignedNoMessage sigScheme msg)
+                   Eq (Signature sigScheme msg)) => Eq (SignedNoMsg sigScheme msg)
 deriving instance (Ord (PublicKey sigScheme),
-                   Ord (Signature sigScheme msg)) => Ord (SignedNoMessage sigScheme msg)
+                   Ord (Signature sigScheme msg)) => Ord (SignedNoMsg sigScheme msg)
 
-instance (Hashable (PublicKey sigScheme), Hashable (Signature sigScheme msg)) => Hashable (SignedNoMessage sigScheme msg)
+instance (Hashable (PublicKey sigScheme), Hashable (Signature sigScheme msg)) => Hashable (SignedNoMsg sigScheme msg)
 
 instance (Buildable (PublicKey sigScheme),
-          Buildable (Signature sigScheme msg)) => Buildable (SignedNoMessage sigScheme msg) where
-    build (SignedNoMessage pk sig) =
-        bprint ("signature (pubkey="%(build)%", signature="%(build)%", )") pk sig
+          Buildable (Signature sigScheme msg)) => Buildable (SignedNoMsg sigScheme msg) where
+    build (SignedNoMsg pk sig) =
+        bprint ("signature (pubkey="%(build)%", signature="%(build)%")") pk sig
 
 -- | Helper data type to hold data along with its signature
 -- and a public key corresponding to the signature.
@@ -107,7 +112,12 @@ instance (Buildable (PublicKey sigScheme),
 -- | Data type, similar to `Either` which provides instances of 'Semigroup' and 'Monoid',
 -- well suited for error handling.
 data VerRes e a = VErr e | VRes a
-    deriving (Show, Eq)
+  deriving (Show, Eq, Functor)
+
+instance Applicative (VerRes e) where
+  pure          = VRes
+  VErr  e <*> _ = VErr e
+  VRes f <*> r = fmap f r
 
 instance Semigroup a => Semigroup (VerRes e a) where
     VRes a <> VRes b = VRes $ a <> b

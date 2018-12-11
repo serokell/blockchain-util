@@ -36,7 +36,7 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, H
 import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProofs, AvlUndo, IsAvlEntry,
                                         KVConstraint, RootHash (unRootHash), RootHashComp (..),
                                         RootHashes, avlRootHash, mkAVL)
-import           Snowdrop.Dba.AVLp.Constraints (RHashable, rmapWithHash)
+import           Snowdrop.Dba.AVLp.Constraints (RHashable (..))
 import           Snowdrop.Dba.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl, reThrowAVLEx,
                                           runAVLCacheT)
 import           Snowdrop.Dba.Base (DGetter', DIter', DModify', DbApplyProof, DbComponents,
@@ -68,6 +68,8 @@ data AVLChgAccum h t = AVLChgAccum
     , acaTouched :: Set h
     -- ^ Set of nodes, which were touched during all of change operations applied on tree
     }
+
+deriving instance (Show h, Show (HVal t), Show (HKey t)) => Show (AVLChgAccum h t)
 
 -- | Change accumulator type for AVL tree, wrapped with Maybe.
 -- `Nothing` is treated identically to `Just $ AVLChgAccum (Pure rootHash) def mempty`,

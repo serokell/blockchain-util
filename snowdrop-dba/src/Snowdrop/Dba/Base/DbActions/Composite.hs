@@ -61,6 +61,9 @@ data CompositeChgAccum conf1 conf2 = CompositeChgAccum
     , ccaSecondary :: ChgAccum conf2
     }
 
+deriving instance (Show (ChgAccum conf1), Show (ChgAccum conf2)) =>
+    Show (CompositeChgAccum conf1 conf2)
+
 instance (Default (ChgAccum conf1), Default (ChgAccum conf2))
          => Default (CompositeChgAccum conf1 conf2) where
     def = CompositeChgAccum def def
