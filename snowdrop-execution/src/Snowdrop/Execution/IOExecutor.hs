@@ -21,10 +21,9 @@ import           Control.Lens (makeLenses)
 import           Control.Monad.Except (MonadError (..))
 import           Data.Default (Default (def))
 import qualified Data.Text.Buildable as Buildable
-import           Loot.Base.HasLens (HasLens', lensOf)
+import qualified Loot.Base.HasLens as Loot
 import           Universum
 
-import qualified Loot.Base.HasLens as Loot
 import qualified Loot.Log.Rio as Rio
 import           Snowdrop.Core (BaseM (..), ChgAccum, ChgAccumCtx (..), Concurrently (..),
                                 DbAccess (..), ERoComp, ERwComp, Effectful (..), FoldF (..),
@@ -48,12 +47,12 @@ instance (Show e, Typeable e) => Exception (BaseMException e)
 newtype BaseMIO e (eff :: * -> *) ctx a = BaseMIO { unBaseMIO :: ReaderT ctx ExecM a }
     deriving (Functor, Applicative, Monad, MonadReader ctx, MonadIO)
 
-instance (Loot.HasLens' ctx Log.LoggingIO)
+instance (Loot.HasLens ctx Log.LoggingIO)
     => Log.MonadLogging (BaseMIO e eff ctx) where
         log = Rio.defaultLog
         logName = Rio.defaultLogName
 
-instance (Loot.HasLens' ctx Log.LoggingIO)
+instance (Loot.HasLens ctx Log.LoggingIO)
     => Log.ModifyLogName (BaseMIO e eff ctx) where
         modifyLogNameSel = Rio.defaultModifyLogNameSel
 
@@ -78,7 +77,7 @@ instance (Show e, Typeable e) => Race e (BaseMIO e eff ctx) where
 runBaseMIO
   :: forall e eff ctx a .
     (Show e, Typeable e, HasGetter ctx (BaseMIOExec eff ctx),
-    (Loot.HasLens Log.LoggingIO ctx Log.LoggingIO))
+    (Loot.HasLens ctx Log.LoggingIO))
   => BaseM e eff ctx a -> ctx -> ExecM a
 runBaseMIO bm ctx = runReaderT (unBaseMIO @e @eff $ unBaseM bm) ctx
 
@@ -93,7 +92,7 @@ makeLenses ''IOCtx
 
 type instance ChgAccum (IOCtx chgAccum id value) = chgAccum
 
-instance Loot.HasLens Log.LoggingIO (IOCtx chgAccum id value) Log.LoggingIO where
+instance Loot.HasLens (IOCtx chgAccum id value) Log.LoggingIO where
     lensOf = ctxLogger
 
 instance HasLens (IOCtx chgAccum id value) RestrictCtx where
@@ -121,14 +120,14 @@ runERoCompIO ::
        , Default chgAccum
        , MonadIO m
        , MonadReader ctx m
-       , HasLens' ctx Log.LoggingIO
+       , Loot.HasLens ctx Log.LoggingIO
        )
     => DbAccessActions chgAccum id value ExecM
     -> Maybe chgAccum
     -> ERoComp e id value (IOCtx chgAccum id value) a
     -> m a
 runERoCompIO dba initAcc comp = do
-    logger <- view (lensOf @Log.LoggingIO)
+    logger <- view Loot.lensOf
     liftIO $ Log.runRIO logger $ runBaseMIO comp $
         IOCtx {
             _ctxRestrict = def
@@ -150,14 +149,14 @@ runERwCompIO ::
        , HasException e StatePException
        , MonadIO m
        , MonadReader ctx m
-       , HasLens' ctx Log.LoggingIO
+       , Loot.HasLens ctx Log.LoggingIO
        )
     => DbAccessActions chgAccum id value ExecM
     -> s
     -> ERwComp e id value (IOCtx chgAccum id value) s a
     -> m (a, s)
 runERwCompIO dba initS comp = do
-    logger <- view (lensOf @Log.LoggingIO)
+    logger <- view Loot.lensOf
     liftIO $ Log.runRIO logger $ runBaseMIO (runERwComp comp initS) $
         IOCtx {
           _ctxRestrict = def

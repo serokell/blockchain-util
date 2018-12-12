@@ -27,17 +27,17 @@ import           Universum
 
 import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow)
+import           Control.Monad.Component (runComponentM)
 import           Control.Monad.Trans.Control (MonadBaseControl (..))
 import           Data.Yaml (decodeFileEither, encode)
 import           Fmt (format)
 import           Loot.Base.HasLens (HasLens, lensOf)
-import           Loot.Log (ModifyLogName (..), MonadLogging (..), NameSelector (..),
-                           logDebug, logError, logInfo, logWarning, modifyLogName,
-                           LogEvent, allocateLogging, Severity (Debug), LoggingIO,
-                           LogConfig (..), BackendConfig (..))
+import           Loot.Log (BackendConfig (..), LogConfig (..), LogEvent, LoggingIO,
+                           ModifyLogName (..), MonadLogging (..), NameSelector (..),
+                           Severity (Debug), allocateLogging, logDebug, logError, logInfo,
+                           logWarning, modifyLogName)
 import qualified Loot.Log.Rio as Rio
 import qualified System.Console.ANSI as Term
-import Control.Monad.Component (runComponentM)
 -- Copied from Disciplina:
 
 {- | Conventional "ReaderT over IO" monad stack.
@@ -59,12 +59,12 @@ deriving instance MonadBase IO (RIO ctx) => MonadBaseControl IO (RIO ctx)
 runRIO :: MonadIO m => ctx -> RIO ctx a -> m a
 runRIO ctx (RIO act) = liftIO $ runReaderT act ctx
 
-instance (HasLens LoggingIO ctx LoggingIO) =>
+instance (HasLens ctx LoggingIO) =>
          MonadLogging (RIO ctx) where
     log = Rio.defaultLog
     logName = Rio.defaultLogName
 
-instance (HasLens LoggingIO ctx LoggingIO) =>
+instance (HasLens ctx LoggingIO) =>
          ModifyLogName (RIO ctx) where
     modifyLogNameSel = Rio.defaultModifyLogNameSel
 
