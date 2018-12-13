@@ -1,79 +1,192 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds           #-}
+{-# LANGUAGE PolyKinds           #-}
 {-# LANGUAGE DeriveFunctor       #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeInType          #-}
 
+{-# LANGUAGE GADTs #-}
+
 module Snowdrop.Core.Expand.Type
-       ( ProofNExp (..)
-       , SeqExpander
+       ( PrePreExpander (..)
        , PreExpander (..)
+       , SeqExpander (..)
        , contramapSeqExpander
        , contramapPreExpander
-       , DiffChangeSet (..)
-
-       , ExpRestriction (..)
-       , ExpInpComps
-       , ExpOutComps
-       , SeqExpanderComponents
+       , runPreExpander
+       , applyPreExpander
+       , runSeqExpander
+       , HChangeSetEl
+       , test
        ) where
 
-import           Universum
+import           Universum hiding (Compose, getCompose, Const, Nat)
 
-import           Data.Default (Default)
-import           Data.Kind
-import           Data.Vinyl (Rec (..))
+import           Data.Vinyl (Rec (..), RMap (..))
+import           Data.Vinyl.Core (rtraverse, RecApplicative, rpure, recordToList, RecordToList)
+import           Data.Vinyl.Lens (type (⊆), rcast, rreplace, RecSubset)
+import           Data.Vinyl.Functor ((:.), Compose (..), Const (..))
+import           Data.Vinyl.TypeLevel
 
-import           Snowdrop.Core.ChangeSet (HChangeSet)
+import           Snowdrop.Core.ChangeSet (HChangeSetEl (..), HChangeSet, CSMappendException, MappendHChSet, mappendChangeSetEl)
 import           Snowdrop.Core.ERoComp (ERoComp)
-import           Snowdrop.Core.Transaction (TxProof, TxRaw)
 
-newtype ProofNExp conf txtype =
-    ProofNExp (TxRaw txtype -> TxProof txtype, SeqExpander conf txtype)
+import           Snowdrop.Hetero (ExnHKey, HKeyVal)
 
--- | Sequence of expand stages to be consequently executed upon a given transaction.
-type SeqExpander conf txtype = Rec (PreExpander conf (TxRaw txtype)) (SeqExpanderComponents txtype)
+import qualified Data.Map as M
 
-contramapSeqExpander :: (a -> b) -> Rec (PreExpander conf b) xs -> Rec (PreExpander conf a) xs
-contramapSeqExpander _ RNil         = RNil
-contramapSeqExpander f (ex :& rest) = contramapPreExpander f ex :& contramapSeqExpander f rest
+-- FIXME: upgrade Vinyl (copied from fresh Vinyl)
+rdowncast :: (RecApplicative ss, RMap rs, rs ⊆ ss)
+              => Rec f rs -> Rec (Maybe :. f) ss
+rdowncast = flip rreplace (rpure (Compose Nothing)) . rmap (Compose . Just)
+--------------
 
--- | PreExpander allows you to convert one raw tx to StateTx.
---  _inpSet_ is set of Prefixes which expander gets access to during computation.
---  _outSet_ is set of Prefixes which expander returns as id of ChangeSet.
---  expanderAct takes raw tx, returns addition to txBody.
---  So the result StateTx is constructed as
---  _StateTx proofFromRawTx (addtionFromExpander1 <> additionFromExpander2 <> ...)_
-newtype PreExpander conf rawTx ioRestr = PreExpander
-    { runExpander :: rawTx
-                  -> ERoComp conf (ExpInpComps ioRestr) (DiffChangeSet (ExpOutComps ioRestr))
-    }
+-- Intersection
+type family RIn r rs where
+   RIn r (r ': rs) = 'Just r
+   RIn r (s ': rs) = RIn r rs
+   RIn r '[] = 'Nothing
 
-contramapPreExpander :: (a -> b) -> PreExpander conf b ioRestr -> PreExpander conf a ioRestr
-contramapPreExpander f (PreExpander act) = PreExpander $ act . f
+type family RMbIntersect ls rs where
+   RMbIntersect '[]       rs = '[]
+   RMbIntersect (l ': ls) rs = RIn l rs ': RMbIntersect ls rs
 
--- | DiffChangeSet holds changes which one expander returns
-newtype DiffChangeSet xs = DiffChangeSet {unDiffCS :: HChangeSet xs}
+type family RCatMaybes rs where
+   RCatMaybes '[]              = '[]
+   RCatMaybes ('Nothing ': rs) = RCatMaybes rs
+   RCatMaybes ('Just r  ': rs) = r ': RCatMaybes rs
 
-deriving instance Eq (HChangeSet xs) => Eq (DiffChangeSet xs)
-deriving instance Show (HChangeSet xs) => Show (DiffChangeSet xs)
-deriving instance Semigroup (HChangeSet xs) => Semigroup (DiffChangeSet xs)
-deriving instance Monoid (HChangeSet xs) => Monoid (DiffChangeSet xs)
-deriving instance Default (HChangeSet xs) => Default (DiffChangeSet xs)
+type RIntersect ls rs = RCatMaybes (RMbIntersect ls rs)
 
-------------------------------------------
--- Restrictions of expanders
-------------------------------------------
+{- Another variant of intersection
+type family NatLess (l :: Nat) (r :: Nat) :: Bool where
+  NatLess 'Z     ('S m) = 'True
+  NatLess ('S n)  'Z    = 'False
+  NatLess ('S n) ('S m) = NatLess n m
 
--- This datatype to be intended to use as kind and constructor of types instead of pair
-data ExpRestriction i o = ExRestriction i o -- different type and constructor names to avoid going crazy
-type family ExpInpComps r where ExpInpComps ('ExRestriction i o) = i
-type family ExpOutComps r where ExpOutComps ('ExRestriction i o) = o
+type family RElemIn r rs where
+   RElemIn r rs = NatLess (RIndex r rs) (RLength rs)
 
--- This type family should be defined for each seq expander like
--- type instance SeqExpanderComponents DlgTx =
---                  '[ ExRestriction '[TxIn] '[UtxoComponent],
---                     ExRestriction '[DlgIssuer, DlgDelegate] '[DlgIssuerComponent, DlgDelegateComponent]
---                   ]
--- this SeqExpander contains two PreExpanders
-type family SeqExpanderComponents (txtype :: *) :: [ExpRestriction [*] [*]]
+type family IfTf t r1 r2 where
+   IfTf 'True  r1 r2 = r1
+   IfTf 'False r1 r2 = r2
+
+-- GHC choked on recursive If
+type family PrependIf b x xs where
+    PrependIf 'True  x xs = x ': xs
+    PrependIf 'False x xs = xs
+
+type family RIntersect ls rs where
+   RIntersect '[]        rs = '[]
+   RIntersect (l  ': ls) rs = PrependIf (RElemIn l rs) l (RIntersect ls rs)
+-}
+
+-- Should be automatically satisfied after all tyfams reductions at the call site
+class (
+    RecSubset Rec (RIntersect ts is) is (RImage (RIntersect ts is) is)
+  , RecSubset Rec (RIntersect ts is) ts (RImage (RIntersect ts is) ts)
+  , RMap (RIntersect ts is)
+  ) => Sat ts is
+
+instance (
+    RecSubset Rec (RIntersect ts is) is (RImage (RIntersect ts is) is)
+  , RecSubset Rec (RIntersect ts is) ts (RImage (RIntersect ts is) ts)
+  , RMap (RIntersect ts is)
+  ) => Sat ts is
+
+
+-- Expanders
+newtype PrePreExpander conf rawTx i
+  = PPE { runPpeExpander :: rawTx -> ERoComp conf (HChangeSetEl i) }
+--------------------------------------------------
+
+-- We can put RMap constraint inside because
+--   all the client code will always have explicit type lists which automatically give
+--   us the requred instance!
+data PreExpander conf rawTx ts is where
+  PE :: (RMap is, Sat ts is) => Rec (PrePreExpander conf rawTx) is -> PreExpander conf rawTx ts is
+
+-----------------
+type HMbChangeSet ts = Rec (Maybe :. HChangeSetEl) ts
+
+runPreExpander :: forall conf rawTx ts is . RecApplicative ts => rawTx -> PreExpander conf rawTx ts is -> ERoComp conf (HMbChangeSet ts)
+runPreExpander tx (PE ppes) = (downcast . upcast) <$> rtraverse ( \(PPE rpe) -> rpe tx ) ppes
+  where
+    upcast :: Rec HChangeSetEl is -> HChangeSet (RIntersect ts is)
+    upcast = rcast
+    downcast :: RMap (RIntersect ts is) => HChangeSet (RIntersect ts is) -> HMbChangeSet ts
+    downcast = rdowncast
+
+contramapPreExpander :: forall a b conf ts is . (a -> b) -> PreExpander conf b ts is -> PreExpander conf a ts is
+contramapPreExpander f (PE pe) = PE (rmap cmap pe)
+  where
+    cmap :: PrePreExpander conf b i -> PrePreExpander conf a i
+    cmap (PPE act) = PPE (act . f)
+
+data SeqExpander conf rawTx ts iss where
+  SE :: (RecordToList iss, RMap iss, RecApplicative ts) => Rec (PreExpander conf rawTx ts) iss -> SeqExpander conf rawTx ts iss
+
+runSeqExpander :: forall ts iss conf rawTx . SeqExpander conf rawTx ts iss -> rawTx -> [ERoComp conf (HMbChangeSet ts)]
+runSeqExpander (SE pes) tx = recordToList $ rmap (\pe -> Const $ runPreExpander tx pe) pes
+
+contramapSeqExpander :: (a -> b) -> SeqExpander conf b ts iss -> SeqExpander conf a ts iss
+contramapSeqExpander f (SE pes) = SE (rmap (contramapPreExpander f) pes)
+
+mappendMbChangeSetEl
+    :: ExnHKey t
+    => Maybe (HChangeSetEl t)
+    -> Maybe (HChangeSetEl t)
+    -> Either CSMappendException ((Maybe :. HChangeSetEl) t)
+mappendMbChangeSetEl Nothing Nothing    = Right (Compose Nothing)
+mappendMbChangeSetEl Nothing r@(Just _) = Right (Compose r)
+mappendMbChangeSetEl l@(Just _) Nothing = Right (Compose l)
+mappendMbChangeSetEl (Just l) (Just r)  = (Compose . Just) <$> mappendChangeSetEl l r 
+
+mappendMbChangeSet
+    :: MappendHChSet ts
+    => HMbChangeSet ts
+    -> HMbChangeSet ts
+    -> HMbChangeSet ts
+mappendMbChangeSet RNil RNil = RNil
+mappendMbChangeSet (x :& xs) (y :& ys) =
+  case (getCompose x) `mappendMbChangeSetEl` (getCompose y) of
+    Left _    -> error "FIXME: fix kind of throwLocalError and use it!"
+    Right res -> res :& mappendMbChangeSet xs ys
+
+-- Example from 'Sequential'
+applyPreExpander
+    :: forall conf rawTx ts is .
+    ( RecApplicative ts
+    , MappendHChSet ts)
+    => rawTx
+    -> PreExpander conf rawTx ts is
+    -> HMbChangeSet ts
+    -> ERoComp conf (HMbChangeSet ts)
+applyPreExpander tx ex sumCS = flip mappendMbChangeSet sumCS <$> runPreExpander tx ex
+
+-- Test if can write things in this style
+data Fields = Name | Age | Sleeping | Master deriving Show
+type TS = ['Name, 'Age, 'Sleeping]
+type XS = ['Sleeping, 'Master]
+
+type instance HKeyVal 'Name = '(Int, String)
+type instance HKeyVal 'Age = '(Int, Double)
+type instance HKeyVal 'Sleeping = '(Bool, Int)
+type instance HKeyVal 'Master = '(String, String)
+
+data Cfg = Cfg
+data Tx = Tx
+
+sleep :: PrePreExpander Cfg Tx 'Sleeping
+sleep = PPE (\_ -> (return $ HChangeSetEl M.empty) )
+
+master :: PrePreExpander Cfg Tx 'Master
+master = PPE (\_ -> (return $ HChangeSetEl M.empty) )
+
+s_n_m :: PreExpander Cfg Tx TS XS
+s_n_m = PE $ sleep :& master :& RNil
+
+se :: SeqExpander Cfg Tx TS '[XS]
+se = SE $ s_n_m :& RNil
+
+test = runSeqExpander se Tx

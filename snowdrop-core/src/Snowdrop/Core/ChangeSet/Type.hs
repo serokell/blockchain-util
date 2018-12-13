@@ -1,3 +1,4 @@
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 
 -- | Description of ChangeSet and basic functions to work with it.
@@ -11,6 +12,7 @@ module Snowdrop.Core.ChangeSet.Type
        , HUpCastableChSet
 
        , MappendHChSet
+       , mappendChangeSetEl
        , mappendChangeSet
        , mconcatChangeSets
        , hChangeSetElToList
@@ -42,7 +44,7 @@ import           Snowdrop.Hetero (ExnHKey, DifferenceF (..), HKey, HMap, HMapEl 
                                   IntersectionF (..))
 import           Snowdrop.Util (toDummyMap)
 
-newtype HChangeSetEl t = HChangeSetEl {unHChangeSetEl :: Map (HKey t) (ValueOp (HVal t)) }
+newtype HChangeSetEl (t::k) = HChangeSetEl {unHChangeSetEl :: Map (HKey t) (ValueOp (HVal t)) }
     deriving (Generic)
 
 instance (Hashable (HKey t), Hashable (HVal t)) => Hashable (HChangeSetEl t)

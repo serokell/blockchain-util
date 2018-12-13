@@ -15,7 +15,6 @@ module Snowdrop.Core.ERoComp.Helpers
        , queryOne
        , queryOneExists
 
-       , ChgAccumCtx (..)
        , StatePException (..)
 
        , computeUndo
@@ -23,42 +22,25 @@ module Snowdrop.Core.ERoComp.Helpers
        , modifyAccum
        , modifyAccumOne
 
-       , initAccumCtx
-       , getCAOrDefault
        , withModifiedAccumCtxOne
-
-       , UpCastableERo
-       , UpCastableERoM
-       , upcastDbAccess
-       , upcastDbAccessM
-       , upcastEffERoComp
-       , upcastEffERoCompM
-
-       , ConvertEffect (..)
        ) where
 
 import           Universum
 
-import           Control.Monad.Except (MonadError)
-import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
-import qualified Data.Set as S
 import qualified Data.Text.Buildable
-import           Data.Vinyl.Lens (rget)
 
-import           Snowdrop.Core.BaseM (BaseM (..), Effectful (..), effect, hoistEffectful)
-import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HUpCastableChSet)
+import           Snowdrop.Core.ChangeSet (HChangeSet)
 
-import           Snowdrop.Core.ERoComp.Types (BException, ChgAccum, Ctx, DbAccess (..),
-                                              DbAccessM (..), DbAccessU (..), ERoComp, ERoCompM,
-                                              ERoCompU, FoldF (..), Undo)
-import           Snowdrop.Hetero (HIntersectable, HElem, HKey, HSet, HVal,
-                                  HUpCastableSet, hintersect, hdowncast, hmapToMap,
-                                  hsetFromSet, hupcast)
-import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), HasReviews,
-                                NewestFirst (..), OldestFirst (..), deriveIdView, throwLocalError,
-                                unOldestFirst, withInj)
-import qualified Snowdrop.Util as Log
+import           Snowdrop.Core.ERoComp.Types (BException, ChgAccum, DbAccess (..),
+                                              DbAccessM (..), DbAccessU (..), Undo)
+import           Snowdrop.Hetero (HIntersectable, HKey, HVal, HMap, HMapEl (..),
+                                  HUpCastableSet)
+import           Snowdrop.Util (HasReview (..), HasReviews, NewestFirst (..),
+                                OldestFirst (..), unOldestFirst)
+
+import           Data.Vinyl.Lens (type (∈), rget)
+import           Control.Exception (throw)
 
 type HasBException conf e1 = HasReview (BException conf) e1
 type HasBExceptions conf xs = HasReviews (BException conf) xs
@@ -71,67 +53,40 @@ class (HUpCastableSet '[t] xs, HIntersectable xs '[t] ) => QueryERo xs t
 instance (HUpCastableSet '[t] xs, HIntersectable xs '[t]) => QueryERo xs t
 
 -- | Creates a DbQuery operation.
-query
-    :: forall t xs conf . QueryERo xs t
-    => Set (HKey t) -> ERoComp conf xs (Map (HKey t) (HVal t))
-query req = do
-    let hreq :: HSet '[t]
-        hreq = hsetFromSet req
-    effect @(DbAccess conf xs) $
-        DbQuery
-            (hupcast @_ @_ @xs hreq)
-            (hmapToMap . flip (hintersect @xs @'[t]) hreq)
 
--- | Creates a DbIterator operation.
-iterator
-    :: forall t b xs conf. (HElem t xs)
-    => b
-    -> (b -> (HKey t, HVal t) -> b)
-    -> ERoComp conf xs b
-iterator e foldf = effect $ DbIterator @conf @xs @b @t rget (FoldF (e, foldf, id))
+query :: forall t xs . (t ∈ xs, Ord (HKey t)) => Set (HKey t) -> HMap xs -> Map (HKey t) (HVal t)
+query req hmap = M.restrictKeys (unHMapEl $ rget @t hmap) req
 
--- | Creates a DbComputeUndo operation.
+iterator :: b -> (b -> k -> v -> b) -> DbAccess k v b
+iterator e foldf = FoldF (e, foldf)
+
 computeUndo
-  :: forall xs conf . HasBException conf CSMappendException
-  => ChgAccum conf -> ERoCompU conf xs (Undo conf)
-computeUndo chgAcc = effect (DbComputeUndo @conf @xs chgAcc id) >>= either throwLocalError pure
+  :: forall conf . ChgAccum conf -> DbAccessU conf (Undo conf)
+computeUndo chgAcc = DbComputeUndo chgAcc (either throw id)
 
 -- | Creates a DbModifyAccumUndo operation.
 modifyAccumUndo
-  :: forall xs conf . HasBException conf CSMappendException
-  => NewestFirst [] (Undo conf) -> ERoCompU conf xs (ChgAccum conf)
-modifyAccumUndo undos = effect (DbModifyAccumUndo @conf @xs undos id) >>= either throwLocalError pure
+  :: forall conf . NewestFirst [] (Undo conf) -> DbAccessU conf (ChgAccum conf)
+modifyAccumUndo undos = DbModifyAccumUndo undos (either throw id)
 
 -- | Creates a DbModifyAccum operation.
 modifyAccum
-    :: forall xs conf .
-      HasBException conf CSMappendException
-    => OldestFirst [] (HChangeSet xs)
-    -> ERoCompM conf xs (OldestFirst [] (ChgAccum conf))
-modifyAccum css = effect (DbModifyAccum @conf css id) >>= either throwLocalError pure
+    :: forall xs conf . OldestFirst [] (HChangeSet xs) -> DbAccessM conf xs (OldestFirst [] (ChgAccum conf))
+modifyAccum css = DbModifyAccum css (either throw id)
 
 modifyAccumOne
-    :: forall xs conf .
-        HasBException conf CSMappendException
-    => HChangeSet xs
-    -> ERoCompM conf xs (ChgAccum conf)
-modifyAccumOne cs =
-    effect (DbModifyAccum @conf (OldestFirst [cs]) (fmap $ head' . unOldestFirst))
-        >>= either throwLocalError pure
+    :: forall xs conf . HChangeSet xs -> DbAccessM conf xs (ChgAccum conf)
+modifyAccumOne cs = DbModifyAccum (OldestFirst [cs]) (either throw (head' . unOldestFirst))
   where
     head' []    = error "modifyAccumOne: unexpected empty effect execution result"
     head' (a:_) = a
 
-queryOne
-    :: forall t xs conf . (QueryERo xs t, Ord (HKey t))
-    => HKey t -> ERoComp conf xs (Maybe (HVal t))
-queryOne k = M.lookup k <$> query @t @_ @conf (S.singleton k)
+queryOne :: forall t xs . (t ∈ xs, Ord (HKey t)) => HKey t -> HMap xs -> Maybe (HVal t)
+-- Might use query but won't
+queryOne k hmap = M.lookup k (unHMapEl $ rget @t hmap)
 
--- | Check key exists in state.
-queryOneExists
-    :: forall t xs conf . (QueryERo xs t, Ord (HKey t))
-    => HKey t -> ERoComp conf xs Bool
-queryOneExists k = isJust <$> queryOne @t @_ @conf k
+queryOneExists :: forall t xs . (t ∈ xs, Ord (HKey t)) => HKey t -> HMap xs -> Bool
+queryOneExists k hmap = isJust $ queryOne @t @_ k hmap
 
 ------------------------
 -- ChgAccumCtx
@@ -142,131 +97,18 @@ data StatePException = ChgAccumCtxUnexpectedlyInitialized
     deriving (Show, Eq)
 
 instance Buildable StatePException where
-    build = \case
-        ChgAccumCtxUnexpectedlyInitialized -> "Change accum context is unexpectedly initialized"
+    build _ = "Change accum context is unexpectedly initialized"
 
-deriveIdView withInj ''StatePException
+instance Exception StatePException
 
--- | Auxiliary datatype for context-dependant computations.
-data ChgAccumCtx conf = CANotInitialized | CAInitialized (ChgAccum conf)
-
--- | Gets value of Change Accumulator or default value if it's not initialized.
-getCAOrDefault :: Default (ChgAccum conf) => ChgAccumCtx conf -> ChgAccum conf
-getCAOrDefault CANotInitialized   = def
-getCAOrDefault (CAInitialized cA) = cA
-
--- | Runs computation with modified Change Accumulator from @ctx@.
--- Passed ChangeSet will be appended to the accumulator as a modification.
 withModifiedAccumCtxOne
-  :: forall xs conf a .
-    (HasBException conf CSMappendException, HasLens (Ctx conf) (ChgAccumCtx conf), Default (ChgAccum conf))
-  => HChangeSet xs
-  -> ERoCompM conf xs a
-  -> ERoCompM conf xs a
-withModifiedAccumCtxOne chgSet comp = do
-    acc' <- modifyAccumOne chgSet
-    local ( lensFor @(Ctx conf) @(ChgAccumCtx conf) .~ CAInitialized @conf acc' ) comp
+  :: forall xs conf a . HChangeSet xs -> DbAccessM conf xs a -> DbAccessM conf xs a
+-- FIXME? Is this what we want???
+-- AFAIUI, we shouldn't simply replace the changeset under DbModifyAccum with the new one
+-- We should inspect if it is "initialised" and throw an error if it is or put the supplied changeset in otherwise
+-- Well, let's now pretend "initialised" means the corresponding list is nonempty!
+withModifiedAccumCtxOne chgSet (DbModifyAccum (OldestFirst cs0) f)
+  | null cs0  = DbModifyAccum (OldestFirst [chgSet]) f
+  | otherwise = throw ChgAccumCtxUnexpectedlyInitialized
 
-----------------------------------------------------
---- Functions to modify computation's context
-----------------------------------------------------
-
--- | Runs computation with specified initial Change Accumulator.
-initAccumCtx
-    :: forall eff conf a .
-      ( HasBException conf StatePException
-      , HasLens (Ctx conf) (ChgAccumCtx conf)
-      )
-    => ChgAccum conf
-    -> BaseM (BException conf) eff (Ctx conf) a
-    -> BaseM (BException conf) eff (Ctx conf) a
-initAccumCtx acc' comp = do
-    gett @_ @(ChgAccumCtx conf) <$> ask >>= \case
-        CAInitialized _ -> throwLocalError ChgAccumCtxUnexpectedlyInitialized
-        CANotInitialized ->
-            local ( lensFor @(Ctx conf) @(ChgAccumCtx conf) .~ CAInitialized @conf acc' ) comp
-
-
-------------------------
--- Cast and hoist
-------------------------
-
-type UpCastableERo xs supxs =
-    ( HIntersectable supxs xs
-    , HUpCastableSet xs supxs
-    )
-
-type UpCastableERoM xs supxs =
-    ( UpCastableERo xs supxs
-    , HUpCastableChSet xs supxs
-    )
-
-upcastDbAccessM
-    :: forall xs supxs conf a . UpCastableERoM xs supxs
-    => DbAccessM conf xs a
-    -> DbAccessM conf supxs a
-upcastDbAccessM (DbAccess da)            = DbAccess (upcastDbAccess da)
-upcastDbAccessM (DbModifyAccum css cont) = DbModifyAccum (hupcast <$> css) cont
-
-upcastDbAccess
-    :: forall xs supxs conf a . UpCastableERo xs supxs
-    => DbAccess conf xs a
-    -> DbAccess conf supxs a
-upcastDbAccess (DbQuery s cont) =
-    DbQuery (hupcast @_ @xs @supxs s) (\resp -> cont (hintersect @supxs @xs resp s))
-upcastDbAccess (DbIterator pr foldf) = DbIterator (pr . hdowncast) foldf
-
--- TODO reimplement this method without use of ReaderT-based hoistEffectful (similar to ConvertEffect)
-upcastEffERoComp
-    :: forall xs supxs conf a . UpCastableERo xs supxs
-    => ERoComp conf xs a
-    -> ERoComp conf supxs a
-upcastEffERoComp = hoistEffectful upcastDbAccess
-
-upcastEffERoCompM
-    :: forall xs supxs conf a . UpCastableERoM xs supxs
-    => ERoCompM conf xs a
-    -> ERoCompM conf supxs a
-upcastEffERoCompM = hoistEffectful upcastDbAccessM
-
--- TODO rename ConvertEffect to WrapEffect
-class ConvertEffect conf eff1 eff2 where
-    convertEffect :: BaseM e eff1 ctx a -> BaseM e eff2 ctx a
-
-newtype DbAccessT (eff1 :: [*] -> * -> *) (eff2 :: [*] -> * -> *) m a = DbAccessT { runDbAccessT :: m a }
-    deriving ( Functor, Applicative, Monad, MonadError e
-             , MonadReader ctx, Log.MonadLogging, Log.ModifyLogName)
-
-instance (Effectful (DbAccessM conf xs) m)
-    => Effectful (DbAccess conf xs)
-                 (DbAccessT (DbAccess conf) (DbAccessM conf) m) where
-    effect da = DbAccessT $ effect (DbAccess @conf da)
-
-
-instance (Effectful (DbAccessU conf xs) m)
-    => Effectful (DbAccess conf xs)
-                 (DbAccessT (DbAccess conf) (DbAccessU conf) m) where
-    effect da = DbAccessT $ effect (DbAccessM @conf $ DbAccess da)
-
-instance (Effectful (DbAccessU conf xs) m)
-    => Effectful (DbAccessM conf xs)
-                 (DbAccessT (DbAccessM conf) (DbAccessU conf) m) where
-    effect da = DbAccessT $ effect (DbAccessM @conf da)
-
-instance ConvertEffect conf (DbAccess conf xs) (DbAccessM conf xs) where
-    convertEffect (BaseM action) = BaseM ( runDbAccessT @(DbAccess conf) @(DbAccessM conf) action )
-
-instance ConvertEffect conf (DbAccessM conf xs) (DbAccessU conf xs) where
-    convertEffect (BaseM action) = BaseM ( runDbAccessT @(DbAccessM conf) @(DbAccessU conf) action )
-
-instance ConvertEffect conf (DbAccess conf xs) (DbAccessU conf xs) where
-    convertEffect (BaseM action) = BaseM ( runDbAccessT @(DbAccess conf) @(DbAccessU conf) action )
-
-instance ConvertEffect conf (DbAccessU conf xs) (DbAccessU conf xs) where
-    convertEffect = id
-
-instance ConvertEffect conf (DbAccessM conf xs) (DbAccessM conf xs) where
-    convertEffect = id
-
-instance ConvertEffect conf (DbAccess conf xs) (DbAccess conf xs) where
-    convertEffect = id
+-- initAccumCtx doesn't make any sense in our settings
