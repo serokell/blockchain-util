@@ -190,3 +190,12 @@ se :: SeqExpander Cfg Tx TS '[XS]
 se = SE $ s_n_m :& RNil
 
 test = runSeqExpander se Tx
+
+-- We can inline all this
+se_inline :: SeqExpander Cfg Tx TS '[XS]
+se_inline = SE $ PE
+  (  PPE (const $ return $ HChangeSetEl M.empty)
+  :& PPE (const $ return $ HChangeSetEl M.empty)
+  :& RNil ) :& RNil
+
+test_inline = runSeqExpander se_inline Tx
