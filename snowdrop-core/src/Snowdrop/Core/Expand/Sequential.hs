@@ -138,7 +138,7 @@ applyPreExpander
     -> SumChangeSet (TxComponents txtype)
     -> ERoCompM conf (ExpInpComps ioRestr) (SumChangeSet (TxComponents txtype))
 applyPreExpander tx ex sumCS = do
-    DiffChangeSet diffCS <- convertEffect @conf $ runExpander ex tx
+    DiffChangeSet diffCS <- convertEffect $ runExpander ex tx
     case hupcast diffCS `mappendChangeSet` unSumCS sumCS of
         Left e      -> throwLocalError e
         Right newCS -> pure $ SumChangeSet newCS

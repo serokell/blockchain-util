@@ -58,7 +58,7 @@ faaToChangeSet cfg fork ForkApplyAction{..} = do
           hupcast @_ @'[TipComponent blkType, BlundComponent blkType] $
               HChangeSetEl tipChg :& HChangeSetEl blundChg :& RNil
 
-    withAccum @conf (last chgAccums) $ convertEffect @conf $ modifyAccumOne @xs @conf blkChg
+    withAccum @conf (last chgAccums) $ convertEffect $ modifyAccumOne @xs @conf blkChg
   where
     (headers, chgAccums) = NE.unzip $ unOldestFirst faaApplyBlocks
     acc0 :| caRest = chgAccums
@@ -98,7 +98,7 @@ rollback rollbackBy bsConf = do
                 (HChangeSetEl $ M.singleton TipKey tipChg)
                 :& (HChangeSetEl $ M.fromList $ (,Rem) <$> toList refs)
                 :& RNil
-        acc0 <- convertEffect @conf $ modifyAccumOne @xs @conf blkChg
+        acc0 <- convertEffect $ modifyAccumOne @xs @conf blkChg
         acc' <- withAccum @conf acc0 $ modifyAccumUndo undos
         pure (acc', buRawBlk <$> blunds)
   where
@@ -120,7 +120,7 @@ loadBlunds
 loadBlunds bsConf maxDepth from = do
     tip <- bscGetTip bsConf
     loadBlocksFromTo
-        (convertEffect @conf . queryOne @(BlundComponent blkType) @xs @conf)
+        (convertEffect . queryOne @(BlundComponent blkType) @xs @conf)
         getPreviousBlockRef
         maxDepth
         from

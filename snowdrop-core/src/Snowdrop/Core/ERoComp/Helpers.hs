@@ -46,7 +46,7 @@ import qualified Data.Set as S
 import qualified Data.Text.Buildable
 import           Data.Vinyl.Lens (rget)
 
-import           Snowdrop.Core.BaseM (BaseM (..), Effectful (..), effect, hoistEffectful)
+import           Snowdrop.Core.BaseM (BaseM (..), Effectful (..), effect)
 import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HUpCastableChSet)
 
 import           Snowdrop.Core.ERoComp.Types (BException, ChgAccum, Ctx, DbAccess (..),
@@ -212,57 +212,68 @@ upcastDbAccess (DbQuery s cont) =
     DbQuery (hupcast @_ @xs @supxs s) (\resp -> cont (hintersect @supxs @xs resp s))
 upcastDbAccess (DbIterator pr foldf) = DbIterator (pr . hdowncast) foldf
 
--- TODO reimplement this method without use of ReaderT-based hoistEffectful (similar to ConvertEffect)
 upcastEffERoComp
     :: forall xs supxs conf a . UpCastableERo xs supxs
     => ERoComp conf xs a
     -> ERoComp conf supxs a
-upcastEffERoComp = hoistEffectful upcastDbAccess
+upcastEffERoComp (BaseM action) = BaseM ( runUpCastERoT @DbAccess @supxs action )
 
 upcastEffERoCompM
     :: forall xs supxs conf a . UpCastableERoM xs supxs
     => ERoCompM conf xs a
     -> ERoCompM conf supxs a
-upcastEffERoCompM = hoistEffectful upcastDbAccessM
+upcastEffERoCompM (BaseM action) = BaseM ( runUpCastERoT @DbAccessM @supxs action )
+
+newtype UpCastERoT (eff :: * -> [*] -> * -> *) (xs :: [*]) m a = UpCastERoT { runUpCastERoT :: m a }
+    deriving ( Functor, Applicative, Monad, MonadError e
+             , MonadReader ctx, Log.MonadLogging, Log.ModifyLogName)
+
+instance (Effectful (DbAccess conf supxs) m, UpCastableERo xs supxs)
+    => Effectful (DbAccess conf xs) (UpCastERoT DbAccess supxs m) where
+    effect = UpCastERoT . effect . upcastDbAccess @_ @supxs
+
+instance (Effectful (DbAccessM conf supxs) m, UpCastableERoM xs supxs)
+  => Effectful (DbAccessM conf xs) (UpCastERoT DbAccessM supxs m) where
+    effect = UpCastERoT . effect . upcastDbAccessM @_ @supxs
 
 -- TODO rename ConvertEffect to WrapEffect
-class ConvertEffect conf eff1 eff2 where
+class ConvertEffect eff1 eff2 where
     convertEffect :: BaseM e eff1 ctx a -> BaseM e eff2 ctx a
 
-newtype DbAccessT (eff1 :: [*] -> * -> *) (eff2 :: [*] -> * -> *) m a = DbAccessT { runDbAccessT :: m a }
+newtype DbAccessT (eff1 :: * -> [*] -> * -> *) (eff2 :: * -> [*] -> * -> *) m a = DbAccessT { runDbAccessT :: m a }
     deriving ( Functor, Applicative, Monad, MonadError e
              , MonadReader ctx, Log.MonadLogging, Log.ModifyLogName)
 
 instance (Effectful (DbAccessM conf xs) m)
     => Effectful (DbAccess conf xs)
-                 (DbAccessT (DbAccess conf) (DbAccessM conf) m) where
+                 (DbAccessT DbAccess DbAccessM m) where
     effect da = DbAccessT $ effect (DbAccess @conf da)
 
 
 instance (Effectful (DbAccessU conf xs) m)
     => Effectful (DbAccess conf xs)
-                 (DbAccessT (DbAccess conf) (DbAccessU conf) m) where
+                 (DbAccessT DbAccess DbAccessU m) where
     effect da = DbAccessT $ effect (DbAccessM @conf $ DbAccess da)
 
 instance (Effectful (DbAccessU conf xs) m)
     => Effectful (DbAccessM conf xs)
-                 (DbAccessT (DbAccessM conf) (DbAccessU conf) m) where
+                 (DbAccessT DbAccessM DbAccessU m) where
     effect da = DbAccessT $ effect (DbAccessM @conf da)
 
-instance ConvertEffect conf (DbAccess conf xs) (DbAccessM conf xs) where
-    convertEffect (BaseM action) = BaseM ( runDbAccessT @(DbAccess conf) @(DbAccessM conf) action )
+instance ConvertEffect (DbAccess conf xs) (DbAccessM conf xs) where
+    convertEffect (BaseM action) = BaseM ( runDbAccessT @DbAccess @DbAccessM action )
 
-instance ConvertEffect conf (DbAccessM conf xs) (DbAccessU conf xs) where
-    convertEffect (BaseM action) = BaseM ( runDbAccessT @(DbAccessM conf) @(DbAccessU conf) action )
+instance ConvertEffect (DbAccessM conf xs) (DbAccessU conf xs) where
+    convertEffect (BaseM action) = BaseM ( runDbAccessT @DbAccessM @DbAccessU action )
 
-instance ConvertEffect conf (DbAccess conf xs) (DbAccessU conf xs) where
-    convertEffect (BaseM action) = BaseM ( runDbAccessT @(DbAccess conf) @(DbAccessU conf) action )
+instance ConvertEffect (DbAccess conf xs) (DbAccessU conf xs) where
+    convertEffect (BaseM action) = BaseM ( runDbAccessT @DbAccess @DbAccessU action )
 
-instance ConvertEffect conf (DbAccessU conf xs) (DbAccessU conf xs) where
+instance ConvertEffect (DbAccessU conf xs) (DbAccessU conf xs) where
     convertEffect = id
 
-instance ConvertEffect conf (DbAccessM conf xs) (DbAccessM conf xs) where
+instance ConvertEffect (DbAccessM conf xs) (DbAccessM conf xs) where
     convertEffect = id
 
-instance ConvertEffect conf (DbAccess conf xs) (DbAccess conf xs) where
+instance ConvertEffect (DbAccess conf xs) (DbAccess conf xs) where
     convertEffect = id

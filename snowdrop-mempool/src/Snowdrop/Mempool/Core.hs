@@ -89,7 +89,7 @@ actionWithMempool
       , HasBException conf StatePException
       , chgAccum ~ ChgAccum conf
       , DbActions (IOExecEffect conf) daa chgAccum ExecM
-      , ConvertEffect conf (DbAccessM conf xs) (IOExecEffect conf)
+      , ConvertEffect (DbAccessM conf xs) (IOExecEffect conf)
       , Ctx conf ~ IOCtx conf
       )
     => Mempool conf rawtx
@@ -98,7 +98,7 @@ actionWithMempool
     -> ExecM a
 actionWithMempool mem@Mempool{..} dbActs callback = do
     Versioned{vsVersion=version,..} <- liftIO $ atomically $ readTVar mempoolState
-    (res, newState) <- runERwCompIO dbActs vsData (convertERwComp (convertEffect @conf) callback)
+    (res, newState) <- runERwCompIO dbActs vsData (convertERwComp convertEffect callback)
     modified <- liftIO $ atomically $ do
         stLast <- readTVar mempoolState
         if version == vsVersion stLast then
