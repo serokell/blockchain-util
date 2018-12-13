@@ -40,7 +40,7 @@ faaToChangeSet :: forall blkType conf xs
     -> ForkApplyAction (ChgAccum conf) blkType
     -> ERoCompU conf xs (ChgAccum conf)
 faaToChangeSet cfg fork ForkApplyAction{..} = do
-    undo0 <- computeUndo @xs @conf acc0
+    undo0 <- withAccum @conf faaRollbackedAcc $ computeUndo @xs @conf acc0
     undoRest <- flip traverse (zip (acc0 : caRest) caRest) $ \(prevAcc, acc) ->
         withAccum @conf prevAcc $ computeUndo @xs @conf acc
 
