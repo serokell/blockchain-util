@@ -50,13 +50,13 @@ liftERoComp
     ( HasBException conf StatePException
     , HasLens (Ctx conf) (ChgAccumCtx conf)
     , HasGetter s (ChgAccum conf)
-    , ConvertEffect conf eff1 eff2
+    , ConvertEffect eff1 eff2
     )
     => BaseM (BException conf) eff1 (Ctx conf) a
     -> ERwComp conf eff2 s a
 liftERoComp comp =
     gets (gett @_ @(ChgAccum conf)) >>=
-        ERwComp . lift . flip (initAccumCtx @_ @conf) (convertEffect @conf comp)
+        ERwComp . lift . flip (initAccumCtx @_ @conf) (convertEffect comp)
 
 convertERwComp
   :: forall conf eff1 eff2 s a .

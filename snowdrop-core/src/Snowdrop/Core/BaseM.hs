@@ -9,7 +9,6 @@ module Snowdrop.Core.BaseM
        , CtxConcurrently (..)
        , concurrently
        , raceMany
-       , hoistEffectful
        ) where
 
 import           Universum hiding (log)
@@ -98,36 +97,3 @@ instance Log.MonadLogging (BaseM e eff ctx) where
 
 instance Log.ModifyLogName (BaseM e eff ctx) where
     modifyLogNameSel f (BaseM ma) = BaseM $ Log.modifyLogNameSel f ma
-
-------------------------
--- Hoist effectful
-------------------------
-
-data TransformEff eff1 eff2 = TransformEff {getTransformEff :: forall b . eff1 b -> eff2 b }
-
-newtype EffT eff1 eff2 m a = EffT { runEffT :: ReaderT (TransformEff eff1 eff2) m a }
-    deriving (Functor, Applicative, Monad, MonadTrans, MonadError e)
-
-askF :: Monad m => EffT eff eff1 m (eff b -> eff1 b)
-askF = EffT $ asks getTransformEff
-
-instance Effectful eff2 m => Effectful eff1 (EffT eff1 eff2 m) where
-    effect eff1a = askF >>= lift . effect . (eff1a &)
-
-instance MonadReader ctx m => MonadReader ctx (EffT eff eff1 m) where
-    local f r = EffT $ ReaderT $ \tr -> local f $ runReaderT (runEffT r) tr
-    ask = EffT (lift ask)
-
-instance (Log.MonadLogging m, Monad m) => Log.MonadLogging (EffT eff eff1 m) where
-    log l s t = EffT $ lift $ Log.log l s t
-    logName = EffT $ lift Log.logName
-
-instance (Log.ModifyLogName m, Monad m) => Log.ModifyLogName (EffT eff eff1 m) where
-    modifyLogNameSel f (EffT ma) = EffT $ ReaderT $ \ctx -> Log.modifyLogNameSel f (runReaderT ma ctx)
-
-hoistEffectful
-    :: forall e eff1 eff2 ctx a .
-       (forall b . eff1 b -> eff2 b)
-    -> BaseM e eff1 ctx a
-    -> BaseM e eff2 ctx a
-hoistEffectful f (BaseM ma) = BaseM $ runReaderT (runEffT ma) (TransformEff f)

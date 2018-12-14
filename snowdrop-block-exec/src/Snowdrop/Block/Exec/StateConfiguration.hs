@@ -82,13 +82,13 @@ inmemoryBlkStateConfiguration cfg  expander = fix $ \this ->
             indicies = cummulativeSums lengths
             flatRawTxs = gett @_ @(SomeData TxRaw c) <$> mconcat (toList $ unOldestFirst rawTxs)
         OldestFirst txsWithAccs <-
-            convertEffect @conf $
+            convertEffect $
               upcastEffERoCompM @_ @xs $
               withAccum @conf acc0 $
               runSeqExpandersSequentially expander flatRawTxs
         let accs = acc0 : (snd <$> txsWithAccs)
         pure $ OldestFirst $ pickElements (NE.zip lengths indicies) accs
-    , bscGetHeader = \blockRef -> convertEffect @conf $ do
+    , bscGetHeader = \blockRef -> convertEffect $ do
         blund <- queryOne @(BlundComponent blkType) @xs @conf $ blockRef
         pure $ gett . buRawBlk <$> blund
     --  sequentially rollback every block from the tip down to blockRef
@@ -98,13 +98,13 @@ inmemoryBlkStateConfiguration cfg  expander = fix $ \this ->
         let refs = unCurrentBlockRef . bcBlockRef cfg . gett . buRawBlk <$> blunds
         fmap (, refs) $ withAccum @conf acc0 $
           modifyAccumUndo @xs @conf $ inj . buUndo <$> blunds
-    , bscBlockExists = convertEffect @conf . queryOneExists @(BlundComponent blkType) @xs @conf
-    , bscGetTip = unTipValue <<$>> convertEffect @conf (queryOne @(TipComponent blkType) @xs @conf TipKey)
+    , bscBlockExists = convertEffect . queryOneExists @(BlundComponent blkType) @xs @conf
+    , bscGetTip = unTipValue <<$>> convertEffect (queryOne @(TipComponent blkType) @xs @conf TipKey)
     }
     where
       getBlunds fromRef toRef =
           loadBlocksFromTo
-              (convertEffect @conf . queryOne @(BlundComponent blkType) @xs @conf)
+              (convertEffect . queryOne @(BlundComponent blkType) @xs @conf)
               (bcPrevBlockRef cfg . gett @(RawBlk blkType) . buRawBlk)
               (bcMaxForkDepth cfg)
               (Just $ FromRef fromRef)

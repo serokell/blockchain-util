@@ -121,6 +121,7 @@ verifyForkStructure bsc@BlkStateConfiguration{..} osParams fork@(OldestFirst alt
 
 data ForkApplyAction chgAccum blkType = ForkApplyAction
     { faaRollbackedRefs :: NewestFirst [] (BlockRef blkType)
+    , faaRollbackedAcc  :: chgAccum
     , faaApplyBlocks    :: OldestFirst NonEmpty (BlockHeader blkType, chgAccum)
     }
 
@@ -170,4 +171,4 @@ processFork bcs@BlkStateConfiguration {..} osParams fork acc0 = do
 
     let applyBlocks = NE.zip (unOldestFirst forkHeaders) (unOldestFirst chgAccums)
 
-    pure $ ForkApplyAction rollbackedRefs (OldestFirst applyBlocks)
+    pure $ ForkApplyAction rollbackedRefs acc1 (OldestFirst applyBlocks)
