@@ -28,6 +28,8 @@ deriving instance Eq (b a) => Eq (OldestFirst b a)
 deriving instance Show (b a) => Show (OldestFirst b a)
 deriving instance DBuildable (b a) => DBuildable (OldestFirst b a)
 deriving instance Hashable (b a) => Hashable (OldestFirst b a)
+deriving instance Semigroup (b a) => Semigroup (OldestFirst b a)
+deriving instance Monoid (b a) => Monoid (OldestFirst b a)
 
 newtype NewestFirst b a = NewestFirst { unNewestFirst :: b a }
 deriving instance Foldable b => Foldable (NewestFirst b)
@@ -36,6 +38,10 @@ deriving instance Applicative b => Applicative (NewestFirst b)
 deriving instance Traversable b => Traversable (NewestFirst b)
 deriving instance Eq (b a) => Eq (NewestFirst b a)
 deriving instance Show (b a) => Show (NewestFirst b a)
+deriving instance DBuildable (b a) => DBuildable (NewestFirst b a)
+deriving instance Hashable (b a) => Hashable (NewestFirst b a)
+deriving instance Semigroup (b a) => Semigroup (NewestFirst b a)
+deriving instance Monoid (b a) => Monoid (NewestFirst b a)
 
 instance Foldable b => Container (NewestFirst b a) where
   type Element (NewestFirst b a) = a

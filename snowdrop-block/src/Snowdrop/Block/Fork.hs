@@ -20,13 +20,15 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Buildable
 import           Formatting (bprint, build, stext, (%))
 
-import           Snowdrop.Block.Chain (FromRef (..), IterationException, loadHeadersFrom)
+import           Snowdrop.Block.Chain (FromRef (..), IterationException, ToRef (..),
+                                       loadAllHeadersToNoThrow, loadHeadersFrom)
 import           Snowdrop.Block.Configuration (BlkConfiguration (..), unBIV)
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (BlockHeader, BlockRef, CurrentBlockRef (..), OSParams,
                                        PrevBlockRef (..), RawBlk)
-import           Snowdrop.Util (HasReview, NewestFirst, OldestFirst (..), VerRes (..),
-                                throwLocalError, toOldestFirst, verResToEither)
+import           Snowdrop.Util (HasReview, MonadLogging, NewestFirst, OldestFirst (..), VerRes (..),
+                                logInfo, newestFirstFContainer, throwLocalError, toOldestFirst,
+                                verResToEither)
 
 -- | Validate header chain integrity
 blkHeadersConsistent
@@ -123,7 +125,9 @@ data ForkApplyAction chgAccum blkType = ForkApplyAction
     { faaRollbackedRefs :: NewestFirst [] (BlockRef blkType)
     , faaRollbackedAcc  :: chgAccum
     , faaApplyBlocks    :: OldestFirst NonEmpty (BlockHeader blkType, chgAccum)
+    , faaRefsToPrune    :: NewestFirst [] (BlockRef blkType)
     }
+
 
 processFork
     :: forall blkType m e chgAccum .
@@ -132,18 +136,19 @@ processFork
       , HasReview e (IterationException (BlockRef blkType))
       , Eq (BlockRef blkType)
       )
-    => BlkStateConfiguration chgAccum blkType m
+    => Bool
+    -> BlkStateConfiguration chgAccum blkType m
     -> OSParams blkType
     -> OldestFirst NonEmpty (RawBlk blkType)
     -> chgAccum
     -> m (ForkApplyAction chgAccum blkType)
-processFork bcs@BlkStateConfiguration {..} osParams fork acc0 = do
+processFork preserveDeepBlocks bsc@BlkStateConfiguration {..} osParams fork acc0 = do
 
     -- 1. Expand headers from raw blocks of fork.
     forkHeaders <- bscExpandHeaders acc0 fork
 
     -- 2. Perform structured validation of chain (via verifyFork), which requires access to headers of fork, cur
-    verifyForkStructure @_ @chgAccum bcs osParams forkHeaders
+    verifyForkStructure @_ @chgAccum bsc osParams forkHeaders
 
     -- 3. Verify integrity of each raw block
     let verifyBlkIntegrity (rawBlk, header) =
@@ -171,4 +176,15 @@ processFork bcs@BlkStateConfiguration {..} osParams fork acc0 = do
 
     let applyBlocks = NE.zip (unOldestFirst forkHeaders) (unOldestFirst chgAccums)
 
-    pure $ ForkApplyAction rollbackedRefs acc1 (OldestFirst applyBlocks)
+    refsToPrune <-
+      if preserveDeepBlocks
+         then pure mempty
+         else do
+           -- collect refs for the blocks deeper than @maxDepth@ after application of the fork
+           let startRef = unPrevBlockRef $ bcPrevBlockRef bscVerifyConfig $ head (unOldestFirst forkHeaders)
+               dropNewest = drop $ bcMaxForkDepth bscVerifyConfig - length fork
+           allRefs <- loadAllHeadersToNoThrow bsc (ToRef startRef)
+           let refs = newestFirstFContainer dropNewest allRefs
+           pure $ unCurrentBlockRef . bcBlockRef bscVerifyConfig <$> refs
+
+    pure $ ForkApplyAction rollbackedRefs acc1 (OldestFirst applyBlocks) refsToPrune

@@ -236,7 +236,6 @@ instance (Effectful (DbAccessM conf supxs) m, UpCastableERoM xs supxs)
   => Effectful (DbAccessM conf xs) (UpCastERoT DbAccessM supxs m) where
     effect = UpCastERoT . effect . upcastDbAccessM @_ @supxs
 
--- TODO rename ConvertEffect to WrapEffect
 class ConvertEffect eff1 eff2 where
     convertEffect :: BaseM e eff1 ctx a -> BaseM e eff2 ctx a
 
