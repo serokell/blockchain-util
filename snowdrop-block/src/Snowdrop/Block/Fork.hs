@@ -26,8 +26,8 @@ import           Snowdrop.Block.Configuration (BlkConfiguration (..), unBIV)
 import           Snowdrop.Block.StateConfiguration (BlkStateConfiguration (..))
 import           Snowdrop.Block.Types (BlockHeader, BlockRef, CurrentBlockRef (..), OSParams,
                                        PrevBlockRef (..), RawBlk)
-import           Snowdrop.Util (HasReview, MonadLogging, NewestFirst, OldestFirst (..), VerRes (..),
-                                logInfo, newestFirstFContainer, throwLocalError, toOldestFirst,
+import           Snowdrop.Util (HasReview, NewestFirst, OldestFirst (..), VerRes (..),
+                                newestFirstFContainer, throwLocalError, toOldestFirst,
                                 verResToEither)
 
 -- | Validate header chain integrity
