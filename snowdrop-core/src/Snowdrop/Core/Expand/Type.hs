@@ -169,8 +169,8 @@ applyPreExpander tx ex sumCS = flip mappendMbChangeSet sumCS <$> runPreExpander 
   ...
   uniN :: [*]
   --
-  type family flattenUni :: [[*]] :: [*]
-  type uni = flattenUni [uni1, ..., uniN]
+  type family FlattenUni :: [[*]] :: [*]
+  type uni = FlattenUni [uni1, ..., uniN]
 -}
 
 data PreExpanderZ conf rawTx f uni zs where
@@ -187,6 +187,34 @@ liftPEZ2U :: forall uni zss conf rawTx f .
   , RecordToList zss
   ) => Rec (PreExpanderZ conf rawTx f uni) zss -> [PreExpanderU conf rawTx f uni]
 liftPEZ2U zss = recordToList (rmap (Const . liftPEU) zss)
+
+-- Deduce uni?
+type family Concat (ls :: [[k]]) :: [k] where
+  Concat '[] = '[]
+  Concat (x ': xs) = x ++ Concat xs
+
+type family Nub (xs :: [k]) where
+  Nub '[] = '[]
+  Nub (x ': xs) = x ': Nub (RDelete x xs)
+
+type family Fsts (xs :: [(k,v)]) :: [k] where
+  Fsts '[] = '[]
+  Fsts (x ': xs) = Fst x ': Fsts xs
+
+type family Snds (xs :: [(k,v)]) :: [v] where
+  Snds '[] = '[]
+  Snds (x ': xs) = Snd x ': Snds xs
+
+type FFlattenUni zss = Nub (Concat (Fsts zss ++ Snds zss))
+
+-- Is this usable?
+liftPEZ2Ud ::
+  ( uni ~ FFlattenUni zss
+  , RecApplicative uni
+  , RMap zss
+  , RecordToList zss
+  ) => Rec (PreExpanderZ conf rawTx f (FFlattenUni zss)) zss -> [PreExpanderU conf rawTx f (FFlattenUni zss)]
+liftPEZ2Ud zss = recordToList (rmap (Const . liftPEU) zss)
 --------------
 
 
