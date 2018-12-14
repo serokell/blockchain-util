@@ -164,6 +164,32 @@ applyPreExpander
     -> ERoComp conf (HMbChangeSet ts)
 applyPreExpander tx ex sumCS = flip mappendMbChangeSet sumCS <$> runPreExpander tx ex
 
+{- Universes. Might be flattened.
+  uni1 :: [*]
+  ...
+  uniN :: [*]
+  --
+  type family flattenUni :: [[*]] :: [*]
+  type uni = flattenUni [uni1, ..., uniN]
+-}
+
+data PreExpanderZ conf rawTx f uni zs where
+  PEZ :: (RMap (Snd zs), Fst zs ⊆ uni, Snd zs ⊆ uni) => {runExpanderZ :: rawTx -> Rec f (Fst zs) -> ERoComp conf (HChangeSet (Snd zs))} -> PreExpanderZ conf rawTx f uni zs
+
+newtype PreExpanderU conf rawTx f uni = PEU {runExpanderU :: rawTx -> Rec f uni -> ERoComp conf (HMbChangeSet uni)}
+
+liftPEU :: forall uni zs conf rawTx f . (RecApplicative uni) => PreExpanderZ conf rawTx f uni zs -> PreExpanderU conf rawTx f uni
+liftPEU (PEZ act) = PEU act' where act' t r = rdowncast <$> act t (rcast r)
+
+liftPEZ2U :: forall uni zss conf rawTx f .
+  ( RecApplicative uni
+  , RMap zss
+  , RecordToList zss
+  ) => Rec (PreExpanderZ conf rawTx f uni) zss -> [PreExpanderU conf rawTx f uni]
+liftPEZ2U zss = recordToList (rmap (Const . liftPEU) zss)
+--------------
+
+
 -- Test if can write things in this style
 data Fields = Name | Age | Sleeping | Master deriving Show
 type TS = ['Name, 'Age, 'Sleeping]
