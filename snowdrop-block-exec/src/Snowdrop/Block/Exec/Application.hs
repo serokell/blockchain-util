@@ -18,8 +18,8 @@ import           Snowdrop.Block (BlkConfiguration (..), BlkStateConfiguration (.
                                  BlockRef, CurrentBlockRef (..), ForkApplyAction (..), FromRef,
                                  IterationException, PrevBlockRef (..), RawBlk, ToRef (..),
                                  loadBlocksFromTo)
-import           Snowdrop.Block.Exec.Storage (BlockUndo, Blund (..), BlundComponent, TipComponent,
-                                              TipKey (..), TipValue (..))
+import           Snowdrop.Block.Exec.Storage (Blund (..), BlundComponent, TipComponent, TipKey (..),
+                                              TipValue (..))
 import           Snowdrop.Core (CSMappendException, ChgAccum, ChgAccumCtx (..), Ctx, ERoCompU,
                                 HChangeSetEl (..), HUpCastableChSet, HasBException, HasBExceptions,
                                 QueryERo, Undo, ValueOp (..), computeUndo, convertEffect,
@@ -32,11 +32,11 @@ import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), Ne
 --
 -- Invariants:
 --    * @length fork == length faaApplyBlocks@
-faaToChangeSet :: forall blkType conf xs
+faaToChangeSet :: forall blkType blkUndo conf xs
     . ( HasBException conf CSMappendException
       , HasLens (Ctx conf) (ChgAccumCtx conf)
-      , HasGetter (Undo conf) (BlockUndo blkType)
-      , HUpCastableChSet '[TipComponent blkType, BlundComponent blkType] xs
+      , HasGetter (Undo conf) blkUndo
+      , HUpCastableChSet '[TipComponent blkType, BlundComponent blkType blkUndo] xs
       , Ord (BlockRef blkType)
       )
     => Bool
@@ -51,13 +51,13 @@ faaToChangeSet preserveDeepBlocks cfg fork ForkApplyAction{..} = do
 
     logInfo $ fromString $ "faaRefsToPrune: " <> show (length faaRefsToPrune)
     let undos = undo0 :| undoRest
-        blunds = NE.zipWith (Blund @blkType) (unOldestFirst fork) (gett <$> undos)
+        blunds = NE.zipWith Blund (unOldestFirst fork) (gett <$> undos)
         newBlundPairs = zip (unCurrentBlockRef . bcBlockRef cfg <$> takeNewest headers) (New <$> takeNewest blunds)
         remBlundPairs = (,Rem) <$> unNewestFirst (faaRollbackedRefs <> faaRefsToPrune)
         -- Invariant: rollbackedRefs ∩ newBlundRefs = ∅
         blundChg = M.fromList $ newBlundPairs <> remBlundPairs
         blkChg =
-          hupcast @_ @'[TipComponent blkType, BlundComponent blkType] $
+          hupcast @_ @'[TipComponent blkType, BlundComponent blkType blkUndo] $
               HChangeSetEl tipChg :& HChangeSetEl blundChg :& RNil
 
     withAccum @conf (last chgAccums) $ convertEffect $ modifyAccumOne @xs @conf blkChg
@@ -78,19 +78,18 @@ faaToChangeSet preserveDeepBlocks cfg fork ForkApplyAction{..} = do
         newTipValue = TipValue $ unCurrentBlockRef $ bcBlockRef cfg (last headers)
 
 rollback
-    :: forall blkType conf xs .
+    :: forall blkType blkUndo conf xs .
       ( HasBExceptions conf
           [ IterationException (BlockRef blkType)
           , CSMappendException
           ]
-      , HUpCastableChSet '[TipComponent blkType, BlundComponent blkType] xs
+      , HUpCastableChSet '[TipComponent blkType, BlundComponent blkType blkUndo] xs
       , QueryERo xs (TipComponent blkType)
       , HasLens (Ctx conf) (ChgAccumCtx conf)
-      , HasReview (Undo conf) (BlockUndo blkType)
-      , QueryERo xs (BlundComponent blkType)
+      , HasReview (Undo conf) blkUndo
+      , QueryERo xs (BlundComponent blkType blkUndo)
       , Default (ChgAccum conf)
       , HasGetter (RawBlk blkType) (BlockHeader blkType)
-      , HasReview (Undo conf) (BlockUndo blkType)
       )
     => Int
     -> BlkStateConfiguration (ChgAccum conf) blkType (ERoCompU conf xs)
@@ -105,9 +104,9 @@ rollback rollbackBy bsConf = do
                   Nothing     -> Rem
                   Just newTip -> Upd (TipValue newTip)
             refs = unCurrentBlockRef . getCurrentBlockRef <$> blundsNE
-            undos = inj . buUndo @blkType <$> blunds
+            undos = inj . buUndo @_ @blkUndo <$> blunds
             blkChg =
-              hupcast @_ @'[TipComponent blkType, BlundComponent blkType] $
+              hupcast @_ @'[TipComponent blkType, BlundComponent blkType blkUndo] $
                 (HChangeSetEl $ M.singleton TipKey tipChg)
                 :& (HChangeSetEl $ M.fromList $ (,Rem) <$> toList refs)
                 :& RNil
@@ -120,20 +119,20 @@ rollback rollbackBy bsConf = do
     bc = bscVerifyConfig bsConf
 
 loadBlunds
-    :: forall blkType conf xs .
+  :: forall blkType blkUndo conf xs .
       ( HasBException conf (IterationException (BlockRef blkType))
       , Eq (BlockRef blkType)
       , HasGetter (RawBlk blkType) (BlockHeader blkType)
-      , QueryERo xs (BlundComponent blkType)
+      , QueryERo xs (BlundComponent blkType blkUndo)
       )
     => BlkStateConfiguration (ChgAccum conf) blkType (ERoCompU conf xs)
     -> Int
     -> Maybe (FromRef (BlockRef blkType))
-    -> ERoCompU conf xs (NewestFirst [] (Blund blkType))
+    -> ERoCompU conf xs (NewestFirst [] (Blund (RawBlk blkType) blkUndo))
 loadBlunds bsConf maxDepth from = do
     tip <- bscGetTip bsConf
     loadBlocksFromTo
-        (convertEffect . queryOne @(BlundComponent blkType) @xs @conf)
+        (convertEffect . queryOne @(BlundComponent blkType blkUndo) @xs @conf)
         getPreviousBlockRef
         maxDepth
         from
