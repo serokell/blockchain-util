@@ -27,6 +27,7 @@ import qualified Data.Tree.AVL as AVL
 
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
+import qualified Data.Set as Set
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 import           Data.Vinyl.TypeLevel (AllConstrained)
@@ -197,25 +198,35 @@ query
     , MonadCatch m
     , AllAvlEntries h xs
     )
-   => ctx -> AVLChgAccums h xs -> DGetter' xs m
-query ctx (Just ca) hset = queryAll ca hset
+    => ctx
+    -> AVLChgAccums h xs
+    -> Rec (Const (Set h -> m ())) xs
+    -> DGetter' xs m
+query ctx (Just ca) nodeActs hset = queryAll ca nodeActs hset
   where
-    queryAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
-    queryAll RNil RNil                       = pure RNil
-    queryAll accums'@(_ :& _) reqs'@(_ :& _) = query' accums' reqs'
+    queryAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> Rec (Const (Set h -> m ())) rs -> HSet rs -> m (HMap rs)
+    queryAll RNil RNil RNil                                 = pure RNil
+    queryAll accums'@(_ :& _) acts'@(_ :& _) reqs'@(_ :& _) = query' accums' acts' reqs'
 
     query'
         :: forall r rs rs' . (rs ~ (r ': rs'), AllConstrained (IsAvlEntry h) rs)
-        => Rec (AVLChgAccum h) rs -> HSet rs -> m (HMap rs)
-    query' (AVLChgAccum initAvl initAcc _ :& accums) (HSetEl req :& reqs) = reThrowAVLEx @(HKey r) @h $ do
-        let queryDo = fst <$> foldM queryDoOne (mempty, initAvl) req
+        => Rec (AVLChgAccum h) rs
+        -> Rec (Const (Set h -> m ())) rs
+        -> HSet rs -> m (HMap rs)
+    query' (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& acts) (HSetEl req :& reqs) = reThrowAVLEx @(HKey r) @h $ do
+        let queryDo = fst <$> foldM queryDoOne ((mempty, mempty), initAvl) req
+
             queryDoOne (resp, avl) key = first (processResp resp key) <$> AVL.lookup key avl
 
-            processResp resp key (Just v, _touched) = M.insert key v resp
-            processResp resp _ _                    = resp
-        responses <- fst <$> runAVLCacheT queryDo initAcc ctx
-        (HMapEl responses :&) <$> queryAll accums reqs
-query ctx cA req = query ctx (Just $ resolveAvlCA ctx cA) req
+            processResp :: (Map (HKey r) (HVal r), Set h) -> HKey r -> (Maybe (HVal r), Set h) -> (Map (HKey r) (HVal r), Set h)
+            processResp _resp@(x, y) key (Just v, touched) = (M.insert key v x, Set.union y touched)
+            processResp resp _ _                           = resp
+
+        ((responses, nodes), _) <- runAVLCacheT queryDo initAcc ctx
+        -- save visited nodes
+        nodeAct nodes
+        (HMapEl responses :&) <$> queryAll accums acts reqs
+query ctx cA nodeAct req = query ctx (Just $ resolveAvlCA ctx cA) nodeAct req
 
 iter
     :: forall h xs ctx m.
@@ -227,14 +238,21 @@ iter
     )
     => ctx
     -> AVLChgAccums h xs
+    -> Rec (Const (Set h -> m ())) xs
     -> m (DIter' xs m)
-iter ctx (Just ca) = pure $ iterAll ca
+iter ctx (Just ca) nodeActs0 = pure $ iterAll ca nodeActs0
   where
-    iterAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> DIter' rs m
-    iterAll RNil = RNil
-    iterAll (AVLChgAccum initAvl initAcc _ :& accums) =
+    iterAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> Rec (Const (Set h -> m ())) rs -> DIter' rs m
+    iterAll RNil _ = RNil
+                -- TODO: this is lie, ctx is not used
+    iterAll (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& restActs) =
         IterAction
-            (\initB f -> fmap (fst . fst) $ reThrowAVLEx @(HKey (Head rs)) @h $
-                runAVLCacheT (AVL.fold (initB, flip f, id) initAvl) initAcc ctx) :& iterAll accums
+            (\initB f -> do
+                    ((res, nodes :: Set h), _) <- reThrowAVLEx @(HKey (Head rs)) @h $
+                        runAVLCacheT (AVL.fold (initB, flip f, id) initAvl) initAcc ctx
+                    nodeAct nodes
+                    pure res
+            )
+            :& iterAll accums restActs
 
-iter ctx cA = iter ctx (Just $ resolveAvlCA ctx cA)
+iter ctx cA f = iter ctx (Just $ resolveAvlCA ctx cA) f

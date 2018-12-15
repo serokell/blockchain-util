@@ -7,7 +7,6 @@
 
 module Snowdrop.Dba.AVLp.State
        ( AVLServerState (..)
-       , AMSRequested (..)
        , ClientTempState (..)
        , clientModeToTempSt
        , ClientError (..)
@@ -25,7 +24,6 @@ import           Universum
 
 import           Data.Default (Default (..))
 import qualified Data.Map.Strict as M
-import qualified Data.Set as S
 import           Data.Tree.AVL (MapLayer)
 import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
@@ -46,7 +44,11 @@ import           Snowdrop.Util (HasGetter (..), Serialisable (..))
 data AVLServerState h xs = AMS
     { amsRootHashes :: RootHashes h xs  -- ^ Root hash of tree kept in storage
     , amsState      :: AVLPureStorage h -- ^ Storage of whole AVL tree (including old nodes)
-    , amsRequested  :: Rec AMSRequested xs
+    , amsVisited    :: Rec (Const (Set h)) xs
+    -- set of nodes visited since last append overation
+    -- TODO: can we keep track of retrieved nodes somewhere on AVLCache level in retrieve function?
+
+    -- , amsRequested  :: Rec AMSRequested xs
     -- ^ Set of keys that were requested since the last `apply` operation.
     -- Note, that keys which were requested with `RememberForProof False` passed to
     -- `avlServerDbActions` are not being added to this set.
@@ -57,27 +59,6 @@ instance HasGetter (AVLServerState h xs) (RootHashes h xs) where
 
 instance HasGetter (AVLServerState h xs) (AVLPureStorage h) where
     gett = amsState
-
-
--- | Data type for tracking keys which were requested from access actions.
-data AMSRequested t
-    = AMSWholeTree
-    -- ^ Constructor, identifying that all keys of tree were requested
-    -- (which happens with current implementation of iteration)
-    | AMSKeys (Set (HKey t))
-    -- ^ Constructor, containing set of keys that were requested
-
-instance Default (AMSRequested t) where
-    def = AMSKeys S.empty
-
-instance Ord (HKey t) => Semigroup (AMSRequested t) where
-    AMSWholeTree <> _ = AMSWholeTree
-    _ <> AMSWholeTree = AMSWholeTree
-    AMSKeys s1 <> AMSKeys s2 = AMSKeys $ s1 <> s2
-
-instance Ord (HKey t) => Monoid (AMSRequested t) where
-    mempty = AMSKeys mempty
-    mappend = (<>)
 
 ----------------------------------------------------------------------------
 -- Client state
@@ -179,7 +160,7 @@ initAVLPureStorage xs = initAVLPureStorageAll xs def
                 newCache
         logDebug . fromString $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)
         AMS{..} <- initAVLPureStorageAll accums newCache
-        pure $ AMS (RootHashComp rootH :& amsRootHashes) amsState (def :& amsRequested)
+        pure $ AMS (RootHashComp rootH :& amsRootHashes) amsState (mempty :& amsVisited)
 
 -- | Accumulator for changes emerging from `save` operations
 -- being performed on AVL tree
