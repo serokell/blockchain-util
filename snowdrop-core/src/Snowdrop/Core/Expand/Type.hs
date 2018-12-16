@@ -197,6 +197,7 @@ type family Nub (xs :: [k]) where
   Nub '[] = '[]
   Nub (x ': xs) = x ': Nub (RDelete x xs)
 
+{-
 type family Fsts (xs :: [(k,v)]) :: [k] where
   Fsts '[] = '[]
   Fsts (x ': xs) = Fst x ': Fsts xs
@@ -206,6 +207,14 @@ type family Snds (xs :: [(k,v)]) :: [v] where
   Snds (x ': xs) = Snd x ': Snds xs
 
 type FFlattenUni zss = Nub (Concat (Fsts zss ++ Snds zss))
+ -}
+
+-- Optimize (early Nub)
+type family AllTypsOfPre ( xs :: [([*], [*])] ) :: [*] where
+  AllTypsOfPre '[] = '[]
+  AllTypsOfPre ('(ins, outs) ': rest) = Nub (ins ++ outs) ++ AllTypsOfPre rest
+
+type FFlattenUni zss = Nub (AllTypsOfPre zss)
 
 -- Is this usable?
 liftPEZ2Ud ::
