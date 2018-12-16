@@ -209,8 +209,7 @@ type FFlattenUni zss = Nub (Concat (Fsts zss ++ Snds zss))
 
 -- Is this usable?
 liftPEZ2Ud ::
-  ( uni ~ FFlattenUni zss
-  , RecApplicative uni
+  ( RecApplicative (FFlattenUni zss)
   , RMap zss
   , RecordToList zss
   ) => Rec (PreExpanderZ conf rawTx f (FFlattenUni zss)) zss -> [PreExpanderU conf rawTx f (FFlattenUni zss)]
