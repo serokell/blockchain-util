@@ -189,15 +189,15 @@ liftPEZ2U :: forall uni zss conf rawTx f .
 liftPEZ2U zss = recordToList (rmap (Const . liftPEU) zss)
 
 -- Deduce uni?
-type family Concat (ls :: [[k]]) :: [k] where
-  Concat '[] = '[]
-  Concat (x ': xs) = x ++ Concat xs
-
 type family Nub (xs :: [k]) where
   Nub '[] = '[]
   Nub (x ': xs) = x ': Nub (RDelete x xs)
 
 {-
+type family Concat (ls :: [[k]]) :: [k] where
+  Concat '[] = '[]
+  Concat (x ': xs) = x ++ Concat xs
+
 type family Fsts (xs :: [(k,v)]) :: [k] where
   Fsts '[] = '[]
   Fsts (x ': xs) = Fst x ': Fsts xs
