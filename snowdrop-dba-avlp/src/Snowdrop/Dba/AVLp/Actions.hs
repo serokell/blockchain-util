@@ -8,6 +8,7 @@ module Snowdrop.Dba.AVLp.Actions
        ( AVLChgAccum
        , avlServerDbActions
        , avlClientDbActions
+       , AppendAmsVisitedAll (..)
        ) where
 
 import           Data.Vinyl (RecApplicative, rget, rpure, rput)
