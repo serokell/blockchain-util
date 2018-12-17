@@ -26,8 +26,12 @@ import           Snowdrop.Core (CSMappendException, ChgAccum, ChgAccumCtx (..), 
                                 modifyAccumOne, modifyAccumUndo, queryOne, withAccum)
 import           Snowdrop.Hetero (hupcast)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), NewestFirst (..),
-                                OldestFirst (..))
+                                OldestFirst (..), logInfo)
 
+-- | Transforms ForkApplyAction into a change to underlying block storage.
+--
+-- Invariants:
+--    * @length fork == length faaApplyBlocks@
 faaToChangeSet :: forall blkType conf xs
     . ( HasBException conf CSMappendException
       , HasLens (Ctx conf) (ChgAccumCtx conf)
@@ -35,25 +39,23 @@ faaToChangeSet :: forall blkType conf xs
       , HUpCastableChSet '[TipComponent blkType, BlundComponent blkType] xs
       , Ord (BlockRef blkType)
       )
-    => BlkConfiguration blkType
+    => Bool
+    -> BlkConfiguration blkType
     -> OldestFirst NonEmpty (RawBlk blkType)
     -> ForkApplyAction (ChgAccum conf) blkType
     -> ERoCompU conf xs (ChgAccum conf)
-faaToChangeSet cfg fork ForkApplyAction{..} = do
+faaToChangeSet preserveDeepBlocks cfg fork ForkApplyAction{..} = do
     undo0 <- withAccum @conf faaRollbackedAcc $ computeUndo @xs @conf acc0
     undoRest <- flip traverse (zip (acc0 : caRest) caRest) $ \(prevAcc, acc) ->
         withAccum @conf prevAcc $ computeUndo @xs @conf acc
 
+    logInfo $ fromString $ "faaRefsToPrune: " <> show (length faaRefsToPrune)
     let undos = undo0 :| undoRest
         blunds = NE.zipWith (Blund @blkType) (unOldestFirst fork) (gett <$> undos)
-        newBlundPairs = toList $ NE.zip (unCurrentBlockRef . bcBlockRef cfg <$> headers) (New <$> blunds)
-        remBlundPairs = (,Rem) <$> unNewestFirst faaRollbackedRefs
+        newBlundPairs = zip (unCurrentBlockRef . bcBlockRef cfg <$> takeNewest headers) (New <$> takeNewest blunds)
+        remBlundPairs = (,Rem) <$> unNewestFirst (faaRollbackedRefs <> faaRefsToPrune)
         -- Invariant: rollbackedRefs ∩ newBlundRefs = ∅
         blundChg = M.fromList $ newBlundPairs <> remBlundPairs
-        newTipChgCons = maybe (bool Upd New $ null faaRollbackedRefs)
-                              (const Upd) $ unPrevBlockRef $ bcPrevBlockRef cfg (head headers)
-        newTipValue = TipValue $ unCurrentBlockRef $ bcBlockRef cfg (last headers)
-        tipChg = M.singleton TipKey (newTipChgCons newTipValue)
         blkChg =
           hupcast @_ @'[TipComponent blkType, BlundComponent blkType] $
               HChangeSetEl tipChg :& HChangeSetEl blundChg :& RNil
@@ -63,6 +65,17 @@ faaToChangeSet cfg fork ForkApplyAction{..} = do
     (headers, chgAccums) = NE.unzip $ unOldestFirst faaApplyBlocks
     acc0 :| caRest = chgAccums
 
+    -- If @preserveDeepBlocks@ is on, it's simply @NE.toList@
+    -- Otherwise it leaves only @maxDepth@ last elements from the given list
+    -- (or whole list if length of the list is less than @maxDepth@)
+    takeNewest :: NonEmpty a -> [a]
+    takeNewest = bool (NE.drop $ length fork - bcMaxForkDepth cfg) NE.toList preserveDeepBlocks
+
+    tipChg = M.singleton TipKey (newTipChgCons newTipValue)
+      where
+        newTipChgCons = maybe (bool Upd New $ null faaRollbackedRefs)
+                              (const Upd) $ unPrevBlockRef $ bcPrevBlockRef cfg (head headers)
+        newTipValue = TipValue $ unCurrentBlockRef $ bcBlockRef cfg (last headers)
 
 rollback
     :: forall blkType conf xs .
