@@ -139,3 +139,13 @@ runSeqExpanders ts xs = rzipWith runE ts xs
 -- FIXME!!! SIMPLIFY
 
 type HMbMbChangeSet conf biguni = Rec ( Maybe :. ERCUni conf ) biguni
+
+-- NOTE:
+-- If we would have ExpTypes * [*] [*], i.e, a triple (transaction type, ins type list, outs type list),
+--   we won't have to write an extra flatten step, but much more important thing is that the client's code
+--   would be simpler, more natural and easier to write!
+-- We might flatten out existing `ExpTypes` the other way around, like this:
+--  OldExpTypes * [([*],[*])] -> [NewExpTypes * [*] [*]), replicating the first (transaction type) parameter
+--  for each element of insouts list
+-- But! It's much easier (less parens and grouping) when a client write the client code right in terms of 
+--   NewExpTypes * [*] [*]
