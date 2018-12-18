@@ -8,7 +8,8 @@ module Snowdrop.Dba.AVLp.Actions
        ( AVLChgAccum
        , avlServerDbActions
        , avlClientDbActions
-       , AppendAmsVisitedAll (..)
+       , RememberNodesActs' (..)
+       , RememberNodesActs
        ) where
 
 import           Data.Vinyl (RecApplicative, rget, rpure, rput)
@@ -37,6 +38,9 @@ import           Snowdrop.Dba.Base (ClientMode (..), DbAccessActions (..), DbAcc
 import           Snowdrop.Hetero (HKey, HVal, RContains)
 import           Snowdrop.Util (NewestFirst)
 
+
+ignoreNodesActs :: RecApplicative xs => Rec (Const (Set h -> STM ())) xs
+ignoreNodesActs = rpure (Const (\_ -> pure ()))
 
 avlClientDbActions
     :: forall conf h xs .
@@ -68,16 +72,13 @@ avlClientDbActions retrieveF = fmap mkActions . newTVar
         -> DbAccessActionsU conf STM
     mkAccessActions var ctMode = daaU
       where
-        ignoreNodes :: RecApplicative xs => Rec (Const (Set h -> STM ())) xs
-        ignoreNodes = rpure (Const (\_ -> pure ()))
-
         daa =
           DbAccessActions
             -- adding keys to amsRequested
-          (\cA req -> createState >>= \ctx -> query ctx cA ignoreNodes req)
+          (\cA req -> createState >>= \ctx -> query ctx cA ignoreNodesActs req)
             -- setting amsRequested to AMSWholeTree as iteration with
             -- current implementation requires whole tree traversal
-          (\cA -> createState >>= \ctx -> iter ctx cA ignoreNodes)
+          (\cA -> createState >>= \ctx -> iter ctx cA ignoreNodesActs)
         daaM = DbAccessActionsM daa (\cA cs -> createState >>= \ctx -> modAccum ctx cA cs)
         daaU = DbAccessActionsU daaM
                   (withProjUndo . modAccumU)
@@ -99,7 +100,7 @@ avlServerDbActions
     , RHashable h xs
 
     , RecApplicative xs
-    , AppendAmsVisitedAll h xs xs
+    , RememberNodesActs' h xs xs
 
     , Undo conf ~ AvlUndo h xs
     , ChgAccum conf ~ AVLChgAccums h xs
@@ -121,15 +122,17 @@ avlServerDbActions = fmap mkActions . newTVar
                           (mkAccessActions var recForProof)
                           (apply var),
                         retrieveHash var)
-    mkAccessActions var _recForProof = daaU
+    mkAccessActions var recForProof = daaU
       where
-        rememberTouchedNodes :: Rec (Const (Set h -> STM ())) xs
-        rememberTouchedNodes = appendVisitedAll var
+        nodeAct :: Rec (Const (Set h -> STM ())) xs
+        nodeAct = case recForProof of
+            RememberForProof True  -> rememberNodesActs var
+            RememberForProof False -> ignoreNodesActs
 
         daa = DbAccessActions
-                (\cA req -> readTVar var >>= \ctx -> query ctx cA rememberTouchedNodes req)
+                (\cA req -> readTVar var >>= \ctx -> query ctx cA nodeAct req)
 
-                (\cA -> readTVar var >>= \ctx -> iter ctx cA rememberTouchedNodes)
+                (\cA -> readTVar var >>= \ctx -> iter ctx cA nodeAct)
         daaM = DbAccessActionsM daa (\cA cs -> (readTVar var) >>= \ctx -> modAccum ctx cA cs)
         daaU = DbAccessActionsU daaM
                   (withProjUndo . modAccumU)
@@ -190,19 +193,21 @@ computeProof
 computeProof (mkAVL -> oldAvl) accTouched (getConst -> requested) =
         AVL.prune (accTouched <> requested) . AVL.fullRehash $ oldAvl
 
+type RememberNodesActs h xs = RememberNodesActs' h xs xs
+
 -- Build record where each element is an effectful action which appends set of
 -- hashes to a set which belongs to a given record component
-class AppendAmsVisitedAll h ys xs where
-    appendVisitedAll :: TVar (AVLServerState h ys) -> Rec (Const (Set h -> STM ())) xs
+class RememberNodesActs' h ys xs where
+    rememberNodesActs :: TVar (AVLServerState h ys) -> Rec (Const (Set h -> STM ())) xs
 
-instance AppendAmsVisitedAll h ys '[] where
-    appendVisitedAll _ = RNil
+instance RememberNodesActs' h ys '[] where
+    rememberNodesActs _ = RNil
 
-instance (AppendAmsVisitedAll h ys xs', RContains ys t,  Ord h) => AppendAmsVisitedAll h ys (t ': xs') where
-    appendVisitedAll var = Const (appendAmsVisited @t var) :& appendVisitedAll var
+instance (RememberNodesActs' h ys xs', RContains ys t,  Ord h) => RememberNodesActs' h ys (t ': xs') where
+    rememberNodesActs var = Const (rememberNodesSingleAct @t var) :& rememberNodesActs var
 
-appendAmsVisited :: forall x xs h . (Ord h, RContains xs x) => TVar (AVLServerState h xs) -> Set h -> STM ()
-appendAmsVisited var xs = modifyTVar' var appendToOneSet
+rememberNodesSingleAct :: forall x xs h . (Ord h, RContains xs x) => TVar (AVLServerState h xs) -> Set h -> STM ()
+rememberNodesSingleAct var xs = modifyTVar' var appendToOneSet
   where
     appendToOneSet st@AMS{..} =
       let v' = mappend xs (getConst (rget @x amsVisited))

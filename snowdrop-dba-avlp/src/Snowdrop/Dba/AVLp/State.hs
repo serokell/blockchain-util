@@ -45,12 +45,8 @@ data AVLServerState h xs = AMS
     { amsRootHashes :: RootHashes h xs  -- ^ Root hash of tree kept in storage
     , amsState      :: AVLPureStorage h -- ^ Storage of whole AVL tree (including old nodes)
     , amsVisited    :: Rec (Const (Set h)) xs
-    -- set of nodes visited since last append overation
-    -- TODO: can we keep track of retrieved nodes somewhere on AVLCache level in retrieve function?
-
-    -- , amsRequested  :: Rec AMSRequested xs
-    -- ^ Set of keys that were requested since the last `apply` operation.
-    -- Note, that keys which were requested with `RememberForProof False` passed to
+    -- ^ Set of nodes visited since the last `apply` operation.
+    -- Note, that nodes which were requested with `RememberForProof False` passed to
     -- `avlServerDbActions` are not being added to this set.
     }
 

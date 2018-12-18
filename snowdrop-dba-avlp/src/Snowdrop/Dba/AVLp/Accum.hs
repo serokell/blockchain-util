@@ -220,14 +220,14 @@ query ctx (Just ca) nodeActs hset = queryAll ca nodeActs hset
     query' (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& acts) (HSetEl req :& reqs) = reThrowAVLEx @(HKey r) @h $ do
         let queryDo = fst <$> foldM queryDoOne ((mempty, mempty), initAvl) req
 
-            queryDoOne (resp, avl) key = first (processResp resp key) <$> AVL.lookup key avl
+            queryDoOne (resp, avl) key = first (combineLookupRes resp key) <$> AVL.lookup key avl
 
-            processResp :: (Map (HKey r) (HVal r), Set h)
-                        -> HKey r
-                        -> (Maybe (HVal r), Set h)
-                        -> (Map (HKey r) (HVal r), Set h)
-            processResp _accum@(x, y) key (Just v , touched) = (M.insert key v x, Set.union y touched)
-            processResp accum         _   (Nothing, _)       = accum
+            combineLookupRes :: (Map (HKey r) (HVal r), Set h)
+                             -> HKey r
+                             -> (Maybe (HVal r), Set h)
+                             -> (Map (HKey r) (HVal r), Set h)
+            combineLookupRes _accum@(x, y) key (Just v , touched) = (M.insert key v x, Set.union y touched)
+            combineLookupRes accum         _   (Nothing, _)       = accum
 
         (responses, touchedNodes) <- fst <$> runAVLCacheT queryDo initAcc ctx
         nodeAct touchedNodes
