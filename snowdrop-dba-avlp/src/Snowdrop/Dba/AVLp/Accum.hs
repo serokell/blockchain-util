@@ -191,6 +191,10 @@ computeUndo
 computeUndo Nothing ctx    = gett ctx
 computeUndo (Just accum) _ = rmapWithHash @h (RootHashComp . avlRootHash . acaMap) accum
 
+-- | Constructs a record of getters which return values for requested keys from
+-- optional ca argument. If ca is not provided, then tree is built from root
+-- hashes from ctx argument. nodeActs is a record of effectful actions called on
+-- all "touched" AVL nodes (i.e. all nodes).
 query
     :: forall h xs ctx m .
     ( AvlHashable h, HasGetter ctx (RootHashes h xs)
@@ -218,16 +222,22 @@ query ctx (Just ca) nodeActs hset = queryAll ca nodeActs hset
 
             queryDoOne (resp, avl) key = first (processResp resp key) <$> AVL.lookup key avl
 
-            processResp :: (Map (HKey r) (HVal r), Set h) -> HKey r -> (Maybe (HVal r), Set h) -> (Map (HKey r) (HVal r), Set h)
-            processResp _resp@(x, y) key (Just v, touched) = (M.insert key v x, Set.union y touched)
-            processResp resp _ _                           = resp
+            processResp :: (Map (HKey r) (HVal r), Set h)
+                        -> HKey r
+                        -> (Maybe (HVal r), Set h)
+                        -> (Map (HKey r) (HVal r), Set h)
+            processResp _accum@(x, y) key (Just v , touched) = (M.insert key v x, Set.union y touched)
+            processResp accum         _   (Nothing, _)       = accum
 
-        ((responses, nodes), _) <- runAVLCacheT queryDo initAcc ctx
-        -- save visited nodes
-        nodeAct nodes
+        (responses, touchedNodes) <- fst <$> runAVLCacheT queryDo initAcc ctx
+        nodeAct touchedNodes
         (HMapEl responses :&) <$> queryAll accums acts reqs
 query ctx cA nodeAct req = query ctx (Just $ resolveAvlCA ctx cA) nodeAct req
 
+-- | Constructs a record of iterators which iterate through all nodes from
+-- optional ca argument. If ca is not provided, then tree is built from root
+-- hashes from ctx argument. nodeActs is a record of effectful actions called on
+-- all "touched" AVL nodes (i.e. all nodes).
 iter
     :: forall h xs ctx m.
     ( AvlHashable h
@@ -240,19 +250,18 @@ iter
     -> AVLChgAccums h xs
     -> Rec (Const (Set h -> m ())) xs
     -> m (DIter' xs m)
-iter ctx (Just ca) nodeActs0 = pure $ iterAll ca nodeActs0
+iter ctx (Just ca) nodeActs = pure $ iterAll ca nodeActs
   where
     iterAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> Rec (Const (Set h -> m ())) rs -> DIter' rs m
     iterAll RNil _ = RNil
-                -- TODO: this is lie, ctx is not used
     iterAll (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& restActs) =
         IterAction
             (\initB f -> do
-                    ((res, nodes :: Set h), _) <- reThrowAVLEx @(HKey (Head rs)) @h $
-                        runAVLCacheT (AVL.fold (initB, flip f, id) initAvl) initAcc ctx
-                    nodeAct nodes
-                    pure res
+                -- TODO: this is lie, ctx is not used
+                ((res, touchedNodes), _) <- reThrowAVLEx @(HKey (Head rs)) @h $
+                    runAVLCacheT (AVL.fold (initB, flip f, id) initAvl) initAcc ctx
+                nodeAct touchedNodes
+                pure res
             )
             :& iterAll accums restActs
-
 iter ctx cA f = iter ctx (Just $ resolveAvlCA ctx cA) f

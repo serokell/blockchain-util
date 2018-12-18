@@ -123,15 +123,13 @@ avlServerDbActions = fmap mkActions . newTVar
                         retrieveHash var)
     mkAccessActions var _recForProof = daaU
       where
-        rememberVisitedNodes :: Rec (Const (Set h -> STM ())) xs
-        rememberVisitedNodes = appendVisitedAll var
+        rememberTouchedNodes :: Rec (Const (Set h -> STM ())) xs
+        rememberTouchedNodes = appendVisitedAll var
 
         daa = DbAccessActions
-                -- adding keys to amsRequested
-                (\cA req -> readTVar var >>= \ctx -> query ctx cA rememberVisitedNodes req) -- setting amsRequested to AMSWholeTree as iteration with
-                -- current implementation requires whole tree traversal
+                (\cA req -> readTVar var >>= \ctx -> query ctx cA rememberTouchedNodes req)
 
-                (\cA -> readTVar var >>= \ctx -> iter ctx cA rememberVisitedNodes)
+                (\cA -> readTVar var >>= \ctx -> iter ctx cA rememberTouchedNodes)
         daaM = DbAccessActionsM daa (\cA cs -> (readTVar var) >>= \ctx -> modAccum ctx cA cs)
         daaU = DbAccessActionsU daaM
                   (withProjUndo . modAccumU)
@@ -190,10 +188,6 @@ computeProof
     -> Const (Set h) t
     -> AVLCacheT h (ReaderT (AVLPureStorage h) STM) (AVL.Proof h (HKey t) (HVal t))
 computeProof (mkAVL -> oldAvl) accTouched (getConst -> requested) =
-        -- There was some bug in fold!
-
-        -- TODO: types match but I don't sure if it correct. George told
-        -- something about removing touched var
         AVL.prune (accTouched <> requested) . AVL.fullRehash $ oldAvl
 
 -- Build record where each element is an effectful action which appends set of
