@@ -124,15 +124,15 @@ avlServerDbActions = fmap mkActions . newTVar
                         retrieveHash var)
     mkAccessActions var recForProof = daaU
       where
-        nodeAct :: Rec (Const (Set h -> STM ())) xs
-        nodeAct = case recForProof of
+        nodeActs :: Rec (Const (Set h -> STM ())) xs
+        nodeActs = case recForProof of
             RememberForProof True  -> rememberNodesActs var
             RememberForProof False -> ignoreNodesActs
 
         daa = DbAccessActions
-                (\cA req -> readTVar var >>= \ctx -> query ctx cA nodeAct req)
+                (\cA req -> readTVar var >>= \ctx -> query ctx cA nodeActs req)
 
-                (\cA -> readTVar var >>= \ctx -> iter ctx cA nodeAct)
+                (\cA -> readTVar var >>= \ctx -> iter ctx cA nodeActs)
         daaM = DbAccessActionsM daa (\cA cs -> (readTVar var) >>= \ctx -> modAccum ctx cA cs)
         daaU = DbAccessActionsU daaM
                   (withProjUndo . modAccumU)
