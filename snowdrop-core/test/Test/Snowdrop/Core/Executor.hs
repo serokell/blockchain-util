@@ -21,7 +21,7 @@ import           Data.Vinyl.Core (Rec (..))
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Loot.Log (NameSelector (..))
-import           Snowdrop.Core (BException, CSMappendException (..), ChgAccum, ChgAccumCtx (..),
+import           Snowdrop.Core (BException, CSMappendException (..), ChgAccum, ChgAccumMaybe (..),
                                 Ctx, DbAccess (..), ERoComp, Effectful (..), FoldF (..), HChangeSet,
                                 HChangeSetEl, ValueOp (..), getCAOrDefault, hChangeSetElToList,
                                 unBaseM)
@@ -41,7 +41,7 @@ instance Default (HChangeSet xs) => Default (SumChangeSet xs) where
 simpleStateAccessor
     :: HIntersectable xs xs
     => HMap xs
-    -> DbAccess conf xs res
+    -> DbAccess xs res
     -> res
 simpleStateAccessor st (DbQuery q cont) = cont (st `hintersect` q)
 simpleStateAccessor st (DbIterator getComp (FoldF (e, foldf, applier))) = applier $
@@ -50,14 +50,14 @@ simpleStateAccessor st (DbIterator getComp (FoldF (e, foldf, applier))) = applie
       e
       (M.toList $ unHMapEl $ getComp st)
 
-data TestCtx conf = TestCtx
-    { tctxChgAccum :: ChgAccumCtx conf
+data TestCtx chgAccum = TestCtx
+    { tctxChgAccum :: ChgAccumMaybe chgAccum
     }
 
-instance HasLens (TestCtx conf) (ChgAccumCtx conf) where
+instance HasLens (TestCtx chgAccum) (ChgAccumMaybe chgAccum) where
     sett ctx val = ctx { tctxChgAccum = val }
 
-instance HasGetter (TestCtx conf) (ChgAccumCtx conf) where
+instance HasGetter (TestCtx chgAccum) (ChgAccumMaybe chgAccum) where
     gett = tctxChgAccum
 
 data Counter = Counter
@@ -70,9 +70,9 @@ makeLenses ''Counter
 instance Default Counter where
     def = Counter 0 0
 
-newtype TestExecutorT e conf m a = TestExecutorT
-    { runTestExecutorT :: ReaderT (TestCtx conf) (StateT Counter (ExceptT e m)) a }
-    deriving (Functor, Applicative, Monad, MonadError e, MonadReader (TestCtx conf))
+newtype TestExecutorT e chgAccum m a = TestExecutorT
+    { runTestExecutorT :: ReaderT (TestCtx chgAccum) (StateT Counter (ExceptT e m)) a }
+    deriving (Functor, Applicative, Monad, MonadError e, MonadReader (TestCtx chgAccum))
 
 -- Dummy logging
 instance Monad m => MonadLogging (TestExecutorT e conf m) where
@@ -115,9 +115,8 @@ instance ( MonadReader (HMap xs) m
          , HasReview e CSMappendException
          , HIntersectable xs xs
          , AllConstrained ExnHKey xs
-         , ChgAccum conf ~ SumChangeSet xs
          ) =>
-   Effectful (DbAccess conf xs) (TestExecutorT e conf m) where
+   Effectful (DbAccess xs) (TestExecutorT e (SumChangeSet xs) m) where
         effect dbAccess = do
             SumChangeSet acc <- getCAOrDefault . tctxChgAccum <$> ask
             storage <- TestExecutorT $ lift $ lift ask
@@ -130,7 +129,7 @@ instance ( MonadReader (HMap xs) m
 data TestConf e (xs :: [*])
 
 type instance BException (TestConf e xs) = e
-type instance Ctx (TestConf e xs) = TestCtx (TestConf e xs)
+type instance Ctx (TestConf e xs) = TestCtx (SumChangeSet xs)
 type instance ChgAccum (TestConf e xs) = SumChangeSet xs
 
 

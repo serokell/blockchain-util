@@ -15,9 +15,10 @@ import           Universum
 import           Control.Monad.Except (MonadError)
 
 import           Snowdrop.Core.BaseM (BaseM)
-import           Snowdrop.Core.ERoComp (BException, ChgAccum, ChgAccumCtx (..), ConvertEffect (..),
-                                        Ctx, DbAccessM, HasBException, StatePException (..),
-                                        UpCastableERoM, initAccumCtx, upcastEffERoCompM)
+import           Snowdrop.Core.ERoComp (BException, ChgAccum, ChgAccumCtx, ChgAccumMaybe (..),
+                                        ConvertEffect (..), Ctx, DbAccessM, HasBException,
+                                        StatePException (..), UpCastableERoM, initAccumCtx,
+                                        upcastEffERoCompM)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), throwLocalError)
 
 -- | StateT over ERoComp.
@@ -67,7 +68,7 @@ convertERwComp f (ERwComp (StateT act)) = ERwComp $ StateT $ \s -> f (act s)
 
 upcastEffERwCompM
     :: forall xs supxs conf s a . UpCastableERoM xs supxs
-    => ERwComp conf (DbAccessM conf xs) s a
-    -> ERwComp conf (DbAccessM conf supxs) s a
-upcastEffERwCompM (ERwComp comp) = ERwComp $ StateT $ upcastEffERoCompM . runStateT comp
+    => ERwComp conf (DbAccessM (ChgAccum conf) xs) s a
+    -> ERwComp conf (DbAccessM (ChgAccum conf) supxs) s a
+upcastEffERwCompM (ERwComp comp) = ERwComp $ StateT $ upcastEffERoCompM @_ @_ @conf . runStateT comp
 

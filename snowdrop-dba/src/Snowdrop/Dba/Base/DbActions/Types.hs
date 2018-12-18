@@ -117,7 +117,7 @@ class DbActions effect actions param m where
     executeEffect :: effect r -> actions m -> param -> m r
 
 instance (chgAccum ~ ChgAccum conf, Monad m, xs ~ DbComponents conf) =>
-    DbActions (DbAccess conf xs) (DbAccessActions conf) chgAccum m where
+    DbActions (DbAccess xs) (DbAccessActions conf) chgAccum m where
 
     executeEffect (DbQuery req cont) daa conf =
         cont <$> daaGetter daa conf req
@@ -125,14 +125,14 @@ instance (chgAccum ~ ChgAccum conf, Monad m, xs ~ DbComponents conf) =>
         cont <$> ((\record -> runIterAction (getComp record) e acc) =<< daaIter daa conf)
 
 instance (chgAccum ~ ChgAccum conf, Monad m, xs ~ DbComponents conf) =>
-    DbActions (DbAccessM conf xs) (DbAccessActionsM conf) chgAccum m where
+    DbActions (DbAccessM chgAccum xs) (DbAccessActionsM conf) chgAccum m where
 
     executeEffect (DbAccess da) (daaAccess -> daa) conf = executeEffect da daa conf
     executeEffect (DbModifyAccum chgSet cont) daaM conf =
         cont <$> daaModifyAccum daaM conf chgSet
 
-instance (chgAccum ~ ChgAccum conf, Monad m, xs ~ DbComponents conf) =>
-    DbActions (DbAccessU conf xs) (DbAccessActionsU conf) chgAccum m where
+instance (chgAccum ~ ChgAccum conf, undo ~ Undo conf, Monad m, xs ~ DbComponents conf) =>
+    DbActions (DbAccessU undo chgAccum xs) (DbAccessActionsU conf) chgAccum m where
 
     executeEffect (DbAccessM daM) (daaAccessM -> daaM) conf = executeEffect daM daaM conf
     executeEffect (DbComputeUndo cs cont) daaU conf =

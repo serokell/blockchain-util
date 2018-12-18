@@ -23,7 +23,7 @@ import           Snowdrop.Block.Exec.RawTx (CloseBlockRawTx (..), CloseBlockRawT
                                             OpenBlockRawTx (..), OpenBlockRawTxType)
 import           Snowdrop.Block.Exec.Storage (Blund (..), BlundComponent, TipComponent, TipKey (..),
                                               TipValue (..))
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, ERoCompU,
+import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx, Ctx, ERoCompU,
                                 ExpandableTx, HasBExceptions, QueryERo, SeqExpanders, TxComponents,
                                 TxRaw (..), Undo, UnionSeqExpandersInps, UnionSeqExpandersOuts,
                                 UpCastableERoM, convertEffect, modifyAccumUndo, queryOne,
@@ -83,8 +83,8 @@ inmemoryBlkStateConfiguration cfg  expander = fix $ \this ->
             flatRawTxs = gett @_ @(SomeData TxRaw c) <$> mconcat (toList $ unOldestFirst rawTxs)
         OldestFirst txsWithAccs <-
             convertEffect $
-              upcastEffERoCompM @_ @xs $
-              withAccum @conf acc0 $
+              upcastEffERoCompM @_ @xs @conf $
+              withAccum acc0 $
               runSeqExpandersSequentially expander flatRawTxs
         let accs = acc0 : (snd <$> txsWithAccs)
         pure $ OldestFirst $ pickElements (NE.zip lengths indicies) accs
@@ -96,7 +96,7 @@ inmemoryBlkStateConfiguration cfg  expander = fix $ \this ->
         mTip <- bscGetTip this
         blunds <- getBlunds mBlockRef mTip
         let refs = unCurrentBlockRef . bcBlockRef cfg . gett . buRawBlk <$> blunds
-        fmap (, refs) $ withAccum @conf acc0 $
+        fmap (, refs) $ withAccum acc0 $
           modifyAccumUndo @xs @conf $ inj . buUndo <$> blunds
     , bscBlockExists = convertEffect . queryOneExists @(BlundComponent blkType blkUndo) @xs @conf
     , bscGetTip = unTipValue <<$>> convertEffect (queryOne @(TipComponent blkType) @xs @conf TipKey)
