@@ -155,11 +155,12 @@ modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup k avl
     processResp :: ((Maybe v, Set h), AVL.Map h k v)
                 -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
     processResp ((lookupRes, (<> touched) -> touched'), avl') =
+      let appendTouched = second (<> touched') . swap in
       case (valueop, lookupRes) of
         (NotExisted, Nothing) -> pure (avl', touched')
-        (New v     , Nothing) -> (, touched') . snd <$> AVL.insert k v avl'
-        (Rem       , Just _)  -> (, touched') . snd <$> AVL.delete k avl'
-        (Upd v     , Just _)  -> (, touched') . snd <$> AVL.insert k v avl'
+        (New v     , Nothing) -> appendTouched <$> AVL.insert k v avl'
+        (Rem       , Just _)  -> appendTouched <$> AVL.delete k avl'
+        (Upd v     , Just _)  -> appendTouched <$> AVL.insert k v avl'
         _                     -> throwM $ CSMappendException k
 
 modAccumU
