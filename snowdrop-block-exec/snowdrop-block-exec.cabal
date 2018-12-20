@@ -41,11 +41,12 @@ library
       Snowdrop.Block.Exec
 
   other-modules:
+      Snowdrop.Block.Exec.Application
+      Snowdrop.Block.Exec.BaseConf
+      Snowdrop.Block.Exec.Extra
       Snowdrop.Block.Exec.RawTx
       Snowdrop.Block.Exec.StateConfiguration
       Snowdrop.Block.Exec.Storage
-      Snowdrop.Block.Exec.Application
-      Snowdrop.Block.Exec.Extra
 
   default-language: Haskell2010
   ghc-options:         -Wall

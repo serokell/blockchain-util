@@ -21,6 +21,7 @@ library
       data-default
     , formatting < 6.3
     , lens
+    , loot-base
     , mtl
     , snowdrop-core
     , snowdrop-dba
@@ -57,3 +58,6 @@ library
                       TypeFamilies
                       OverloadedStrings
                       ScopedTypeVariables
+                      StandaloneDeriving
+                      DeriveFunctor
+                      GeneralizedNewtypeDeriving
