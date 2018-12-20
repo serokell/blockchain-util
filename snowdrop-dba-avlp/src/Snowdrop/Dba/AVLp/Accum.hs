@@ -22,7 +22,7 @@ module Snowdrop.Dba.AVLp.Accum
 
 import           Universum
 
-import           Data.Tree.AVL (MapLayer (..))
+import           Data.Tree.AVL (MapLayer)
 import qualified Data.Tree.AVL as AVL
 
 import           Data.Default (Default (def))

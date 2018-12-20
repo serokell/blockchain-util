@@ -28,9 +28,9 @@ extra-deps:
     - code/network
     - code/prelude
 
-# vasiliy.kevroletin/sd226-fixes
+# vasiliy.kevroletin/sd226-export-tilt
 - git: https://github.com/serokell/auth-data-structures.git
-  commit: 1d56975a9bcdc3007566e593968864a6a916cf5f
+  commit: f77d31ce3f93c0f86414cb283173f306eb0a24a7
 
 # Forced by lootbox #
 - base-noprelude-4.10.1.0

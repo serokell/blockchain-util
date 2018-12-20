@@ -23,12 +23,11 @@ module Snowdrop.Dba.AVLp.Avl
 
 import           Universum
 
-import           Data.Tree.AVL (MapLayer (..))
+import           Data.Tree.AVL (MapLayer)
 import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
-import           Data.Default (Default (def))
 import qualified Data.Text.Buildable as Buildable
 import           Snowdrop.Dba.Base (DbActionsException (..), DbApplyProofWrapper (..))
 import           Snowdrop.Hetero (HKey, HVal)
@@ -75,7 +74,7 @@ mkAVL :: RootHash h -> AVL.Map h k v
 mkAVL = pure . unRootHash
 
 avlRootHash :: AVL.Hash h k v => AVL.Map h k v -> RootHash h
-avlRootHash = RootHash . AVL.rootHash'
+avlRootHash = RootHash . AVL.rootHash
 
 deserialiseM :: (MonadThrow m, Serialisable v) => ByteString -> m v
 deserialiseM =
@@ -84,13 +83,6 @@ deserialiseM =
 ----------------------------------------------------------------------------
 -- MapLayer instances
 ----------------------------------------------------------------------------
-
-instance Hashable AVL.Tilt
-instance Hashable b => Hashable (AVL.WithBounds b)
-instance (Hashable h, Hashable k, Hashable v, Hashable s) => Hashable (MapLayer h k v s)
-
-instance Default h => Default (MapLayer h k v s) where
-    def = MLEmpty def
 
 instance (Show h, Show k, Show v) => Buildable (AVL.Map h k v) where
     build = Buildable.build . AVL.showMap

@@ -191,7 +191,7 @@ computeProof
     -> Const (Set h) t
     -> AVLCacheT h (ReaderT (AVLPureStorage h) STM) (AVL.Proof h (HKey t) (HVal t))
 computeProof (mkAVL -> oldAvl) accTouched (getConst -> requested) =
-        AVL.prune (accTouched <> requested) . AVL.fullRehash $ oldAvl
+        AVL.prune (accTouched <> requested) $ oldAvl
 
 type RememberNodesActs h xs = RememberNodesActs' h xs xs
 
