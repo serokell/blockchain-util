@@ -9,7 +9,6 @@ module Snowdrop.Dba.Base.IOExecutor
        , BaseMIO
        , BaseMException (..)
        , IOCtx (..)
-       , runERwCompIO
        , runERoCompIO
        -- * Lens
        , ctxChgAccum
@@ -29,9 +28,8 @@ import           Loot.Base.HasLens (HasLens', lensOf)
 import qualified Loot.Base.HasLens as Loot
 import qualified Loot.Log.Rio as Rio
 
-import           Snowdrop.Core (BException, BaseM (..), ChgAccum, ChgAccumMaybe (..), Ctx,
-                                CtxConcurrently (..), ERwComp, Effectful (..), HasBException,
-                                StatePException, getCAOrDefault, runERwComp)
+import           Snowdrop.Core (BaseM (..), ChgAccumMaybe (..), CtxConcurrently (..),
+                                Effectful (..), getCAOrDefault)
 import           Snowdrop.Dba.Base.DbActions (DbActions (..))
 import           Snowdrop.Util (ExecM, HasGetter (gett), HasLens (sett))
 import qualified Snowdrop.Util as Log
@@ -142,31 +140,3 @@ runERoCompIO daa initAcc comp = do
           }
   where
     exec = BaseMIOExec @_ @chgAccum $ \(getCAOrDefault -> chgAccum) da -> executeEffect da daa chgAccum
-
-runERwCompIO
-  :: forall s conf da daa ctx m a.
-    ( Show (BException conf)
-    , Typeable (BException conf)
-    , Default (ChgAccum conf)
-    , HasBException conf StatePException
-    , MonadIO m
-    , MonadReader ctx m
-    , HasLens' ctx Log.LoggingIO
-    , DbActions da daa (ChgAccum conf) ExecM
-    , Ctx conf ~ IOCtx da (ChgAccum conf)
-    )
-    => daa ExecM
-    -> s
-    -> ERwComp conf da s a
-    -> m (a, s)
-runERwCompIO daa initS comp = do
-    logger <- view (lensOf @Log.LoggingIO)
-    liftIO $ Log.runRIO logger $ runReaderT (unBaseMIO @_ @da $ unBaseM $ runERwComp comp initS) $
-        IOCtx
-          { _ctxChgAccum = CANotInitialized
-          , _ctxExec = exec
-          , _ctxLogger = logger
-          , _ctxConcurrent = def
-          }
-  where
-    exec = BaseMIOExec $ \(getCAOrDefault -> chgAccum) dAccess -> executeEffect dAccess daa chgAccum

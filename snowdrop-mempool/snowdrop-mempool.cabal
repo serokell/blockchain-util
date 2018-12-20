@@ -36,6 +36,9 @@ library
 
   other-modules:
       Snowdrop.Mempool.Core
+      Snowdrop.Mempool.ERwComp
+      Snowdrop.Mempool.ERwComp.IOExecutor
+      Snowdrop.Mempool.ERwComp.Type
       Snowdrop.Mempool.Logic
 
   default-language:    Haskell2010

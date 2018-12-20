@@ -2,7 +2,7 @@
 
 -- | Basic types and functions for Exceptionable Read-Write Computation.
 
-module Snowdrop.Core.ERwComp
+module Snowdrop.Mempool.ERwComp.Type
        ( ERwComp
        , runERwComp
        , liftERoComp
@@ -14,11 +14,10 @@ import           Universum
 
 import           Control.Monad.Except (MonadError)
 
-import           Snowdrop.Core.BaseM (BaseM)
-import           Snowdrop.Core.ERoComp (BException, ChgAccum, ChgAccumCtx, ChgAccumMaybe (..),
-                                        ConvertEffect (..), Ctx, DbAccessM, HasBException,
-                                        StatePException (..), UpCastableERoM, initAccumCtx,
-                                        upcastEffERoCompM)
+import           Snowdrop.Core (BException, BaseM, ChgAccum, ChgAccumCtx, ChgAccumMaybe (..),
+                                ConvertEffect (..), Ctx, DbAccessM, HasBException,
+                                StatePException (..), UpCastableERoM, initAccumCtx,
+                                upcastEffERoCompM)
 import           Snowdrop.Util (HasGetter (..), HasLens (..), throwLocalError)
 
 -- | StateT over ERoComp.
