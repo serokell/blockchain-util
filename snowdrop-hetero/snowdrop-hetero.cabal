@@ -1,18 +1,20 @@
 name:           snowdrop-hetero
-version:        0.1.0.0
-description:    Please see the README on Github at <https://github.com/githubuser/blockchain-util#readme>
-homepage:       https://github.com/githubuser/blockchain-util#readme
-bug-reports:    https://github.com/githubuser/blockchain-util/issues
-author:         Author name here
-maintainer:     example@example.com
-copyright:      2018 Author name here
+version:        0.5
+description:    Helpers for working with heterogeneous lists (structures taken from @Data.Vinyl@, @Data.Union@).
+                .
+                Part of Snowdrop library set.
+homepage:       https://github.com/serokell/blockchain-util#readme
+bug-reports:    https://github.com/serokell/blockchain-util/issues
+author:         Serokell
+maintainer:     Serokell <hi@serokell.io>
+copyright:      2018 Serokell
 license:        BSD3
 build-type:     Simple
 cabal-version:  >= 1.10
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/blockchain-util
+  location: https://github.com/serokell/blockchain-util
 
 library
   hs-source-dirs:

@@ -33,9 +33,6 @@ library
     , fmt
     , lens
     , lifted-async
-    , log-warper
-    , loot-base
-    , loot-log
     , monad-control
     , mtl
     , random

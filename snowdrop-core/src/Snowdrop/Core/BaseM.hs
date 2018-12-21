@@ -54,8 +54,7 @@ instance Effectful eff m => Effectful eff (ReaderT ctx m) where
 type BaseMConstraint e eff ctx m = (Effectful eff m,
                                     MonadReader ctx m,
                                     MonadError e m,
-                                    Log.MonadLogging m,
-                                    Log.ModifyLogName m)
+                                    Log.MonadLogging ctx m)
 
 -- | Base execution monad.
 -- Notice, `BaseM` is not existential type, one would look like:
@@ -90,10 +89,3 @@ instance MonadReader ctx (BaseM e eff ctx) where
 instance MonadError e (BaseM e eff ctx) where
     throwError e = BaseM $ throwError e
     catchError (BaseM ma) cont = BaseM $ ma `catchError` \e -> unBaseM $ cont e
-
-instance Log.MonadLogging (BaseM e eff ctx) where
-    log l s t = BaseM (Log.log l s t)
-    logName = BaseM Log.logName
-
-instance Log.ModifyLogName (BaseM e eff ctx) where
-    modifyLogNameSel f (BaseM ma) = BaseM $ Log.modifyLogNameSel f ma

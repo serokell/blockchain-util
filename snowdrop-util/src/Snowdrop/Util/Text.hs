@@ -41,7 +41,6 @@ import           Formatting (Format, bprint, build, later, now, sformat, (%))
 import           Formatting.Internal (Format (..))
 import qualified GHC.Exts as Exts
 
-import           Snowdrop.Util.Logging (ExecM, LogEvent)
 
 type Buildables ts = Each '[Buildable] ts
 
@@ -211,7 +210,7 @@ printDoc :: DBuildable a => a -> IO ()
 printDoc x = putDoc $ \dp -> sformat (docF dp) x
 
 -- | Ability to use a logger.
-logDoc :: (LogEvent -> ExecM ()) -> DText -> ExecM ()
+logDoc :: (Text -> m ()) -> DText -> m ()
 logDoc logger doc = logger $ format "{}" (doc printParams)
 
 deriving instance Buildable x => Buildable (Identity x)

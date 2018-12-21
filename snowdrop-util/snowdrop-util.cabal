@@ -20,17 +20,16 @@ library
   build-depends:
       base >=4.7 && <5
     , ansi-terminal
+    , co-log-core
     , containers
     , data-default
+    , dlist
     , exceptions
       -- since 6.3 they use their own Buildable, contradicting with universum
     , formatting < 6.3
     , fmt
     , hashable
     , lens
-    , log-warper
-    , loot-base
-    , loot-log
     , monad-control
     , mtl
     , text
@@ -42,7 +41,6 @@ library
     , universum >= 1.1.0
     , unordered-containers
     , vinyl
-    , yaml
   build-tool-depends:
       autoexporter:autoexporter
 

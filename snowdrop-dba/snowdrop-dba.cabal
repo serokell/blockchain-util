@@ -22,8 +22,6 @@ library
     , lens
     , formatting < 6.3
     , lifted-async
-    , loot-base
-    , loot-log
     , mtl
     , universum
     , snowdrop-core

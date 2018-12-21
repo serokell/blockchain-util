@@ -227,7 +227,7 @@ upcastEffERoCompM (BaseM action) = BaseM ( runUpCastERoT @(DbAccessM (ChgAccum c
 
 newtype UpCastERoT (eff :: [*] -> * -> *) (xs :: [*]) m a = UpCastERoT { runUpCastERoT :: m a }
     deriving ( Functor, Applicative, Monad, MonadError e
-             , MonadReader ctx, Log.MonadLogging, Log.ModifyLogName)
+             , MonadReader ctx, Log.HasLog ctx msg)
 
 instance (Effectful (DbAccess supxs) m, UpCastableERo xs supxs)
     => Effectful (DbAccess xs) (UpCastERoT DbAccess supxs m) where
@@ -242,7 +242,7 @@ class ConvertEffect eff1 eff2 where
 
 newtype DbAccessT (eff1 :: [*] -> * -> *) (eff2 :: [*] -> * -> *) m a = DbAccessT { runDbAccessT :: m a }
     deriving ( Functor, Applicative, Monad, MonadError e
-             , MonadReader ctx, Log.MonadLogging, Log.ModifyLogName)
+             , MonadReader ctx, Log.HasLog ctx msg)
 
 instance (Effectful (DbAccessM chgAccum xs) m)
     => Effectful (DbAccess xs)

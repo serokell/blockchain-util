@@ -2,123 +2,103 @@
 {-# LANGUAGE RankNTypes          #-}
 
 module Snowdrop.Util.Logging
-       (
-         RIO (..)
-       , ExecM
-       , runRIO
-
-       , LogEvent
-       , withLogger
-       , LoggingIO
-       , lensOf
-       , MonadLogging (..)
-       , ModifyLogName (..)
-       , NameSelector (..)
-       , CanLog
-
-       -- * Loggers
+       ( Name
+       , MonadLogging
        , logDebug
        , logError
        , logWarning
        , logInfo
        , modifyLogName
+       , LogAction (..)
+       , HasLog (..)
        ) where
 
-import           Universum
+import           Universum hiding (log)
 
-import           Control.Monad.Base (MonadBase)
-import           Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow)
-import           Control.Monad.Trans.Control (MonadBaseControl (..))
-import           Data.Yaml (decodeFileEither, encode)
-import           Fmt (format)
-import           Loot.Base.HasLens (HasLens, lensOf)
-import           Loot.Log (ModifyLogName (..), MonadLogging (..), NameSelector (..), logDebug,
-                           logError, logInfo, logWarning, modifyLogName)
-import           Loot.Log.Internal (LogEvent)
-import           Loot.Log.Rio (LoggingIO)
-import qualified Loot.Log.Rio as Rio
-import           Loot.Log.Warper (prepareLogWarper)
-import           System.Wlog (CanLog (..), removeAllHandlers)
-
-import qualified Data.HashMap.Strict as HM
+import           Colog.Core (LogAction (..), Severity (..))
+import qualified Data.DList as DL
+import qualified Data.Text as T
+import           Data.Text.Buildable (build)
+import           Fmt ((+|), (|+))
 import qualified System.Console.ANSI as Term
-import qualified System.Wlog as LW
 
--- | Conventional RIO monad, being used as a base monad for logging in Snowdrop
-newtype RIO ctx a = RIO (ReaderT ctx IO a)
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader ctx,
-              MonadThrow, MonadCatch, MonadMask, MonadBase IO)
+import           Snowdrop.Util.Lens (HasGetter (..), HasLens (..))
 
-deriving instance MonadBase IO (RIO ctx) => MonadBaseControl IO (RIO ctx)
-deriving instance Monoid a => Monoid (ReaderT ctx IO a)
-deriving instance Monoid a => Monoid (RIO ctx a)
-deriving instance Semigroup a => Semigroup (ReaderT ctx IO a)
-deriving instance Semigroup a => Semigroup (RIO ctx a)
+newtype Name = Name { _unName :: DL.DList Text }
+  deriving (Semigroup, Monoid, Show)
 
--- | Executor for 'RIO' monad
-runRIO :: MonadIO m => ctx -> RIO ctx a -> m a
-runRIO ctx (RIO act) = liftIO $ runReaderT act ctx
+instance IsString Name where
+    fromString s  =
+      Name $ DL.fromList $ case s of
+        "" -> []
+        s' -> T.splitOn "." (fromString s')
 
-instance (HasLens LoggingIO ctx LoggingIO) => MonadLogging (RIO ctx) where
-    log = Rio.defaultLog
-    logName = Rio.defaultLogName
+instance Buildable Name where
+    build (Name parts) = ""+| T.intercalate "." (DL.toList parts) |+""
 
-instance (HasLens LoggingIO ctx LoggingIO) => ModifyLogName (RIO ctx) where
-    modifyLogNameSel = Rio.defaultModifyLogNameSel
+data Message = Message
+    { lmSeverity :: Severity
+    , lmName     :: Name
+    , lmText     :: Text
+    }
+  deriving Show
 
--- | Default execution monad for Snowdrop's execution code.
--- Provides lootbox's logging.
-type ExecM = RIO LoggingIO
+instance Buildable Message where
+    build Message {..} = "["+|lmName|+":"+|lmSeverity|+"] "+|lmText|+""
 
-----------------------------------------------------------------------------
--- Configuration and initiation
-----------------------------------------------------------------------------
+setColor :: Severity -> Text
+setColor = toText . Term.setSGRCode . pure . Term.SetColor Term.Foreground Term.Vivid . toColor
 
--- Default logging config for lootbox's logging.
-defaultLogCfg :: LW.LoggerConfig
-defaultLogCfg = LW.productionB & LW.lcTermSeverityOut .~ Just mempty
-                               & LW.lcTermSeverityErr .~ Just LW.allSeverities
-                               & LW.lcTree .~ defaultTree
-                               & LW.lcLogsDirectory .~ Just "logs"
-  where
-    defaultTree :: LW.LoggerTree
-    defaultTree = mempty & LW.ltSeverity .~ Just LW.infoPlus -- TODO: make it more reasonable
-      & LW.ltSubloggers .~ subloggersMap
+toColor :: Severity -> Term.Color
+toColor Debug   = Term.Green
+toColor Info    = Term.White
+toColor Warning = Term.Yellow
+toColor Error   = Term.Red
 
-    mkTree :: FilePath -> LW.LoggerTree
-    mkTree logPath =
-        mempty & LW.ltSeverity .~ Just LW.infoPlus
-               & LW.ltSubloggers .~ mempty
-               & LW.ltFiles .~ [LW.HandlerWrap logPath Nothing]
+resetColor :: Text
+resetColor = toText (Term.setSGRCode [Term.Reset])
 
-    subloggersMap :: LW.LoggerMap
-    subloggersMap = HM.fromList
-        [ (LW.LoggerName "Server", mkTree "Server.log")
-        , (LW.LoggerName "Client", mkTree "Client.log")
-        ]
+instance Buildable Severity where
+  build sev = ""+|setColor sev|+ show sev +|resetColor|+""
 
--- | Helper to execute some action within 'ExecM' monad
-withLogger :: Maybe FilePath -> ExecM () -> IO ()
-withLogger mConfigPath action = do
-    cfg <- case mConfigPath of
-        Nothing -> withColor Term.Yellow (putTextLn "Using the default logger configuration") >>
-            return defaultLogCfg
-        Just path -> decodeFileEither path >>= \case
-            Right cfgFromYmal -> return cfgFromYmal
-            Left err -> do
-                withColor Term.Red (putTextLn "Error: ") >> print err
-                withColor Term.Red (putTextLn "Default log config will be used.")
-                return defaultLogCfg
-    bracket
-      (prepareLogWarper cfg (GivenName $ fromString ""))
-      (const removeAllHandlers)
-      (\(finalConfig, logging) ->
-        runRIO logging $ modifyLogName (const "Executor") $ do
-          logInfo $ format "Used config:\n{}" (decodeUtf8 (encode finalConfig) :: Text)
-          action)
-  where
-    withColor :: Term.Color -> IO () -> IO ()
-    withColor col act = do
-        Term.setSGR [Term.SetColor Term.Foreground Term.Vivid col]
-        act
-        Term.setSGR [Term.Reset]
+class HasLog env msg m where
+    getLogAction :: env -> LogAction m msg
+
+type MonadLogging env m =
+    ( HasLog env Message m
+    , HasGetter env Name
+    , MonadReader env m
+    )
+
+log
+  :: MonadLogging env m
+  => Severity -> Text -> m ()
+log sev text = do
+  name <- asks gett
+  action <- asks getLogAction
+  unLogAction action $ Message sev name text
+
+logDebug
+  :: MonadLogging env m
+  => Text -> m ()
+logDebug = log Debug
+
+logInfo
+  :: MonadLogging env m
+  => Text -> m ()
+logInfo = log Info
+
+logWarning
+  :: MonadLogging env m
+  => Text -> m ()
+logWarning = log Warning
+
+logError
+  :: MonadLogging env m
+  => Text -> m ()
+logError = log Error
+
+modifyLogName
+  :: (HasLens env Name, MonadReader env m)
+  => Name -> m a -> m a
+modifyLogName subname = local (over lensFor (<> subname))

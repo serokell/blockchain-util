@@ -21,7 +21,6 @@ library
       data-default
     , formatting < 6.3
     , lens
-    , loot-base
     , mtl
     , snowdrop-core
     , snowdrop-dba
