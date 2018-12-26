@@ -227,8 +227,9 @@ query ctx (Just ca) nodeActs hset = queryAll ca nodeActs hset
                              -> HKey r
                              -> (Maybe (HVal r), Set h)
                              -> (Map (HKey r) (HVal r), Set h)
-            combineLookupRes _accum@(x, y) key (Just v , touched) = (M.insert key v x, Set.union y touched)
-            combineLookupRes accum         _   (Nothing, _)       = accum
+            combineLookupRes (accumVals, accumTouched) key (maybeVal, touched) =
+                let newVals = maybe accumVals (\val -> M.insert key val accumVals) maybeVal
+                in (newVals, Set.union accumTouched touched)
 
         (responses, touchedNodes) <- fst <$> runAVLCacheT queryDo initAcc ctx
         nodeAct touchedNodes
