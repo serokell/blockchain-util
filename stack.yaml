@@ -28,9 +28,9 @@ extra-deps:
     - code/network
     - code/prelude
 
-# vasiliy.kevroletin/sd226-export-tilt
+# kirill.andreev/no-task-removing-lenses-decoupling-zipper
 - git: https://github.com/serokell/auth-data-structures.git
-  commit: f77d31ce3f93c0f86414cb283173f306eb0a24a7
+  commit: b0c48b8fe4adf2137b741ff89cd6f4a6820cf47a
 
 # Forced by lootbox #
 - base-noprelude-4.10.1.0
