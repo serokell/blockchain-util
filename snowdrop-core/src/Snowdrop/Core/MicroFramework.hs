@@ -22,8 +22,6 @@ import           Universum hiding (Compose, getCompose, Const)
 -- import           Prelude
 -- import           Control.Monad.Reader
 
-import qualified Data.Map as M
-
 import           Data.Vinyl ( RMap (..), Rec (..), type RecSubset
                             , RecApplicative (..), RecordToList (..)
                             , rcast, rreplace
@@ -31,7 +29,7 @@ import           Data.Vinyl ( RMap (..), Rec (..), type RecSubset
 import           Data.Vinyl.Functor (Compose (..), (:.), Const (..))
 import           Data.Vinyl.TypeLevel(RDelete, type RImage, type (++))
 
-import           Snowdrop.Hetero (HKey, HMap, HSet, HSetEl (..), HMapEl (..), HMap, HVal, HKeyVal, ExnHKey)
+import           Snowdrop.Hetero (HKey, HMap, HSet, HMap, HVal, HKeyVal, ExnHKey)
 import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl, CSMappendException, MappendHChSet
                                          -- Snowdrop.Core.ChangeSet.Type is patched to export this
                                          , mappendChangeSetEl )
@@ -98,10 +96,10 @@ type family Nub (xs :: [k]) where
   Nub '[] = '[]
   Nub (x ': xs) = x ': Nub (RDelete x xs)
 
-data ExpanderTypes ins outs = ExpanderTypes ins outs
-type family Ins    u where Ins    ('ExpanderTypes ins outs) = ins
-type family Outs   u where Outs   ('ExpanderTypes ins outs) = outs
-type family InOuts u where InOuts ('ExpanderTypes ins outs) = Nub (ins ++ outs)
+data ExpanderTypes t ins outs = ExpanderTypes t ins outs
+type family Ins    u where Ins    ('ExpanderTypes t ins outs) = t ': ins
+type family Outs   u where Outs   ('ExpanderTypes t ins outs) = outs
+type family InOuts u where InOuts ('ExpanderTypes t ins outs) = Nub (t ': ins ++ outs)
 
 -- Optimize (early Nub)
 type family AllOfElist xs where
@@ -128,8 +126,8 @@ data PreExpander uni db et where
   PE :: (
       Good uni et
     , StateQuery db uni )
-    => {runPreExpander :: HMap (Ins et) -> BaseM db (HChangeSet (Outs et))} -> PreExpander uni db et
-type Expander db uni = HMap uni -> BaseM db (HMbChangeSet uni)
+    => {runPreExpander :: HSet (Ins et) -> BaseM db (HChangeSet (Outs et))} -> PreExpander uni db et
+type Expander db uni = HSet uni -> BaseM db (HMbChangeSet uni)
 
 type SeqExpander uni db = Rec (PreExpander uni db)
 
@@ -150,23 +148,24 @@ runSeqExpander :: forall db xs .
   , Trivial xs )
   =>
   SeqExpander (Uni xs) db xs
-  -> HMap (Uni xs)
+  -> HSet (Uni xs)
   -> DBIO db (HMbChangeSet (Uni xs))
 runSeqExpander se txs = unBaseM $ seqPreExpanders se txs
 
 type PeType db et = (Good (InOuts et) et, StateQuery db (InOuts et)) => PreExpander (InOuts et) db et
-type PeFType db et = HMap (Ins et) -> BaseM db (HChangeSet (Outs et))
+type PeFType db et = HSet (Ins et) -> BaseM db (HChangeSet (Outs et))
 
 -- test
+data T; type instance HKeyVal T = '(Int, ())
 data Comp1; type instance HKeyVal Comp1 = '(String, Int)
 data Comp2; type instance HKeyVal Comp2 = '(Double, String)
 
-type Test = 'ExpanderTypes '[Comp1, Comp2] '[]
+type Test = 'ExpanderTypes T '[Comp1, Comp2] '[]
 
 test :: forall db . PeType db Test
 test = PE fun
   where
     fun :: PeFType db Test
-    fun (HMapEl sd  :& _) = do
-      _m <- query @(InOuts Test) @('[Comp1]) (HSetEl (M.keysSet sd) :& RNil)
+    fun (_ :& sd :& _) = do
+      _m <- query @(InOuts Test) @('[Comp1]) (sd :& RNil)
       return RNil
