@@ -29,10 +29,13 @@ import           Data.Vinyl ( RMap (..), Rec (..), type RecSubset
 import           Data.Vinyl.Functor (Compose (..), (:.), Const (..))
 import           Data.Vinyl.TypeLevel(RDelete, type RImage, type (++))
 
-import           Snowdrop.Hetero (HKey, HMap, HSet, HMap, HVal, HKeyVal, ExnHKey)
+import           Snowdrop.Hetero (HKey, HMap, HSet, hsetFromSet, HMap, HVal, HKeyVal, ExnHKey)
 import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl, CSMappendException, MappendHChSet
                                          -- Snowdrop.Core.ChangeSet.Type is patched to export this
                                          , mappendChangeSetEl )
+
+import qualified Data.Set as S
+
 
 -- FIXME: upgrade Vinyl (copied from fresh Vinyl) ------------
 rdowncast :: (RecApplicative ss, RMap rs, rs ⊆ ss)
@@ -122,12 +125,15 @@ type Good uni et = (
 type LiftPEs xs = (RecordToList xs, RMap xs)
 type SeqE xs = (MappendHChSet (Uni xs), RecApplicative (Uni xs))
 
+newtype HTransElTy (t :: u) = HTransEl {unHTransEl :: HKey t}
+type HTrans = Rec HTransElTy
+
 data PreExpander uni db et where
   PE :: (
       Good uni et
     , StateQuery db uni )
-    => {runPreExpander :: HSet (Ins et) -> BaseM db (HChangeSet (Outs et))} -> PreExpander uni db et
-type Expander db uni = HSet uni -> BaseM db (HMbChangeSet uni)
+    => {runPreExpander :: HTrans (Ins et) -> BaseM db (HChangeSet (Outs et))} -> PreExpander uni db et
+type Expander db uni = HTrans uni -> BaseM db (HMbChangeSet uni)
 
 type SeqExpander uni db = Rec (PreExpander uni db)
 
@@ -148,12 +154,12 @@ runSeqExpander :: forall db xs .
   , Trivial xs )
   =>
   SeqExpander (Uni xs) db xs
-  -> HSet (Uni xs)
+  -> HTrans (Uni xs)
   -> DBIO db (HMbChangeSet (Uni xs))
 runSeqExpander se txs = unBaseM $ seqPreExpanders se txs
 
 type PeType db et = (Good (InOuts et) et, StateQuery db (InOuts et)) => PreExpander (InOuts et) db et
-type PeFType db et = HSet (Ins et) -> BaseM db (HChangeSet (Outs et))
+type PeFType db et = HTrans (Ins et) -> BaseM db (HChangeSet (Outs et))
 
 -- test
 data T; type instance HKeyVal T = '(Int, ())
@@ -167,5 +173,5 @@ test = PE fun
   where
     fun :: PeFType db Test
     fun (_ :& sd :& _) = do
-      _m <- query @(InOuts Test) @('[Comp1]) (sd :& RNil)
+      _m <- query @(InOuts Test) @('[Comp1]) (hsetFromSet $ S.singleton $ unHTransEl sd)
       return RNil
