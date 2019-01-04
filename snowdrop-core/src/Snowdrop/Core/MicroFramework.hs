@@ -24,7 +24,7 @@ import           Universum hiding (Compose, getCompose, Const)
 
 import           Data.Vinyl ( RMap (..), Rec (..), type RecSubset
                             , RecApplicative (..), RecordToList (..)
-                            , rcast, rreplace
+                            , rget, rreplace
                             , type (∈), type (⊆) )
 import           Data.Vinyl.Functor (Compose (..), (:.), Const (..))
 import           Data.Vinyl.TypeLevel(RDelete, type RImage, type (++))
@@ -100,7 +100,8 @@ type family Nub (xs :: [k]) where
   Nub (x ': xs) = x ': Nub (RDelete x xs)
 
 data ExpanderTypes t ins outs = ExpanderTypes t ins outs
-type family Ins    u where Ins    ('ExpanderTypes t ins outs) = t ': ins
+type family T      u where T      ('ExpanderTypes t ins outs) = t
+type family Ins    u where Ins    ('ExpanderTypes t ins outs) = ins
 type family Outs   u where Outs   ('ExpanderTypes t ins outs) = outs
 type family InOuts u where InOuts ('ExpanderTypes t ins outs) = Nub (t ': ins ++ outs)
 
@@ -116,7 +117,8 @@ type Trivial xs =
   RecSubset Rec (Uni xs) (Uni xs) (RImage (Uni xs) (Uni xs))
 
 type Good uni et = (
-    Ins et ⊆ uni
+    T et ∈ uni
+  , Ins et ⊆ uni
   , Outs et ⊆ uni
   , RecApplicative uni
   , RMap (Outs et)
@@ -132,13 +134,13 @@ data PreExpander uni db et where
   PE :: (
       Good uni et
     , StateQuery db uni )
-    => {runPreExpander :: HTrans (Ins et) -> BaseM db (HChangeSet (Outs et))} -> PreExpander uni db et
+    => {runPreExpander :: HTransElTy (T et) -> BaseM db (HChangeSet (Outs et))} -> PreExpander uni db et
 type Expander db uni = HTrans uni -> BaseM db (HMbChangeSet uni)
 
 type SeqExpander uni db = Rec (PreExpander uni db)
 
 liftPreExpander :: PreExpander uni db et -> Expander db uni
-liftPreExpander (PE f) ts = rdowncast <$> f (rcast ts)
+liftPreExpander (PE f) ts = rdowncast <$> f (rget ts)
 
 seqPreExpanders :: (LiftPEs xs, SeqE xs) => SeqExpander (Uni xs) db xs -> Expander db (Uni xs)
 seqPreExpanders = seqE . liftPEs
@@ -159,19 +161,19 @@ runSeqExpander :: forall db xs .
 runSeqExpander se txs = unBaseM $ seqPreExpanders se txs
 
 type PeType db et = (Good (InOuts et) et, StateQuery db (InOuts et)) => PreExpander (InOuts et) db et
-type PeFType db et = HTrans (Ins et) -> BaseM db (HChangeSet (Outs et))
+type PeFType db et = HTransElTy (T et) -> BaseM db (HChangeSet (Outs et))
 
 -- test
-data T; type instance HKeyVal T = '(Int, ())
+data Tr; type instance HKeyVal Tr = '(Int, ())
 data Comp1; type instance HKeyVal Comp1 = '(String, Int)
 data Comp2; type instance HKeyVal Comp2 = '(Double, String)
 
-type Test = 'ExpanderTypes T '[Comp1, Comp2] '[]
+type Test = 'ExpanderTypes Tr '[Comp1, Comp2] '[]
 
 test :: forall db . PeType db Test
 test = PE fun
   where
     fun :: PeFType db Test
-    fun (_ :& sd :& _) = do
-      _m <- query @(InOuts Test) @('[Comp1]) (hsetFromSet $ S.singleton $ unHTransEl sd)
+    fun (HTransEl n) = do
+      _m <- query @(InOuts Test) @('[Comp1]) (hsetFromSet $ S.singleton $ "gago" ++ show n)
       return RNil
