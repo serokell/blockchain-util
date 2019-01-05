@@ -118,7 +118,6 @@ type Trivial xs =
 
 type Good uni et = (
     T et ∈ uni
-  , Ins et ⊆ uni
   , Outs et ⊆ uni
   , RecApplicative uni
   , RMap (Outs et)
@@ -133,7 +132,7 @@ type HTrans = Rec HTransElTy
 data PreExpander uni db et where
   PE :: (
       Good uni et
-    , StateQuery db uni )
+    , StateQuery db (Ins et) )
     => {runPreExpander :: HTransElTy (T et) -> BaseM db (HChangeSet (Outs et))} -> PreExpander uni db et
 type Expander db uni = HTrans uni -> BaseM db (HMbChangeSet uni)
 
@@ -160,7 +159,7 @@ runSeqExpander :: forall db xs .
   -> DBIO db (HMbChangeSet (Uni xs))
 runSeqExpander se txs = unBaseM $ seqPreExpanders se txs
 
-type PeType db et = (Good (InOuts et) et, StateQuery db (InOuts et)) => PreExpander (InOuts et) db et
+type PeType db et = (Good (InOuts et) et, StateQuery db (Ins et)) => PreExpander (InOuts et) db et
 type PeFType db et = HTransElTy (T et) -> BaseM db (HChangeSet (Outs et))
 
 -- test
@@ -175,5 +174,5 @@ test = PE fun
   where
     fun :: PeFType db Test
     fun (HTransEl n) = do
-      _m <- query @(InOuts Test) @('[Comp1]) (hsetFromSet $ S.singleton $ "gago" ++ show n)
+      _m <- query @(Ins Test) @('[Comp1]) (hsetFromSet $ S.singleton $ "gago" ++ show n)
       return RNil
