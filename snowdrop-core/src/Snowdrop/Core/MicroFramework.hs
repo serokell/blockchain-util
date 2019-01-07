@@ -22,6 +22,9 @@ import           Universum hiding (Compose, getCompose, Const)
 -- import           Prelude
 -- import           Control.Monad.Reader
 
+import qualified Data.Set as S
+import qualified Data.Map as M
+
 import           Data.Vinyl ( RMap (..), Rec (..)
                             , RecApplicative (..), RecordToList (..)
                             , rcast, rget, rreplace
@@ -29,13 +32,10 @@ import           Data.Vinyl ( RMap (..), Rec (..)
 import           Data.Vinyl.Functor (Compose (..), (:.), Const (..))
 import           Data.Vinyl.TypeLevel(RDelete, type (++))
 
-import           Snowdrop.Hetero (HKey, HMap, HSet, HSetEl (..), hsetFromSet, HMap, HVal, HKeyVal, ExnHKey)
+import           Snowdrop.Hetero (HKey, HMap, HSet, HSetEl (..), HMapEl (..), hsetFromSet, HMap, HVal, HKeyVal, ExnHKey)
 import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl, CSMappendException, MappendHChSet
                                          -- Snowdrop.Core.ChangeSet.Type is patched to export this
                                          , mappendChangeSetEl )
-
-import qualified Data.Set as S
-
 
 -- FIXME: upgrade Vinyl (copied from fresh Vinyl) ------------
 rdowncast :: (RecApplicative ss, RMap rs, rs ⊆ ss)
@@ -171,3 +171,28 @@ test = PE fun
     fun (HTransEl n) = do
       _m <- query @(Ins Test) @('[Comp1]) (hsetFromSet $ S.singleton $ "gago" ++ show n)
       return RNil
+
+-- SimpleDB -----------------
+newtype SimpleDBTy comps = SimpleDB {unSimpleDB :: IORef (HMap comps)}
+
+query1 :: forall t xs . (t ∈ xs, Ord (HKey t)) => HMap xs -> HSetEl t -> HMapEl t
+query1 hmap (HSetEl req) = HMapEl $ M.restrictKeys (unHMapEl $ rget @t hmap) req 
+
+instance StateQuery (SimpleDBTy comps) '[] where
+  sQuery _ _ = return RNil
+
+instance (
+    Ord (HKey r)
+  , r ∈ comps
+  , rs ⊆ comps
+  , StateQuery (SimpleDBTy comps) rs
+  ) => StateQuery (SimpleDBTy comps) (r ': rs) where
+  sQuery db@(SimpleDB hmapRef) (h :& hs) = do
+    hmap <- lift $ readIORef hmapRef
+    rms <- sQuery db hs
+    return (query1 hmap h :& rms)
+
+instance t ∈ comps => StateIterator (SimpleDBTy comps) t where
+  sIterator (SimpleDB hmapRef) ini f = do
+    hmap <- lift $ readIORef hmapRef
+    return $ foldl f ini $ M.toList (unHMapEl $ rget @t hmap)
