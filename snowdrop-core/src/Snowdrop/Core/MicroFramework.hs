@@ -22,14 +22,14 @@ import           Universum hiding (Compose, getCompose, Const)
 -- import           Prelude
 -- import           Control.Monad.Reader
 
-import           Data.Vinyl ( RMap (..), Rec (..), type RecSubset
+import           Data.Vinyl ( RMap (..), Rec (..)
                             , RecApplicative (..), RecordToList (..)
-                            , rget, rreplace
+                            , rcast, rget, rreplace
                             , type (∈), type (⊆) )
 import           Data.Vinyl.Functor (Compose (..), (:.), Const (..))
-import           Data.Vinyl.TypeLevel(RDelete, type RImage, type (++))
+import           Data.Vinyl.TypeLevel(RDelete, type (++))
 
-import           Snowdrop.Hetero (HKey, HMap, HSet, hsetFromSet, HMap, HVal, HKeyVal, ExnHKey)
+import           Snowdrop.Hetero (HKey, HMap, HSet, HSetEl (..), hsetFromSet, HMap, HVal, HKeyVal, ExnHKey)
 import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl, CSMappendException, MappendHChSet
                                          -- Snowdrop.Core.ChangeSet.Type is patched to export this
                                          , mappendChangeSetEl )
@@ -80,19 +80,22 @@ instance Applicative (BaseM db) where
 instance Monad (BaseM db) where
   a >>= b = BaseM $ unBaseM a >>= unBaseM . b
 
-class StateQuery db uni where
-  sQuery :: xs ⊆ uni => db -> HSet xs -> DBIO db (HMap xs)
+class StateQuery db xs where
+  sQuery :: db -> HSet xs -> DBIO db (HMap xs)
 
-query :: forall uni xs db . (StateQuery db uni, xs ⊆ uni) => HSet xs -> BaseM db (HMap xs)
-query req = BaseM (do db <- ask; sQuery @_ @uni db req)
+query :: forall uni xs db . (xs ⊆ uni, RecApplicative uni, StateQuery db uni) => HSet xs -> BaseM db (HMap xs)
+query req = BaseM $ do
+  db <- ask
+  m <- sQuery db $ rreplace req (rpure @uni (HSetEl S.empty))
+  return (rcast m)
 
-type KV t = (HKey t, HVal t)
+type KVTy t = (HKey t, HVal t)
 
-class StateIterator db uni where
-  sIterator :: t ∈ uni => db -> KV t -> (KV t -> KV t -> KV t) -> DBIO db (KV t)
+class StateIterator db t where
+  sIterator :: db -> KVTy t -> (KVTy t -> KVTy t -> KVTy t) -> DBIO db (KVTy t)
 
-iterator :: forall uni t db . (StateIterator db uni, t ∈ uni) => KV t -> (KV t -> KV t -> KV t) -> BaseM db (KV t)
-iterator ini dofold = BaseM (do db <- ask; sIterator @db @uni @t db ini dofold)
+iterator :: forall db t . StateIterator db t => KVTy t -> (KVTy t -> KVTy t -> KVTy t) -> BaseM db (KVTy t)
+iterator ini dofold = BaseM (do db <- ask; sIterator @_ @t db ini dofold)
 
 -- Deduce uni
 type family Nub (xs :: [k]) where
@@ -111,11 +114,6 @@ type family AllOfElist xs where
   AllOfElist (r ': rest) = InOuts r ++ AllOfElist rest
 type family Uni u where Uni ets = Nub (AllOfElist ets)
 
--- Obviously trivially satisfied
--- instance (uni ~ Uni xs) => RecSubset Rec uni uni (RImage uni uni) where
-type Trivial xs =
-  RecSubset Rec (Uni xs) (Uni xs) (RImage (Uni xs) (Uni xs))
-
 type Good uni et = (
     T et ∈ uni
   , Outs et ⊆ uni
@@ -130,9 +128,7 @@ newtype HTransElTy (t :: u) = HTransEl {unHTransEl :: HKey t}
 type HTrans = Rec HTransElTy
 
 data PreExpander uni db et where
-  PE :: (
-      Good uni et
-    , StateQuery db (Ins et) )
+  PE :: Good uni et
     => {runPreExpander :: HTransElTy (T et) -> BaseM db (HChangeSet (Outs et))} -> PreExpander uni db et
 type Expander db uni = HTrans uni -> BaseM db (HMbChangeSet uni)
 
@@ -151,8 +147,7 @@ seqPreExpanders = seqE . liftPEs
 
 runSeqExpander :: forall db xs .
   ( SeqE xs
-  , LiftPEs xs
-  , Trivial xs )
+  , LiftPEs xs )
   =>
   SeqExpander (Uni xs) db xs
   -> HTrans (Uni xs)
