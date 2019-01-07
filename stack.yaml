@@ -55,13 +55,13 @@ extra-deps:
 # fails with "shadowed package" error.
 # - parsec-3.1.13.0
 
-# ghc-options:
-#     snowdrop-util:       -Werror
-#     snowdrop-core:       -Werror
-#     snowdrop-block:      -Werror
-#     snowdrop-block-exec: -Werror
-#     snowdrop-hetero:     -Werror
-#     snowdrop-dba:        -Werror
-#     snowdrop-dba-avlp:   -Werror
-#     snowdrop-dba-simple: -Werror
-#     snowdrop-mempool:    -Werror
+ghc-options:
+    snowdrop-util:       -Werror
+    snowdrop-core:       -Werror
+    snowdrop-block:      -Werror
+    snowdrop-block-exec: -Werror
+    snowdrop-hetero:     -Werror
+    snowdrop-dba:        -Werror
+    snowdrop-dba-avlp:   -Werror
+    snowdrop-dba-simple: -Werror
+    snowdrop-mempool:    -Werror
