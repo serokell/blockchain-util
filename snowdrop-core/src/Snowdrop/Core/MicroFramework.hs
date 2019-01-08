@@ -29,8 +29,8 @@ import           Data.Functor.Product (Product(..))
 
 import           Data.Vinyl ( RMap (..), Rec (..)
                             , RecApplicative (..), RecordToList (..)
-                            , RZipWith, RecMapMethod (..)
-                            , rcast, rget, rreplace, rzipWith
+                            , RZipWith (..), RecMapMethod (..)
+                            , rcast, rget, rreplace
                             , type (∈), type (⊆) )
 import           Data.Vinyl.Functor (Compose (..), (:.), Const (..))
 import           Data.Vinyl.TypeLevel(RDelete, type (++))
