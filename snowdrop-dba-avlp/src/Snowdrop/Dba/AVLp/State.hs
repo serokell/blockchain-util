@@ -17,7 +17,8 @@ module Snowdrop.Dba.AVLp.State
        , AVLCacheT (..)
        , runAVLCacheT
        , RetrieveF
-       , AVLCacheEl
+       , RetrieveRes(..)
+       , AVLCacheEl(..)
        , AVLCacheElT
        , runAVLCacheElT
        , asAVLCache
@@ -38,10 +39,10 @@ import           Loot.Log (MonadLogging, logDebug)
 
 import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
                                         IsAvlEntry, RootHash (..), RootHashComp (..), RootHashes,
-                                        deserialiseM, saveAVL)
+                                        saveAVL)
 import           Snowdrop.Dba.Base (ClientMode (..), DbActionsException (..))
-import           Snowdrop.Hetero (HDownCastable, HKey, HMap, HVal, RContains, unHMapEl)
-import           Snowdrop.Util (HasGetter (..), Serialisable (..))
+import           Snowdrop.Hetero (HKey, HMap, HVal, RContains, unHMapEl)
+import           Snowdrop.Util (HasGetter (..))
 
 ----------------------------------------------------------------------------
 -- Server state
@@ -93,7 +94,7 @@ clientModeToTempSt
     -> ClientMode (AvlProofs h xs)
     -> RootHashes h xs
     -> m (ClientTempState h xs n)
-clientModeToTempSt _ (ProofMode proofs') rootHashes = undefined
+clientModeToTempSt _ (ProofMode proofs') rootHashes =
     flip ClientTempState rootHashes <$> fmap Left (convertAll proofs' rootHashes def)
   where
     convertAll
@@ -103,13 +104,23 @@ clientModeToTempSt _ (ProofMode proofs') rootHashes = undefined
         -> AVLPureStorage h rs
         -> m (AVLPureStorage h rs)
     convertAll RNil RNil res                                     = pure res
-    convertAll (p :& proofs) (RootHashComp rootH :& roots) cache = undefined
-        -- convert p rootH cache >>= convertAll proofs roots
+    convertAll a@(_ :& _) b@(_ :& _) c@(AVLPureStorage (_ :& _)) = convertAll' a b c
 
-    -- convert :: forall r . IsAvlEntry h r => AvlProof h r -> RootHash h -> Map (HKey r) (HVal r) -> m (Map (HKey r) (HVal r))
-    -- convert (AvlProof p@(AVL.Proof avl)) rootH cache = reThrowAVLEx @(HKey r) @h $ do
-    --     when (not $ AVL.checkProof (unRootHash rootH) p) $ throwM BrokenProofError
-    --     AVLPureStorage . unAVLCache . snd <$> runAVLCacheT (saveAVL avl) def cache
+    convertAll'
+        :: AllAvlEntries h (r ': rs)
+        => AvlProofs h (r ': rs)
+        -> RootHashes h (r ': rs)
+        -> AVLPureStorage h (r ': rs)
+        -> m (AVLPureStorage h (r ': rs))
+    convertAll' (p :& proofs) (RootHashComp rootH :& roots) (AVLPureStorage (c :& cs)) = do
+        r <- convert p rootH c
+        rs <- convertAll proofs roots (AVLPureStorage cs)
+        pure (AVLPureStorage (r :& unAVLPureStorage rs))
+
+    convert :: forall r . IsAvlEntry h r => AvlProof h r -> RootHash h -> AVLCacheEl h r -> m (AVLCacheEl h r)
+    convert (AvlProof p@(AVL.Proof avl)) rootH cache = reThrowAVLEx @(HKey r) @h $ do
+        when (not $ AVL.checkProof (unRootHash rootH) p) $ throwM BrokenProofError
+        snd <$> runAVLCacheElT (saveAVL avl) def cache
 
 clientModeToTempSt retrieveF RemoteMode rootH = pure $ ClientTempState (Right retrieveF) rootH
 
@@ -122,6 +133,7 @@ instance HasGetter (ClientTempState h xs n) (RootHashes h xs) where
 
 newtype AVLPureStorage h xs = AVLPureStorage { unAVLPureStorage :: Rec (AVLCacheEl h) xs }
 
+-- FIXME:
 instance RecPointed Default (AVLCacheEl h) xs
 
 instance RecPointed Default f ts => Default (Rec f ts) where
@@ -145,7 +157,7 @@ initAVLPureStorage xs = initAVLPureStorageAll xs (unAVLPureStorage def)
         => HMap rs
         -> Rec (AVLCacheEl h) rs -- AVLPureStorage h rs
         -> m (AVLServerState h rs)
-    initAVLPureStorageAll RNil RNil = pure $ AMS RNil (AVLPureStorage RNil) RNil
+    initAVLPureStorageAll RNil RNil               = pure $ AMS RNil (AVLPureStorage RNil) RNil
     initAVLPureStorageAll rs@(_ :& _) cs@(_ :& _) = initAVLPureStorage' rs cs
 
     initAVLPureStorage'
@@ -170,6 +182,9 @@ initAVLPureStorage xs = initAVLPureStorageAll xs (unAVLPureStorage def)
 
 -- newtype AVLCacheEl h x = AVLCacheEl { unAVLCacheEl :: Map (HKey x) (HVal x) } deriving Default
 newtype AVLCacheEl h x = AVLCacheEl { unAVLCacheEl :: Map h (MapLayer h (HKey x) (HVal x) h) } deriving (Default, Semigroup)
+
+-- instance (Ord (HKey x), Ord (HVal x)) => Default (AVLCacheEl h x) where
+--     def = mempty
 
 deriving instance (Ord (HKey x), Ord h) => Monoid (AVLCacheEl h x)
 
@@ -203,6 +218,7 @@ instance ( MonadThrow m
          => AVL.KVRetrieve h (AVL.MapLayer h k v h) (AVLCacheT h m xs) where
     retrieve :: h -> AVLCacheT h m xs (AVL.MapLayer h k v h)
     retrieve h = do cache <- rget @x . unAVLCache <$> get
+                    -- FIXME:
                     undefined
 
 instance ( MonadThrow m
@@ -288,10 +304,11 @@ upcastAVLCache (AVLCacheT f) =
 -- Retrieve monad
 ----------------------------------------------------------------------------
 
-newtype RetrieveEl h m x =
-    RetrieveEl { unRetrieveEl :: h -> m (AVL.MapLayer h  (HKey x) (HVal x) h) }
+newtype RetrieveRes h x = RetrieveRes { unRetrieveRes :: Maybe (AVL.MapLayer h (HKey x) (HVal x) h) }
 
-type RetrieveF h m xs = Rec (RetrieveEl h m) xs
+type RetrieveF h m xs = Rec (Const h) xs -> m (Rec (RetrieveRes h) xs)
+
+-- type RetrieveF h m xs = Rec (RetrieveEl h m) xs
 
 -- TODO replace with AVL.KVRetrieveM after this type is introduced into library
 -- class Monad m => RetrieveImpl m h where

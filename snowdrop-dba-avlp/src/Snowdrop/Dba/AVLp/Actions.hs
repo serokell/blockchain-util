@@ -19,6 +19,7 @@ module Snowdrop.Dba.AVLp.Actions
 import           Universum
 
 import           Data.Default (Default (def))
+import qualified Data.Map as Map
 import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl (RApply (..), RMap, RecApplicative, rget, rpure, rput)
 import           Data.Vinyl (Rec (..))
@@ -32,10 +33,10 @@ import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..
                                         AvlUndo, IsAvlEntry, RootHash (..), RootHashComp (..),
                                         avlRootHash, mkAVL, saveAVL)
 import           Snowdrop.Dba.AVLp.Constraints (RHashable, RMapWithC, rmapWithHash)
-import           Snowdrop.Dba.AVLp.State (AVLCache (..), AVLCacheEl, AVLCacheElT, AVLCacheT,
+import           Snowdrop.Dba.AVLp.State (AVLCache (..), AVLCacheEl (..), AVLCacheElT, AVLCacheT,
                                           AVLPureStorage (..), AVLServerState (..), RetrieveF,
-                                          asAVLCache, clientModeToTempSt, runAVLCacheElT,
-                                          runAVLCacheT, upcastAVLCache')
+                                          RetrieveRes (..), asAVLCache, clientModeToTempSt,
+                                          runAVLCacheElT, runAVLCacheT, upcastAVLCache')
 import           Snowdrop.Dba.Base (ClientMode (..), DbAccessActions (..), DbAccessActionsM (..),
                                     DbAccessActionsU (..), DbApplyProof, DbComponents,
                                     DbModifyActions (..), RememberForProof (..))
@@ -145,12 +146,20 @@ avlServerDbActions
            )
 avlServerDbActions = fmap mkActions . newTVar
   where
+    -- type RetrieveF h m = h -> m (Maybe ByteString)
     -- retrieveHash :: TVar (AVLServerState h xs) -> RetrieveF h STM xs
     -- retrieveHash var h = M.lookup h . unAVLPureStorage . amsState <$> readTVar var
     retrieveHash :: TVar (AVLServerState h xs) -> RetrieveF h STM xs
-    retrieveHash var = convert . unAVLPureStorage . amsState <$> readTVar var
+    retrieveHash var req = do storage <- unAVLPureStorage . amsState <$> readTVar var
+                              pure (go storage req)
 
-    convert = undefined
+    go :: Rec (AVLCacheEl h) xs -> Rec (Const h) xs -> Rec (RetrieveRes h) xs
+    go RNil RNil             = RNil
+    go a@(_ :& _) b@(_ :& _) = go a b
+
+    go' :: Rec (AVLCacheEl h) (x ': xs) -> Rec (Const h) (x ': xs) -> Rec (RetrieveRes h) (x ': xs)
+    go' ((unAVLCacheEl -> c) :& cs) ((getConst -> s) :& ss) =
+        (RetrieveRes $ Map.lookup s c) :& go cs ss
 
     mkActions var = (\recForProof ->
                         DbModifyActions
