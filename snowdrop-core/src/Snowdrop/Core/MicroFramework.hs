@@ -68,22 +68,25 @@ mappendMbChangeSet (x :& xs) (y :& ys) =
     Right res -> res :& mappendMbChangeSet xs ys
 --------------------------------------------------------------
 
-type DBIO db = ReaderT db IO
+type DBM db m = ReaderT db m
 
-newtype BaseM db a = BaseM { unBaseM :: DBIO db a }
+-- We may parametrize BaseM by whatever monad we want (STM anyone?),
+-- Since the client hasn't access to BaseM data constructor,
+--   she never may inject anything into it.
+newtype BaseM db m a = BaseM { unBaseM :: DBM db m a }
     deriving Functor
 
-instance Applicative (BaseM db) where
+instance Applicative m => Applicative (BaseM db m) where
   pure a = BaseM $ pure a
   BaseM a <*> BaseM b = BaseM $ a <*> b
 
-instance Monad (BaseM db) where
+instance Monad m => Monad (BaseM db m) where
   a >>= b = BaseM $ unBaseM a >>= unBaseM . b
 
-class StateQuery db xs where
-  sQuery :: db -> HSet xs -> DBIO db (HMap xs)
+class StateQuery db m xs where
+  sQuery :: db -> HSet xs -> DBM db m (HMap xs)
 
-query :: forall uni xs db . (xs ⊆ uni, RecApplicative uni, StateQuery db uni) => HSet xs -> BaseM db (HMap xs)
+query :: forall uni xs db m . (xs ⊆ uni, Monad m, RecApplicative uni, StateQuery db m uni) => HSet xs -> BaseM db m (HMap xs)
 query req = BaseM $ do
   db <- ask
   m <- sQuery db $ rreplace req (rpure @uni (HSetEl S.empty))
@@ -91,11 +94,11 @@ query req = BaseM $ do
 
 type KVTy t = (HKey t, HVal t)
 
-class StateIterator db t where
-  sIterator :: db -> KVTy t -> (KVTy t -> KVTy t -> KVTy t) -> DBIO db (KVTy t)
+class StateIterator db m t where
+  sIterator :: db -> KVTy t -> (KVTy t -> KVTy t -> KVTy t) -> DBM db m (KVTy t)
 
-iterator :: forall db t . StateIterator db t => KVTy t -> (KVTy t -> KVTy t -> KVTy t) -> BaseM db (KVTy t)
-iterator ini dofold = BaseM (do db <- ask; sIterator @_ @t db ini dofold)
+iterator :: forall db m t . (Monad m, StateIterator db m t) => KVTy t -> (KVTy t -> KVTy t -> KVTy t) -> BaseM db m (KVTy t)
+iterator ini dofold = BaseM (do db <- ask; sIterator @_ @_ @t db ini dofold)
 
 -- Deduce uni
 type family Nub (xs :: [k]) where
@@ -127,17 +130,17 @@ type SeqE xs = (MappendHChSet (Uni xs), RecApplicative (Uni xs))
 newtype HTransElTy (t :: u) = HTransEl {unHTransEl :: HKey t}
 type HTrans = Rec HTransElTy
 
-data PreExpander uni db et where
+data PreExpander uni db m et where
   PE :: Good uni et
-    => {runPreExpander :: HTransElTy (T et) -> BaseM db (HChangeSet (Outs et))} -> PreExpander uni db et
-type Expander db uni = HTrans uni -> BaseM db (HMbChangeSet uni)
+    => {runPreExpander :: HTransElTy (T et) -> BaseM db m (HChangeSet (Outs et))} -> PreExpander uni db m et
+type Expander db m uni = HTrans uni -> BaseM db m (HMbChangeSet uni)
 
-type SeqExpander uni db = Rec (PreExpander uni db)
+type SeqExpander uni db m = Rec (PreExpander uni db m)
 
-liftPreExpander :: PreExpander uni db et -> Expander db uni
+liftPreExpander :: Functor m => PreExpander uni db m et -> Expander db m uni
 liftPreExpander (PE f) ts = rdowncast <$> f (rget ts)
 
-seqPreExpanders :: (LiftPEs xs, SeqE xs) => SeqExpander (Uni xs) db xs -> Expander db (Uni xs)
+seqPreExpanders :: (Monad m, LiftPEs xs, SeqE xs) => SeqExpander (Uni xs) db m xs -> Expander db m (Uni xs)
 seqPreExpanders = seqE . liftPEs
   where
     liftPEs xs = recordToList (rmap (Const . liftPreExpander) xs)
@@ -145,17 +148,18 @@ seqPreExpanders = seqE . liftPEs
     flatten [] = rdowncast RNil
     flatten css = foldl1 mappendMbChangeSet css
 
-runSeqExpander :: forall db xs .
+runSeqExpander :: forall db m xs .
   ( SeqE xs
-  , LiftPEs xs )
+  , LiftPEs xs
+  , Monad m )
   =>
-  SeqExpander (Uni xs) db xs
+  SeqExpander (Uni xs) db m xs
   -> HTrans (Uni xs)
-  -> DBIO db (HMbChangeSet (Uni xs))
+  -> DBM db m (HMbChangeSet (Uni xs))
 runSeqExpander se txs = unBaseM $ seqPreExpanders se txs
 
-type PeType db et = (Good (InOuts et) et, StateQuery db (Ins et)) => PreExpander (InOuts et) db et
-type PeFType db et = HTransElTy (T et) -> BaseM db (HChangeSet (Outs et))
+type PeType db m et = (Monad m, Good (InOuts et) et, StateQuery db m (Ins et)) => PreExpander (InOuts et) db m et
+type PeFType db m et = HTransElTy (T et) -> BaseM db m (HChangeSet (Outs et))
 
 -- test
 data Tr; type instance HKeyVal Tr = '(Int, ())
@@ -164,10 +168,10 @@ data Comp2; type instance HKeyVal Comp2 = '(Double, String)
 
 type Test = 'ExpanderTypes Tr '[Comp1, Comp2] '[]
 
-test :: forall db . PeType db Test
+test :: forall db m . PeType db m Test
 test = PE fun
   where
-    fun :: PeFType db Test
+    fun :: PeFType db m Test
     fun (HTransEl n) = do
       _m <- query @(Ins Test) @('[Comp1]) (hsetFromSet $ S.singleton $ "gago" ++ show n)
       return RNil
@@ -178,21 +182,21 @@ newtype SimpleDBTy comps = SimpleDB {unSimpleDB :: IORef (HMap comps)}
 query1 :: forall t xs . (t ∈ xs, Ord (HKey t)) => HMap xs -> HSetEl t -> HMapEl t
 query1 hmap (HSetEl req) = HMapEl $ M.restrictKeys (unHMapEl $ rget @t hmap) req 
 
-instance StateQuery (SimpleDBTy comps) '[] where
+instance StateQuery (SimpleDBTy comps) IO '[] where
   sQuery _ _ = return RNil
 
 instance (
     Ord (HKey r)
   , r ∈ comps
   , rs ⊆ comps
-  , StateQuery (SimpleDBTy comps) rs
-  ) => StateQuery (SimpleDBTy comps) (r ': rs) where
+  , StateQuery (SimpleDBTy comps) IO rs
+  ) => StateQuery (SimpleDBTy comps) IO (r ': rs) where
   sQuery db@(SimpleDB hmapRef) (h :& hs) = do
     hmap <- lift $ readIORef hmapRef
     rms <- sQuery db hs
     return (query1 hmap h :& rms)
 
-instance t ∈ comps => StateIterator (SimpleDBTy comps) t where
+instance t ∈ comps => StateIterator (SimpleDBTy comps) IO t where
   sIterator (SimpleDB hmapRef) ini f = do
     hmap <- lift $ readIORef hmapRef
     return $ foldl f ini $ M.toList (unHMapEl $ rget @t hmap)
