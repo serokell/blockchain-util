@@ -27,12 +27,14 @@ import qualified Data.Map as M
 
 import           Data.Vinyl ( RMap (..), Rec (..)
                             , RecApplicative (..), RecordToList (..)
+                            , RecMapMethod (..)
                             , rcast, rget, rreplace
                             , type (∈), type (⊆) )
 import           Data.Vinyl.Functor (Compose (..), (:.), Const (..))
 import           Data.Vinyl.TypeLevel(RDelete, type (++))
 
-import           Snowdrop.Hetero (HKey, HMap, HSet, HSetEl (..), HMapEl (..), hsetFromSet, HMap, HVal, HKeyVal, ExnHKey)
+import           Snowdrop.Hetero ( HKey, HMap, HSet, HSetEl (..), HMapEl (..), hsetFromSet, HMap, HVal, HKeyVal
+                                 , OrdHKey, ExnHKey)
 import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl, CSMappendException, MappendHChSet
                                          -- Snowdrop.Core.ChangeSet.Type is patched to export this
                                          , mappendChangeSetEl )
@@ -182,19 +184,15 @@ newtype SimpleDBTy comps = SimpleDB {unSimpleDB :: IORef (HMap comps)}
 query1 :: forall t xs . (t ∈ xs, Ord (HKey t)) => HMap xs -> HSetEl t -> HMapEl t
 query1 hmap (HSetEl req) = HMapEl $ M.restrictKeys (unHMapEl $ rget @t hmap) req 
 
-instance StateQuery (SimpleDBTy comps) IO '[] where
-  sQuery _ _ = return RNil
+class (t ∈ xs, OrdHKey t) => Q xs t
+instance (t ∈ xs, OrdHKey t) => Q xs t
 
-instance (
-    Ord (HKey r)
-  , r ∈ comps
-  , rs ⊆ comps
-  , StateQuery (SimpleDBTy comps) IO rs
-  ) => StateQuery (SimpleDBTy comps) IO (r ': rs) where
-  sQuery db@(SimpleDB hmapRef) (h :& hs) = do
-    hmap <- lift $ readIORef hmapRef
-    rms <- sQuery db hs
-    return (query1 hmap h :& rms)
+queryAll :: forall (xs :: [*]) . RecMapMethod (Q xs) HSetEl xs => HMap xs -> HSet xs -> HMap xs
+queryAll hmap = rmapMethod @(Q xs) (query1 hmap)
+
+instance RecMapMethod (Q xs) HSetEl xs => StateQuery (SimpleDBTy xs) IO xs where
+  sQuery (SimpleDB hmapRef) req =
+    flip queryAll req <$> lift (readIORef hmapRef)
 
 instance t ∈ comps => StateIterator (SimpleDBTy comps) IO t where
   sIterator (SimpleDB hmapRef) ini f = do
