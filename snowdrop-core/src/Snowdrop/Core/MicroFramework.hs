@@ -15,20 +15,22 @@ module Snowdrop.Core.MicroFramework (
   , PeType
   , PeFType
   , test
+  , chgAccumQuery
   )
   where
 
-import           Universum hiding (Compose, getCompose, Const)
+import           Universum hiding (Compose, getCompose, Product, Const)
 -- import           Prelude
 -- import           Control.Monad.Reader
 
 import qualified Data.Set as S
 import qualified Data.Map as M
+import           Data.Functor.Product (Product(..))
 
 import           Data.Vinyl ( RMap (..), Rec (..)
                             , RecApplicative (..), RecordToList (..)
-                            , RecMapMethod (..)
-                            , rcast, rget, rreplace
+                            , RZipWith, RecMapMethod (..)
+                            , rcast, rget, rreplace, rzipWith
                             , type (∈), type (⊆) )
 import           Data.Vinyl.Functor (Compose (..), (:.), Const (..))
 import           Data.Vinyl.TypeLevel(RDelete, type (++))
@@ -36,6 +38,7 @@ import           Data.Vinyl.TypeLevel(RDelete, type (++))
 import           Snowdrop.Hetero ( HKey, HMap, HSet, HSetEl (..), HMapEl (..), hsetFromSet, HMap, HVal, HKeyVal
                                  , OrdHKey, ExnHKey)
 import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl, CSMappendException, MappendHChSet
+                                         , hChangeSetToHMap
                                          -- Snowdrop.Core.ChangeSet.Type is patched to export this
                                          , mappendChangeSetEl )
 
@@ -88,7 +91,9 @@ instance Monad m => Monad (BaseM db m) where
 class StateQuery db m xs where
   sQuery :: db -> HSet xs -> DBM db m (HMap xs)
 
-query :: forall uni xs db m . (xs ⊆ uni, Monad m, RecApplicative uni, StateQuery db m uni) => HSet xs -> BaseM db m (HMap xs)
+type QueryType db m xs = HSet xs -> BaseM db m (HMap xs)
+
+query :: forall uni xs db m . (xs ⊆ uni, Monad m, RecApplicative uni, StateQuery db m uni) => QueryType db m xs
 query req = BaseM $ do
   db <- ask
   m <- sQuery db $ rreplace req (rpure @uni (HSetEl S.empty))
@@ -198,3 +203,15 @@ instance t ∈ comps => StateIterator (SimpleDBTy comps) IO t where
   sIterator (SimpleDB hmapRef) ini f = do
     hmap <- lift $ readIORef hmapRef
     return $ foldl f ini $ M.toList (unHMapEl $ rget @t hmap)
+
+-- Don't quite understand if we need this, but implement just in case
+chgAccumQuery :: forall db m xs .
+  ( Monad m
+  , RecMapMethod OrdHKey (Product HMapEl HMapEl) xs
+  , RMap xs, RZipWith xs)
+  => QueryType db m xs -> HChangeSet xs -> QueryType db m xs
+chgAccumQuery q chs = \ks ->
+    -- We have no rzipWithMethod, hence this
+    rmapMethod @OrdHKey recombine . rzipWith Pair (hChangeSetToHMap chs) <$> q ks
+  where
+    recombine (Pair (HMapEl m1) (HMapEl m2)) = HMapEl (M.difference m2 m1 <> M.intersection m1 m2)
