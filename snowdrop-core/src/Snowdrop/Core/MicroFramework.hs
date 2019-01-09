@@ -261,8 +261,7 @@ applyAll ::
 applyAll ts f = do
     chs <- doOrThrow <$> f ts
     SimpleDB hmapRef <- ask
-    hmap <- lift $ readIORef hmapRef
-    lift $ writeIORef hmapRef (rmapMethod @OrdHKey apply $ rzipWith Pair chs hmap)
+    lift $ atomicModifyIORef hmapRef $ \hmap -> (rmapMethod @OrdHKey apply $ rzipWith Pair chs hmap, ())
   where
     doOrThrow (Left _) = error "FIXME: use proper exception"
     doOrThrow (Right cs) = cs
