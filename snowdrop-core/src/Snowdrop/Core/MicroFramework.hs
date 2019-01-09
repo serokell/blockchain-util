@@ -88,23 +88,23 @@ instance Applicative m => Applicative (BaseM db m) where
 instance Monad m => Monad (BaseM db m) where
   a >>= b = BaseM $ unBaseM a >>= unBaseM . b
 
+type QueryType db m xs = HSet xs -> DBM db m (HMap xs)
+
 class StateQuery db m xs where
-  sQuery :: db -> HSet xs -> DBM db m (HMap xs)
+  sQuery :: db -> QueryType db m xs
 
-type QueryType db m xs = HSet xs -> BaseM db m (HMap xs)
-
-query :: forall uni xs db m . (xs ⊆ uni, Monad m, RecApplicative uni, StateQuery db m uni) => QueryType db m xs
+query :: forall uni xs db m . (xs ⊆ uni, Monad m, RecApplicative uni, StateQuery db m uni) => HSet xs -> BaseM db m (HMap xs)
 query req = BaseM $ do
   db <- ask
   m <- sQuery db $ rreplace req (rpure @uni (HSetEl S.empty))
   return (rcast m)
 
-type KVTy t = (HKey t, HVal t)
+type IterType db m t b = b -> (b -> (HKey t, HVal t) -> b) -> DBM db m b
 
 class StateIterator db m t where
-  sIterator :: db -> KVTy t -> (KVTy t -> KVTy t -> KVTy t) -> DBM db m (KVTy t)
+  sIterator :: db -> IterType db m t b
 
-iterator :: forall db m t . (Monad m, StateIterator db m t) => KVTy t -> (KVTy t -> KVTy t -> KVTy t) -> BaseM db m (KVTy t)
+iterator :: forall db m t b . (Monad m, StateIterator db m t) => b -> (b -> (HKey t, HVal t) -> b) -> BaseM db m b
 iterator ini dofold = BaseM (do db <- ask; sIterator @_ @_ @t db ini dofold)
 
 -- Deduce uni
