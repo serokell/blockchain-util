@@ -17,6 +17,7 @@ module Snowdrop.Core.MicroFramework (
   , test
   , chgAccumGetter
   , chgAccumIter
+  , computeHChSetUndo
   )
   where
 
@@ -39,8 +40,8 @@ import           Data.Vinyl.TypeLevel(RDelete, type (++))
 import           Snowdrop.Hetero ( HKey, HMap, HSet, HSetEl (..), HMapEl (..), hsetFromSet, HMap, HVal, HKeyVal
                                  , OrdHKey )
 import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl(..), CSMappendException, MappendHChSet
-                                         , ValueOp(..), csNew
-                                         , hChangeSetToHMap
+                                         , ValueOp(..), ValueOpEx(..), csNew
+                                         , hChangeSetToHMap, hChangeSetToHSet
                                          , mappendChangeSet )
 
 --------------------------------------------------------------
@@ -222,3 +223,31 @@ chgAccumIter iter =
                     (Just (New _),    _) -> (b, newKeys) -- TODO shall we throw error here?
         (b, remainedNewKeys) <- iter' (initB, csNew ac') newFoldF
         pure $ M.foldlWithKey' (curry . foldF) b remainedNewKeys
+
+-- Reuse ValueOpEx
+-- FIXME? Move to Snowdrop.Core.ChangeSet.ValueOp?
+undo :: Maybe v -> ValueOp v -> ValueOpEx v
+undo Nothing  NotExisted = Op NotExisted
+undo Nothing  (New _)    = Op Rem
+undo (Just v) Rem        = Op (New v)
+undo (Just v) (Upd _)    = Op (Upd v)
+undo _        _          = Err
+
+computeHChSetUndo ::
+  ( Monad m
+  , RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) xs
+  , RZipWith xs)
+  => GetterType db m xs
+  -> HChangeSet xs
+  -> HChangeSet xs
+  -> DBM db m (HChangeSet xs)
+computeHChSetUndo getter sch chs =
+    computeHChSetUndo' <$> getter sch (hChangeSetToHSet chs)
+  where
+    computeHChSetUndo' = rmapMethod @OrdHKey computeUndo . rzipWith Pair chs
+    computeUndo (Pair (HChangeSetEl cs) (HMapEl vals)) =
+      let processOne m (k, valueop) = case (undo (k `M.lookup` vals) valueop) of
+            Op op -> M.insert k op m
+            -- FIXME: use throwError or smth similar
+            Err   -> error "CSMappendException"
+      in HChangeSetEl $ foldl processOne M.empty (M.toList cs)
