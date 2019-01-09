@@ -33,46 +33,16 @@ import           Data.Vinyl ( RMap (..), Rec (..)
                             , RZipWith (..), RecMapMethod (..)
                             , rcast, rget, rreplace
                             , type (∈), type (⊆) )
-import           Data.Vinyl.Functor (Compose (..), (:.), Const (..))
+import           Data.Vinyl.Functor (Const (..))
 import           Data.Vinyl.TypeLevel(RDelete, type (++))
 
 import           Snowdrop.Hetero ( HKey, HMap, HSet, HSetEl (..), HMapEl (..), hsetFromSet, HMap, HVal, HKeyVal
-                                 , OrdHKey, ExnHKey)
+                                 , OrdHKey )
 import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl(..), CSMappendException, MappendHChSet
                                          , ValueOp(..), csNew
                                          , hChangeSetToHMap
-                                         -- Snowdrop.Core.ChangeSet.Type is patched to export this
-                                         , mappendChangeSetEl )
+                                         , mappendChangeSet )
 
--- FIXME: upgrade Vinyl (copied from fresh Vinyl) ------------
-rdowncast :: (RecApplicative ss, RMap rs, rs ⊆ ss)
-              => Rec f rs -> Rec (Maybe :. f) ss
-rdowncast = flip rreplace (rpure (Compose Nothing)) . rmap (Compose . Just)
---------------------------------------------------------------
-
--- FIXEM: Move to Snowdrop.Core.ChangeSet --------------------
-type HMbChangeSet ts = Rec (Maybe :. HChangeSetEl) ts
-
-mappendMbChangeSetEl
-    :: ExnHKey t
-    => Maybe (HChangeSetEl t)
-    -> Maybe (HChangeSetEl t)
-    -> Either CSMappendException ((Maybe :. HChangeSetEl) t)
-mappendMbChangeSetEl Nothing Nothing    = Right (Compose Nothing)
-mappendMbChangeSetEl Nothing r@(Just _) = Right (Compose r)
-mappendMbChangeSetEl l@(Just _) Nothing = Right (Compose l)
-mappendMbChangeSetEl (Just l) (Just r)  = (Compose . Just) <$> mappendChangeSetEl l r
-
-mappendMbChangeSet
-    :: MappendHChSet ts
-    => HMbChangeSet ts
-    -> HMbChangeSet ts
-    -> HMbChangeSet ts
-mappendMbChangeSet RNil RNil = RNil
-mappendMbChangeSet (x :& xs) (y :& ys) =
-  case (getCompose x) `mappendMbChangeSetEl` (getCompose y) of
-    Left _    -> error "FIXME: fix kind of throwLocalError and use it!"
-    Right res -> res :& mappendMbChangeSet xs ys
 --------------------------------------------------------------
 
 type DBM db m = ReaderT db m
@@ -142,20 +112,24 @@ type HTrans = Rec HTransElTy
 data PreExpander uni db m et where
   PE :: Good uni et
     => {runPreExpander :: HTransElTy (T et) -> BaseM db m (HChangeSet (Outs et))} -> PreExpander uni db m et
-type Expander db m uni = HTrans uni -> BaseM db m (HMbChangeSet uni)
 
 type SeqExpander uni db m = Rec (PreExpander uni db m)
 
-liftPreExpander :: Functor m => PreExpander uni db m et -> Expander db m uni
-liftPreExpander (PE f) ts = rdowncast <$> f (rget ts)
+emptyChSet :: forall xs . RecApplicative xs => HChangeSet xs
+emptyChSet = rpure @xs $ HChangeSetEl M.empty
 
-seqPreExpanders :: (Monad m, LiftPEs xs, SeqE xs) => SeqExpander (Uni xs) db m xs -> Expander db m (Uni xs)
+type Expander db m uni = HTrans uni -> BaseM db m (HChangeSet uni)
+
+liftPreExpander :: Functor m => PreExpander uni db m et -> Expander db m uni
+liftPreExpander (PE f) ts = flip rreplace emptyChSet <$> f (rget ts)
+
+type ExpanderX m uni = HTrans uni -> m (Either CSMappendException (HChangeSet uni))
+
+seqPreExpanders :: (Monad m, LiftPEs xs, SeqE xs) => SeqExpander (Uni xs) db m xs -> ExpanderX (BaseM db m) (Uni xs)
 seqPreExpanders = seqE . liftPEs
   where
     liftPEs xs = recordToList (rmap (Const . liftPreExpander) xs)
-    seqE es r = flatten <$> sequence (map (\f -> f r) es)
-    flatten [] = rdowncast RNil
-    flatten css = foldl1 mappendMbChangeSet css
+    seqE es r = foldM mappendChangeSet emptyChSet <$> sequence (map (\f -> f r) es)
 
 runSeqExpander :: forall db m xs .
   ( SeqE xs
@@ -163,8 +137,7 @@ runSeqExpander :: forall db m xs .
   , Monad m )
   =>
   SeqExpander (Uni xs) db m xs
-  -> HTrans (Uni xs)
-  -> DBM db m (HMbChangeSet (Uni xs))
+  -> ExpanderX (DBM db m) (Uni xs)
 runSeqExpander se txs = unBaseM $ seqPreExpanders se txs
 
 type PeType db m et = (Monad m, Good (InOuts et) et, StateQuery db m (Ins et)) => PreExpander (InOuts et) db m et
