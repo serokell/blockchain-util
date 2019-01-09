@@ -15,7 +15,7 @@ module Snowdrop.Core.MicroFramework (
   , PeType
   , PeFType
   , test
-  , chgAccumQuery
+  , chgAccumGetter
   , chgAccumIter
   )
   where
@@ -180,14 +180,16 @@ instance t ∈ comps => StateIterator (SimpleDBTy comps) IO t where
     return $ foldl f ini $ M.toList (unHMapEl $ rget @t hmap)
 
 -- Don't quite understand if we need this, but implement just in case
-chgAccumQuery :: forall db m xs .
+type GetterType db m xs = HChangeSet xs -> QueryType db m xs
+
+chgAccumGetter :: forall db m xs .
   ( Monad m
   , RecMapMethod OrdHKey (Product HMapEl HMapEl) xs
-  , RMap xs, RZipWith xs)
-  => QueryType db m xs -> HChangeSet xs -> QueryType db m xs
-chgAccumQuery q chs = \ks ->
+  , RZipWith xs)
+  => GetterType db m xs -> HChangeSet xs -> GetterType db m xs
+chgAccumGetter q chs = \acc ks ->
     -- We have no rzipWithMethod, hence this
-    rmapMethod @OrdHKey recombine . rzipWith Pair (hChangeSetToHMap chs) <$> q ks
+    rmapMethod @OrdHKey recombine . rzipWith Pair (hChangeSetToHMap chs) <$> q acc ks
   where
     recombine (Pair (HMapEl m1) (HMapEl m2)) = HMapEl (M.difference m2 m1 <> M.intersection m1 m2)
 
