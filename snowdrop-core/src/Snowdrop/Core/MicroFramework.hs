@@ -18,6 +18,7 @@ module Snowdrop.Core.MicroFramework (
   , chgAccumGetter
   , chgAccumIter
   , computeHChSetUndo
+  , applyAll
   )
   where
 
@@ -251,3 +252,24 @@ computeHChSetUndo getter sch chs =
             -- FIXME: use throwError or smth similar
             Err   -> error "CSMappendException"
       in HChangeSetEl $ foldl processOne M.empty (M.toList cs)
+
+-- The simplest and dumbest applier. Use no fancy chgAccums. PoC.
+applyAll ::
+    ( RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) uni
+    , RZipWith uni)
+    => HTrans uni -> ExpanderX (DBM (SimpleDBTy uni) IO) uni -> DBM (SimpleDBTy uni) IO ()
+applyAll ts f = do
+    chs <- doOrThrow <$> f ts
+    SimpleDB hmapRef <- ask
+    hmap <- lift $ readIORef hmapRef
+    lift $ writeIORef hmapRef (rmapMethod @OrdHKey apply $ rzipWith Pair chs hmap)
+  where
+    doOrThrow (Left _) = error "FIXME: use proper exception"
+    doOrThrow (Right cs) = cs
+    apply (Pair (HChangeSetEl cs) (HMapEl vals)) = HMapEl $ M.foldlWithKey app vals cs
+    app vals k c = case (c, k `M.lookup` vals) of
+      (NotExisted, Nothing) -> vals
+      (New v     , Nothing) -> M.insert k v vals
+      (Rem,         Just _) -> M.delete k   vals
+      (Upd v     ,  Just _) -> M.insert k v vals
+      (_,                _) -> error "FIXME: use proper exception? or simply ignore?"
