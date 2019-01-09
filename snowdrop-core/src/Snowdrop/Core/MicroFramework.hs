@@ -16,6 +16,7 @@ module Snowdrop.Core.MicroFramework (
   , PeFType
   , test
   , chgAccumQuery
+  , chgAccumIter
   )
   where
 
@@ -37,7 +38,8 @@ import           Data.Vinyl.TypeLevel(RDelete, type (++))
 
 import           Snowdrop.Hetero ( HKey, HMap, HSet, HSetEl (..), HMapEl (..), hsetFromSet, HMap, HVal, HKeyVal
                                  , OrdHKey, ExnHKey)
-import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl, CSMappendException, MappendHChSet
+import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl(..), CSMappendException, MappendHChSet
+                                         , ValueOp(..), csNew
                                          , hChangeSetToHMap
                                          -- Snowdrop.Core.ChangeSet.Type is patched to export this
                                          , mappendChangeSetEl )
@@ -215,3 +217,33 @@ chgAccumQuery q chs = \ks ->
     rmapMethod @OrdHKey recombine . rzipWith Pair (hChangeSetToHMap chs) <$> q ks
   where
     recombine (Pair (HMapEl m1) (HMapEl m2)) = HMapEl (M.difference m2 m1 <> M.intersection m1 m2)
+
+-- Also don't quite understand if we need this, but still
+-- Copypasted from existing SD and edited slightly
+newtype IterAction db m t = IterAction {runIterAction :: forall b . IterType db m t b }
+type DIter db m xs = Rec (IterAction db m) xs
+
+chgAccumIter :: forall db m xs .
+  ( Monad m
+  , RecMapMethod OrdHKey (Product (IterAction db m) HChangeSetEl) xs
+  , RZipWith xs)
+  => DIter db m xs -> HChangeSet xs -> DIter db m xs
+chgAccumIter iter =
+    rmapMethod @OrdHKey chgAccumIter' . rzipWith Pair iter
+  where
+    chgAccumIter' (Pair (IterAction iter') ac'@(HChangeSetEl accum)) =
+      IterAction $ \initB foldF -> do
+        let extractMin i m = do
+                (k, v) <- M.lookupMin m
+                (k, v) <$ guard (k <= i)
+            newFoldF (b, newKeys) (i, val) =
+                case (M.lookup i accum, extractMin i newKeys) of
+                    (_,   Just (i', v')) -> newFoldF (foldF b (i', v'), M.deleteMin newKeys) (i, val)
+                    (Nothing,         _) -> (foldF b (i, val) ,newKeys)
+                    (Just Rem,        _) -> (b, newKeys)
+                    (Just (Upd newV), _) -> (foldF b (i, newV), newKeys)
+
+                    (Just NotExisted, _) -> (b, newKeys) -- TODO shall we throw error here ?
+                    (Just (New _),    _) -> (b, newKeys) -- TODO shall we throw error here?
+        (b, remainedNewKeys) <- iter' (initB, csNew ac') newFoldF
+        pure $ M.foldlWithKey' (curry . foldF) b remainedNewKeys
