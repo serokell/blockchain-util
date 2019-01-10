@@ -21,7 +21,7 @@ import           Universum
 import           Data.Default (Default (def))
 import qualified Data.Map as Map
 import qualified Data.Tree.AVL as AVL
-import           Data.Vinyl (RApply (..), RMap, RecApplicative, rget, rpure, rput)
+import           Data.Vinyl (RecPointed, RApply (..), RMap, RecApplicative, rget, rpure, rput)
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Functor (Lift (..))
 import           Data.Vinyl.Recursive (rmap)
@@ -75,6 +75,8 @@ avlClientDbActions
     , xs ~ DbComponents conf
     , RecApplicative xs
     , RMapWithC (IsAvlEntry h) xs
+
+    , RecPointed Default (AVLCacheEl h) xs
     )
     => RetrieveF h STM xs
     -> RootHashes h xs
@@ -153,11 +155,11 @@ avlServerDbActions = fmap mkActions . newTVar
     retrieveHash var req = do storage <- unAVLPureStorage . amsState <$> readTVar var
                               pure (go storage req)
 
-    go :: Rec (AVLCacheEl h) xs -> Rec (Const h) xs -> Rec (RetrieveRes h) xs
+    go :: Rec (AVLCacheEl h) rs -> Rec (Const h) rs -> Rec (RetrieveRes h) rs
     go RNil RNil             = RNil
-    go a@(_ :& _) b@(_ :& _) = go a b
+    go a@(_ :& _) b@(_ :& _) = go' a b
 
-    go' :: Rec (AVLCacheEl h) (x ': xs) -> Rec (Const h) (x ': xs) -> Rec (RetrieveRes h) (x ': xs)
+    go' :: Rec (AVLCacheEl h) (r ': rs) -> Rec (Const h) (r ': rs) -> Rec (RetrieveRes h) (r ': rs)
     go' ((unAVLCacheEl -> c) :& cs) ((getConst -> s) :& ss) =
         (RetrieveRes $ Map.lookup s c) :& go cs ss
 
@@ -215,9 +217,9 @@ avlServerDbActions = fmap mkActions . newTVar
     saveAVLs :: AllAvlEntries h rs => AVLPureStorage h rs -> Rec (AVLChgAccum h) rs -> STM (RootHashes h rs, AVLCache h rs)
     saveAVLs (AVLPureStorage RNil) RNil = pure (RNil, def)
     saveAVLs (AVLPureStorage (storage :& restStorage)) (AVLChgAccum accAvl acc _ :& accums) = do
-        (h, acc) :: (RootHash h, AVLCacheEl h r) <- runAVLCacheElT (saveAVL accAvl) acc storage
+        (h, acc') :: (RootHash h, AVLCacheEl h r) <- runAVLCacheElT (saveAVL accAvl) acc storage
         (restRoots, restAcc) <- saveAVLs (AVLPureStorage restStorage) accums
-        pure (RootHashComp h :& restRoots, AVLCache (acc :& unAVLCache restAcc))
+        pure (RootHashComp h :& restRoots, AVLCache (acc' :& unAVLCache restAcc))
 
 computeProofAll
     :: (AllAvlEntries h xs, AvlHashable h, MonadThrow m, MonadCatch m)
@@ -234,7 +236,7 @@ computeProofAll'
     -> Rec (AVLChgAccum h) (x ': xs)
     -> Rec (Const (Set h)) (x ': xs)
     -> AVLCacheT h m (x ': xs) (AvlProofs h (x ': xs))
-computeProofAll' (b@(RootHashComp rootH) :& roots) (a@(AVLChgAccum _ _ accTouched) :& accums) (r@(getConst -> req) :& reqs) = do
+computeProofAll' ((RootHashComp rootH) :& roots) ((AVLChgAccum _ _ accTouched) :& accums) ((getConst -> req) :& reqs) = do
     proof <- asAVLCache @x @xs ((AvlProof <$> computeProof @x @h @m rootH accTouched req) :: AVLCacheElT h m x (AvlProof h x))  -- rootH accTouched req)
     (proof :&) <$> (upcastAVLCache' $ computeProofAll roots accums reqs)
 

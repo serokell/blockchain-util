@@ -36,7 +36,6 @@ import           Data.Tree.AVL (MapLayer)
 import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
 import           Loot.Log (MonadLogging, logDebug)
-
 import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
                                         IsAvlEntry, RootHash (..), RootHashComp (..), RootHashes,
                                         saveAVL)
@@ -84,11 +83,19 @@ reThrowAVLEx m =
       `catch` (\(e :: AVL.NotFound k) -> throwM $ DbProtocolError $ "Not found key: " <> show e)
       `catch` (\(e :: AVL.NotFound h) -> throwM $ DbProtocolError $ "Not found hash: " <> show e)
 
+class    Default (AVLCacheEl h x) => DefaultCacheEl h x
+instance Default (AVLCacheEl h x) => DefaultCacheEl h x
+
 clientModeToTempSt
     :: forall h xs m n .
     ( AvlHashable h
     , MonadCatch m, MonadCatch n
     , AllAvlEntries h xs
+
+    -- FIXME:
+    -- , AllConstrained Default xs
+    -- , AllConstrained (DefaultCacheEl h) xs
+    , RecPointed Default (AVLCacheEl h) xs
     )
     => RetrieveF h n xs
     -> ClientMode (AvlProofs h xs)
@@ -133,13 +140,10 @@ instance HasGetter (ClientTempState h xs n) (RootHashes h xs) where
 
 newtype AVLPureStorage h xs = AVLPureStorage { unAVLPureStorage :: Rec (AVLCacheEl h) xs }
 
--- FIXME:
-instance RecPointed Default (AVLCacheEl h) xs
-
 instance RecPointed Default f ts => Default (Rec f ts) where
   def = rpointMethod @Default def
 
-instance Default (AVLPureStorage h xs) where
+instance RecPointed Default (AVLCacheEl h) xs => Default (AVLPureStorage h xs) where
     def = AVLPureStorage (def)
 
 initAVLPureStorage
@@ -147,6 +151,9 @@ initAVLPureStorage
     ( MonadIO m, MonadCatch m, MonadLogging m
     , AvlHashable h
     , AllAvlEntries h xs
+
+    -- FIXME:
+    , RecPointed Default (AVLCacheEl h) xs
     )
     => HMap xs
     -> m (AVLServerState h xs)
@@ -181,20 +188,16 @@ initAVLPureStorage xs = initAVLPureStorageAll xs (unAVLPureStorage def)
 -- being performed on AVL tree
 
 -- newtype AVLCacheEl h x = AVLCacheEl { unAVLCacheEl :: Map (HKey x) (HVal x) } deriving Default
-newtype AVLCacheEl h x = AVLCacheEl { unAVLCacheEl :: Map h (MapLayer h (HKey x) (HVal x) h) } deriving (Default, Semigroup)
+newtype AVLCacheEl h x = AVLCacheEl { unAVLCacheEl :: Map h (MapLayer h (HKey x) (HVal x) h) } deriving (Semigroup)
 
--- instance (Ord (HKey x), Ord (HVal x)) => Default (AVLCacheEl h x) where
---     def = mempty
+-- FIXME: should be derivable
+instance Default (AVLCacheEl h x) where
+    def = AVLCacheEl M.empty
 
 deriving instance (Ord (HKey x), Ord h) => Monoid (AVLCacheEl h x)
 
 newtype AVLCache h xs = AVLCache { unAVLCache :: Rec (AVLCacheEl h) xs }
 
-fromPureStorate :: AVLPureStorage h xs -> AVLCache h xs
-fromPureStorate = AVLCache . unAVLPureStorage
-
-toPureStorate :: AVLCache h xs -> AVLPureStorage h xs
-toPureStorate = AVLPureStorage . unAVLCache
 
 -- | Monad transformer for caching `save` operations resulting from AVL+ actions
 newtype AVLCacheT h m xs a = AVLCacheT (StateT (AVLCache h xs) m a)
@@ -218,8 +221,9 @@ instance ( MonadThrow m
          => AVL.KVRetrieve h (AVL.MapLayer h k v h) (AVLCacheT h m xs) where
     retrieve :: h -> AVLCacheT h m xs (AVL.MapLayer h k v h)
     retrieve h = do cache <- rget @x . unAVLCache <$> get
-                    -- FIXME:
-                    undefined
+                    case (M.lookup h (unAVLCacheEl cache)) of
+                        Nothing -> throwM $ DbProtocolError $ "Not found key: " <> show h
+                        Just x  -> pure x
 
 instance ( MonadThrow m
          , AvlHashable h
@@ -228,25 +232,31 @@ instance ( MonadThrow m
          )
          => AVL.KVRetrieve h (AVL.MapLayer h k v h) (AVLCacheElT h m x) where
     retrieve :: h -> AVLCacheElT h m x (AVL.MapLayer h k v h)
-    retrieve h = do storage <- unAVLCacheEl <$> get
-                    undefined
+    retrieve h = do cache <- get
+                    case M.lookup h (unAVLCacheEl cache) of
+                        Nothing -> throwM $ DbProtocolError $ "Not found key: " <> show h
+                        Just x  -> pure x
 
 instance ( MonadThrow m
          , AvlHashable h
          , k ~ HKey x
          , v ~ HVal x
          )
-         => AVL.KVStore h (AVL.MapLayer h k v h) (AVLCacheElT h m x)
+         => AVL.KVStore h (AVL.MapLayer h k v h) (AVLCacheElT h m x) where
+    massStore :: [(h, MapLayer h k v h)] -> AVLCacheElT h m x ()
+    massStore arr = do cache :: Map h (MapLayer h k v h) <- unAVLCacheEl <$> get
+                       let res = foldl' (\acc (k, v) -> M.insert k v acc) cache arr
+                       put (AVLCacheEl res)
 
-store :: ( MonadThrow m
-         , AvlHashable h
-         , RContains xs x
-         , AVL.KVRetrieve h (AVL.MapLayer h k v h) m
-         , k ~ HKey x
-         , v ~ HVal x
-         )
-      => (h, MapLayer h k v h) -> AVLCacheT h m xs ()
-store (k, v) = undefined
+-- store :: ( MonadThrow m
+--          , AvlHashable h
+--          , RContains xs x
+--          , AVL.KVRetrieve h (AVL.MapLayer h k v h) m
+--          , k ~ HKey x
+--          , v ~ HVal x
+--          )
+--       => (h, MapLayer h k v h) -> AVLCacheT h m xs ()
+-- store (k, v) = undefined
 
 runAVLCacheT
     :: MonadThrow m

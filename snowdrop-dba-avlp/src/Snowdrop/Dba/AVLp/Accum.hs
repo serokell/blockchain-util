@@ -38,8 +38,7 @@ import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProofs, A
                                         KVConstraint, RootHash (unRootHash), RootHashComp (..),
                                         RootHashes, avlRootHash, mkAVL)
 import           Snowdrop.Dba.AVLp.Constraints (RHashable (..), RMapWithC, rmapWithC)
-import           Snowdrop.Dba.AVLp.State (AVLCache, AVLCacheEl, AVLCacheElT, AVLCacheT,
-                                          reThrowAVLEx, runAVLCacheElT, runAVLCacheT)
+import           Snowdrop.Dba.AVLp.State (AVLCacheEl, AVLCacheElT, reThrowAVLEx, runAVLCacheElT)
 import           Snowdrop.Dba.Base (DGetter', DIter', DModify', DbApplyProof, DbComponents,
                                     IterAction (..))
 import           Snowdrop.Hetero (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, Head)
