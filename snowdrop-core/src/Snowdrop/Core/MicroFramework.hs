@@ -73,21 +73,18 @@ instance Monad m => Monad (BaseM db m) where
 type QueryType db m xs = HSet xs -> DBM db m (HMap xs)
 
 class StateQuery db m xs where
-  sQuery :: db -> QueryType db m xs
+  sQuery :: QueryType db m xs
 
 query :: forall uni xs db m . (xs ⊆ uni, Monad m, RecApplicative uni, StateQuery db m uni) => HSet xs -> BaseM db m (HMap xs)
-query req = BaseM $ do
-  db <- ask
-  m <- sQuery db $ rreplace req (rpure @uni (HSetEl S.empty))
-  return (rcast m)
+query req = BaseM $ rcast <$> (sQuery $ rreplace req (rpure @uni (HSetEl S.empty)))
 
 type IterType db m t b = b -> (b -> (HKey t, HVal t) -> b) -> DBM db m b
 
 class StateIterator db m t where
-  sIterator :: db -> IterType db m t b
+  sIterator :: IterType db m t b
 
 iterator :: forall db m t b . (Monad m, StateIterator db m t) => b -> (b -> (HKey t, HVal t) -> b) -> BaseM db m b
-iterator ini dofold = BaseM (do db <- ask; sIterator @_ @_ @t db ini dofold)
+iterator ini dofold = BaseM (sIterator @_ @_ @t ini dofold)
 
 -- Deduce uni
 type family Nub (xs :: [k]) where
@@ -182,11 +179,13 @@ queryAll :: forall (xs :: [*]) . RecMapMethod (Q xs) HSetEl xs => HMap xs -> HSe
 queryAll hmap = rmapMethod @(Q xs) (query1 hmap)
 
 instance RecMapMethod (Q xs) HSetEl xs => StateQuery (SimpleDBTy xs) IO xs where
-  sQuery (SimpleDB hmapRef) req =
+  sQuery req = do
+    SimpleDB hmapRef <- ask
     flip queryAll req <$> lift (readIORef hmapRef)
 
 instance t ∈ comps => StateIterator (SimpleDBTy comps) IO t where
-  sIterator (SimpleDB hmapRef) ini f = do
+  sIterator ini f = do
+    SimpleDB hmapRef <- ask
     hmap <- lift $ readIORef hmapRef
     return $ foldl f ini $ M.toList (unHMapEl $ rget @t hmap)
 
