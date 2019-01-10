@@ -35,6 +35,7 @@ import           Data.Vinyl ( RMap (..), Rec (..)
                             , RZipWith (..), RecMapMethod (..)
                             , rcast, rget, rreplace
                             , type (∈), type (⊆) )
+import           Data.Vinyl.Class.Method ( PayloadType )
 import           Data.Vinyl.Functor (Const (..))
 import           Data.Vinyl.TypeLevel(RDelete, type (++))
 
@@ -46,7 +47,14 @@ import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl(..), CSMappe
                                          , mappendChangeSet )
 
 --------------------------------------------------------------
+-- Vinyl has no somthing like this. Consider adding to Vinyl?
+rzipWithMethod :: forall c f g h xs .
+  ( RecMapMethod c (Product f g) xs
+  , RZipWith xs )
+  => (forall x . c (PayloadType (Product f g) x) => Product f g x -> h x) -> Rec f xs -> Rec g xs -> Rec h xs
+rzipWithMethod zipper r1 r2 = rmapMethod @c zipper $ rzipWith Pair r1 r2
 
+--------------------------------------------------------------
 type DBM db m = ReaderT db m
 
 -- We may parametrize BaseM by whatever monad we want (STM anyone?),
@@ -187,11 +195,10 @@ type GetterType db m xs = HChangeSet xs -> QueryType db m xs
 chgAccumGetter :: forall db m xs .
   ( Monad m
   , RecMapMethod OrdHKey (Product HMapEl HMapEl) xs
-  , RZipWith xs)
+  , RZipWith xs )
   => GetterType db m xs -> HChangeSet xs -> GetterType db m xs
 chgAccumGetter q chs = \acc ks ->
-    -- We have no rzipWithMethod, hence this
-    rmapMethod @OrdHKey recombine . rzipWith Pair (hChangeSetToHMap chs) <$> q acc ks
+    rzipWithMethod @OrdHKey recombine (hChangeSetToHMap chs) <$> q acc ks
   where
     recombine (Pair (HMapEl m1) (HMapEl m2)) = HMapEl (M.difference m2 m1 <> M.intersection m1 m2)
 
@@ -203,10 +210,10 @@ type DIter db m xs = Rec (IterAction db m) xs
 chgAccumIter :: forall db m xs .
   ( Monad m
   , RecMapMethod OrdHKey (Product (IterAction db m) HChangeSetEl) xs
-  , RZipWith xs)
+  , RZipWith xs )
   => DIter db m xs -> HChangeSet xs -> DIter db m xs
 chgAccumIter iter =
-    rmapMethod @OrdHKey chgAccumIter' . rzipWith Pair iter
+    rzipWithMethod @OrdHKey chgAccumIter' iter
   where
     chgAccumIter' (Pair (IterAction iter') ac'@(HChangeSetEl accum)) =
       IterAction $ \initB foldF -> do
@@ -237,7 +244,7 @@ undo _        _          = Err
 computeHChSetUndo ::
   ( Monad m
   , RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) xs
-  , RZipWith xs)
+  , RZipWith xs )
   => GetterType db m xs
   -> HChangeSet xs
   -> HChangeSet xs
@@ -245,11 +252,10 @@ computeHChSetUndo ::
 computeHChSetUndo getter sch chs =
     computeHChSetUndo' <$> getter sch (hChangeSetToHSet chs)
   where
-    computeHChSetUndo' = rmapMethod @OrdHKey computeUndo . rzipWith Pair chs
+    computeHChSetUndo' = rzipWithMethod @OrdHKey computeUndo chs
     computeUndo (Pair (HChangeSetEl cs) (HMapEl vals)) =
       let processOne m (k, valueop) = case (undo (k `M.lookup` vals) valueop) of
             Op op -> M.insert k op m
-            -- FIXME: use throwError or smth similar
             Err   -> error "CSMappendException"
       in HChangeSetEl $ foldl processOne M.empty (M.toList cs)
 
@@ -261,7 +267,7 @@ applyAll ::
 applyAll ts f = do
     chs <- doOrThrow <$> f ts
     SimpleDB hmapRef <- ask
-    lift $ atomicModifyIORef hmapRef $ \hmap -> (rmapMethod @OrdHKey apply $ rzipWith Pair chs hmap, ())
+    lift $ atomicModifyIORef hmapRef $ \hmap -> (rzipWithMethod @OrdHKey apply chs hmap, ())
   where
     doOrThrow (Left _) = error "FIXME: use proper exception"
     doOrThrow (Right cs) = cs
