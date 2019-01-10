@@ -72,7 +72,7 @@ instance Monad m => Monad (BaseM db m) where
 
 type QueryType db m xs = HSet xs -> DBM db m (HMap xs)
 
-class StateQuery db m xs where
+class StateQuery db m xs | db -> xs where
   sQuery :: QueryType db m xs
 
 query :: forall uni xs db m . (xs ⊆ uni, Monad m, RecApplicative uni, StateQuery db m uni) => HSet xs -> BaseM db m (HMap xs)
@@ -163,7 +163,7 @@ test = PE fun
   where
     fun :: PeFType db m Test
     fun (HTransEl n) = do
-      _m <- query @(Ins Test) @('[Comp1]) (hsetFromSet $ S.singleton $ "gago" ++ show n)
+      _m <- query @_ @('[Comp1]) (hsetFromSet $ S.singleton $ "gago" ++ show n)
       return RNil
 
 -- SimpleDB -----------------
