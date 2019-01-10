@@ -163,7 +163,7 @@ test = PE fun
   where
     fun :: PeFType db m Test
     fun (HTransEl n) = do
-      _m <- query @_ @('[Comp1]) (hsetFromSet $ S.singleton $ "gago" ++ show n)
+      _m <- query (hsetFromSet @Comp1 $ S.singleton $ "gago" ++ show n)
       return RNil
 
 -- SimpleDB -----------------
