@@ -151,17 +151,17 @@ runSeqExpander :: forall db m xs .
   -> ExpanderX (DBM db m) (Uni xs)
 runSeqExpander se txs = unBaseM $ seqPreExpanders se txs
 
-type PeType xconstr db m et = (xconstr, Monad m, Good (InOuts et) et, StateQuery db m (Ins et)) => PreExpander (InOuts et) db m et
+type PeType db m et = (Monad m, Good (InOuts et) et, StateQuery db m (Ins et)) => PreExpander (InOuts et) db m et
 type PeFType db m et = HTransElTy (T et) -> BaseM db m (HChangeSet (Outs et))
 
 -- test
-data Tr; type instance HKeyVal Tr = '(Int, ())
+data Tr; type instance TxRaw Tr = Int
 data Comp1; type instance HKeyVal Comp1 = '(String, Int)
 data Comp2; type instance HKeyVal Comp2 = '(Double, String)
 
 type Test = 'ExpanderTypes Tr '[Comp1, Comp2] '[]
 
-test :: forall db m . PeType (Show (TxRaw Tr)) db m Test
+test :: forall db m . PeType db m Test
 test = PE fun
   where
     fun :: PeFType db m Test
