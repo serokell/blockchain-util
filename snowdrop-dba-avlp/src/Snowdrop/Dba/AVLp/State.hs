@@ -248,6 +248,20 @@ instance ( MonadThrow m
                        let res = foldl' (\acc (k, v) -> M.insert k v acc) cache arr
                        put (AVLCacheEl res)
 
+instance ( MonadThrow m
+         , AvlHashable h
+         , RContains xs x
+         , k ~ HKey x
+         , v ~ HVal x
+         )
+         => AVL.KVStore h (AVL.MapLayer h k v h) (AVLCacheT h m xs) where
+    massStore :: [(h, MapLayer h k v h)] -> AVLCacheT h m xs ()
+    massStore arr = do cache <- unAVLCache <$> get
+                       let cacheEl :: Map h (MapLayer h k v h) = unAVLCacheEl . rget @x $ cache
+                       let res :: Map h (MapLayer h k v h) = foldl' (\acc (k, v) -> M.insert k v acc) cacheEl arr
+                       let res' = rput @x (AVLCacheEl res) cache
+                       put (AVLCache res')
+
 -- store :: ( MonadThrow m
 --          , AvlHashable h
 --          , RContains xs x
