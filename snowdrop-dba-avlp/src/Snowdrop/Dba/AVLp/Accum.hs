@@ -22,7 +22,6 @@ module Snowdrop.Dba.AVLp.Accum
 
 import           Universum
 
-import           Data.Tree.AVL (MapLayer)
 import qualified Data.Tree.AVL as AVL
 
 import           Data.Default (Default (def))
@@ -42,8 +41,7 @@ import           Snowdrop.Dba.AVLp.State (AVLCacheEl, AVLCacheElT, reThrowAVLEx,
 import           Snowdrop.Dba.Base (DGetter', DIter', DModify', DbApplyProof, DbComponents,
                                     IterAction (..))
 import           Snowdrop.Hetero (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, Head)
-import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..),
-                                Serialisable (..))
+import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..))
 
 data AvlClientConf hash (xs :: [*])
 
@@ -151,7 +149,6 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
 modAVL
     :: forall k v h x m ctx .
       ( KVConstraint k v
-      , Serialisable (MapLayer h k v h)
       , AVL.Hash h k v
       , AvlHashable h
       , MonadCatch m
