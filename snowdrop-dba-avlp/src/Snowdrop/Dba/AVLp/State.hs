@@ -26,7 +26,7 @@ module Snowdrop.Dba.AVLp.State
        , upcastAVLCache'
        ) where
 
-import           Data.Vinyl (RecPointed (..), RecSubset, rcast, rget, rput, rreplace)
+import           Data.Vinyl (RecSubset, rcast, rget, rput, rreplace)
 import           Data.Vinyl.TypeLevel (RImage)
 import           Universum
 
@@ -92,10 +92,7 @@ clientModeToTempSt
     , MonadCatch m, MonadCatch n
     , AllAvlEntries h xs
 
-    -- FIXME:
-    -- , AllConstrained Default xs
-    -- , AllConstrained (DefaultCacheEl h) xs
-    , RecPointed Default (AVLCacheEl h) xs
+    , Default (Rec (AVLCacheEl h) xs)
     )
     => RetrieveF h n xs
     -> ClientMode (AvlProofs h xs)
@@ -140,11 +137,8 @@ instance HasGetter (ClientTempState h xs n) (RootHashes h xs) where
 
 newtype AVLPureStorage h xs = AVLPureStorage { unAVLPureStorage :: Rec (AVLCacheEl h) xs }
 
-instance RecPointed Default f ts => Default (Rec f ts) where
-  def = rpointMethod @Default def
-
-instance RecPointed Default (AVLCacheEl h) xs => Default (AVLPureStorage h xs) where
-    def = AVLPureStorage (def)
+instance Default (Rec (AVLCacheEl h) xs) => Default (AVLPureStorage h xs) where
+    def = AVLPureStorage def
 
 initAVLPureStorage
     :: forall xs h m .
@@ -152,8 +146,7 @@ initAVLPureStorage
     , AvlHashable h
     , AllAvlEntries h xs
 
-    -- FIXME:
-    , RecPointed Default (AVLCacheEl h) xs
+    , Default (Rec (AVLCacheEl h) xs)
     )
     => HMap xs
     -> m (AVLServerState h xs)
@@ -187,10 +180,8 @@ initAVLPureStorage xs = initAVLPureStorageAll xs (unAVLPureStorage def)
 -- | Accumulator for changes emerging from `save` operations
 -- being performed on AVL tree
 
--- newtype AVLCacheEl h x = AVLCacheEl { unAVLCacheEl :: Map (HKey x) (HVal x) } deriving Default
 newtype AVLCacheEl h x = AVLCacheEl { unAVLCacheEl :: Map h (MapLayer h (HKey x) (HVal x) h) } deriving (Semigroup)
 
--- FIXME: should be derivable
 instance Default (AVLCacheEl h x) where
     def = AVLCacheEl M.empty
 
@@ -198,6 +189,8 @@ deriving instance (Ord (HKey x), Ord h) => Monoid (AVLCacheEl h x)
 
 newtype AVLCache h xs = AVLCache { unAVLCache :: Rec (AVLCacheEl h) xs }
 
+instance Default (Rec (AVLCacheEl h) xs) => Default (AVLCache h xs) where
+    def = AVLCache def
 
 -- | Monad transformer for caching `save` operations resulting from AVL+ actions
 newtype AVLCacheT h m xs a = AVLCacheT (StateT (AVLCache h xs) m a)

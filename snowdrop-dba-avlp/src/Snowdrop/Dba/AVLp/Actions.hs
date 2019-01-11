@@ -21,7 +21,7 @@ import           Universum
 import           Data.Default (Default (def))
 import qualified Data.Map as Map
 import qualified Data.Tree.AVL as AVL
-import           Data.Vinyl (RecPointed, RApply (..), RMap, RecApplicative, rget, rpure, rput)
+import           Data.Vinyl (RApply (..), RMap, RecApplicative, rget, rpure, rput)
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Functor (Lift (..))
 import           Data.Vinyl.Recursive (rmap)
@@ -76,7 +76,7 @@ avlClientDbActions
     , RecApplicative xs
     , RMapWithC (IsAvlEntry h) xs
 
-    , RecPointed Default (AVLCacheEl h) xs
+    , Default (Rec (AVLCacheEl h) xs)
     )
     => RetrieveF h STM xs
     -> RootHashes h xs
