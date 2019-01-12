@@ -150,14 +150,14 @@ modAVL
     => (AVL.Map h k v, Set h)
     -> (k, ValueOp v)
     -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
-modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup k avl
+modAVL (avl, touched0) (k, valueop) = processResp =<< AVL.lookup k avl
   where
     processResp :: ((Maybe v, Set h), AVL.Map h k v)
                 -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
-    processResp ((lookupRes, (<> touched) -> touched'), avl') =
-      let appendTouched = second (<> touched') . swap in
+    processResp ((lookupRes, (<> touched0) -> touched), avl') =
+      let appendTouched = second (<> touched) . swap in
       case (valueop, lookupRes) of
-        (NotExisted, Nothing) -> pure (avl', touched')
+        (NotExisted, Nothing) -> pure (avl', touched)
         (New v     , Nothing) -> appendTouched <$> AVL.insert k v avl'
         (Rem       , Just _)  -> appendTouched <$> AVL.delete k avl'
         (Upd v     , Just _)  -> appendTouched <$> AVL.insert k v avl'
@@ -195,7 +195,7 @@ computeUndo (Just accum) _ = rmapWithHash @h (RootHashComp . avlRootHash . acaMa
 -- | Constructs a record of getters which return values for requested keys from
 -- optional ca argument. If ca is not provided, then tree is built from root
 -- hashes from ctx argument. nodeActs is a record of effectful actions called on
--- all "touched" AVL nodes (i.e. all nodes).
+-- all "touched" AVL nodes (i.e. all visited nodes).
 query
     :: forall h xs ctx m .
     ( AvlHashable h, HasGetter ctx (RootHashes h xs)

@@ -44,15 +44,15 @@ ignoreNodesActs = rpure (Const (\_ -> pure ()))
 
 avlClientDbActions
     :: forall conf h xs .
-    ( AvlHashable h
-    , RetrieveImpl (ReaderT (ClientTempState h xs STM) STM) h
-    , RHashable h xs
-    , AllAvlEntries h xs
-    , Undo conf ~ AvlUndo h xs
+    ( AllAvlEntries h xs
+    , AvlHashable h
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ ()
-    , xs ~ DbComponents conf
+    , RHashable h xs
     , RecApplicative xs
+    , RetrieveImpl (ReaderT (ClientTempState h xs STM) STM) h
+    , Undo conf ~ AvlUndo h xs
+    , xs ~ DbComponents conf
     )
     => RetrieveF h STM
     -> RootHashes h xs
@@ -95,16 +95,14 @@ withProjUndo action = pure . pure . action
 
 avlServerDbActions
     :: forall conf h xs .
-    ( AvlHashable h
-    , AllAvlEntries h xs
-    , RHashable h xs
-
-    , RecApplicative xs
-    , RememberNodesActs' h xs xs
-
-    , Undo conf ~ AvlUndo h xs
+    ( AllAvlEntries h xs
+    , AvlHashable h
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ AvlProofs h xs
+    , RHashable h xs
+    , RecApplicative xs
+    , RememberNodesActs h xs
+    , Undo conf ~ AvlUndo h xs
     , xs ~ DbComponents  conf
     )
     => AVLServerState h xs
@@ -131,8 +129,8 @@ avlServerDbActions = fmap mkActions . newTVar
 
         daa = DbAccessActions
                 (\cA req -> readTVar var >>= \ctx -> query ctx cA nodeActs req)
-
                 (\cA -> readTVar var >>= \ctx -> iter ctx cA nodeActs)
+
         daaM = DbAccessActionsM daa (\cA cs -> (readTVar var) >>= \ctx -> modAccum ctx cA cs)
         daaU = DbAccessActionsU daaM
                   (withProjUndo . modAccumU)
@@ -193,10 +191,10 @@ computeProof
 computeProof (mkAVL -> oldAvl) accTouched (getConst -> requested) =
         AVL.prune (accTouched <> requested) $ oldAvl
 
+-- Build a record where each element is an effectful action which appends set of
+-- hashes to a set which belongs to a given record component
 type RememberNodesActs h xs = RememberNodesActs' h xs xs
 
--- Build record where each element is an effectful action which appends set of
--- hashes to a set which belongs to a given record component
 class RememberNodesActs' h ys xs where
     rememberNodesActs :: TVar (AVLServerState h ys) -> Rec (Const (Set h -> STM ())) xs
 
@@ -210,6 +208,6 @@ rememberNodesSingleAct :: forall x xs h . (Ord h, RContains xs x) => TVar (AVLSe
 rememberNodesSingleAct var xs = modifyTVar' var appendToOneSet
   where
     appendToOneSet st@AMS{..} =
-      let v' = mappend xs (getConst (rget @x amsVisited))
-          newVisited = rput @x (Const v') amsVisited
+      let v :: Set h = mappend xs (getConst (rget @x amsVisited))
+          newVisited = rput @x (Const v) amsVisited
       in st { amsVisited = newVisited }

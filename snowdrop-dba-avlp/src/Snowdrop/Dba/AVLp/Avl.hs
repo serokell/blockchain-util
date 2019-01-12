@@ -31,7 +31,6 @@ import           Data.Vinyl.TypeLevel (AllConstrained)
 import qualified Data.Text.Buildable as Buildable
 import           Snowdrop.Dba.Base (DbActionsException (..), DbApplyProofWrapper (..))
 import           Snowdrop.Hetero (HKey, HVal)
-
 import           Snowdrop.Util (Serialisable (..))
 
 type AvlHashable h = (Ord h, Show h, Typeable h, Serialisable h)
