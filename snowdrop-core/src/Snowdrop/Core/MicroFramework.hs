@@ -36,8 +36,9 @@ import           Data.Vinyl ( RMap (..), Rec (..)
                             , rcast, rget, rreplace
                             , type (∈), type (⊆) )
 import           Data.Vinyl.Class.Method ( PayloadType )
-import           Data.Vinyl.Functor (Const (..))
+import           Data.Vinyl.Functor (Compose (..), Const (..))
 import           Data.Vinyl.TypeLevel(RDelete, type (++))
+import           Data.Vinyl.CoRec hiding (Op)
 
 import           Snowdrop.Hetero ( HKey, HMap, HSet, HSetEl (..), HMapEl (..), hsetFromSet, HMap, HVal, HKeyVal
                                  , OrdHKey )
@@ -95,7 +96,12 @@ data ExpanderTypes t ins outs = ExpanderTypes t ins outs
 type family T      u where T      ('ExpanderTypes t ins outs) = t
 type family Ins    u where Ins    ('ExpanderTypes t ins outs) = ins
 type family Outs   u where Outs   ('ExpanderTypes t ins outs) = outs
-type family InOuts u where InOuts ('ExpanderTypes t ins outs) = Nub (t ': ins ++ outs)
+type family InOuts u where InOuts ('ExpanderTypes t ins outs) = Nub (ins ++ outs)
+
+type family AllTs xs where
+  AllTs '[] = '[]
+  AllTs (r ': rest) = T r ++ AllTs rest
+type family Ts ts where Ts ts = Nub (AllTs ts)
 
 -- Optimize (early Nub)
 type family AllOfElist xs where
@@ -103,8 +109,8 @@ type family AllOfElist xs where
   AllOfElist (r ': rest) = InOuts r ++ AllOfElist rest
 type family Uni u where Uni ets = Nub (AllOfElist ets)
 
-type Good uni et = (
-    T et ∈ uni
+type Good uni ts et = (
+    T et ∈ ts
   , Outs et ⊆ uni
   , RecApplicative uni
   , RMap (Outs et)
@@ -115,40 +121,52 @@ type SeqE xs = (MappendHChSet (Uni xs), RecApplicative (Uni xs))
 
 type family TxRaw (t :: u) :: *
 newtype HTransElTy (t :: u) = HTransEl {unHTransEl :: TxRaw t}
-type HTrans = Rec HTransElTy
+type HTransUnion = CoRec HTransElTy
 
-data PreExpander uni db m et where
-  PE :: Good uni et
-    => {runPreExpander :: HTransElTy (T et) -> BaseM db m (HChangeSet (Outs et))} -> PreExpander uni db m et
+data PreExpander uni ts db m et where
+  PE :: Good uni ts et
+    => {runPreExpander :: HTransElTy (T et) -> BaseM db m (HChangeSet (Outs et))} -> PreExpander uni ts db m et
 
-type SeqExpander uni db m = Rec (PreExpander uni db m)
+type SeqExpander uni ts db m = Rec (PreExpander uni ts db m)
 
 emptyChSet :: forall xs . RecApplicative xs => HChangeSet xs
 emptyChSet = rpure @xs $ HChangeSetEl M.empty
 
-type Expander db m uni = HTrans uni -> BaseM db m (HChangeSet uni)
+type Expander db m uni ts = HTransUnion ts -> BaseM db m (HChangeSet uni)
 
-liftPreExpander :: Functor m => PreExpander uni db m et -> Expander db m uni
-liftPreExpander (PE f) ts = flip rreplace emptyChSet <$> f (rget ts)
+liftPreExpander ::
+  ( RecApplicative ts
+  , Monad m)
+  => PreExpander uni ts db m et -> Expander db m uni ts
+liftPreExpander (PE f) ts = f' (rget $ coRecToRec ts)
+  where
+    f' (Compose Nothing) = return emptyChSet
+    f' (Compose (Just csm)) = flip rreplace emptyChSet <$> f csm
 
-type ExpanderX m uni = HTrans uni -> m (Either CSMappendException (HChangeSet uni))
+type ExpanderX m uni ts = HTransUnion ts -> m (Either CSMappendException (HChangeSet uni))
 
-seqPreExpanders :: (Monad m, LiftPEs xs, SeqE xs) => SeqExpander (Uni xs) db m xs -> ExpanderX (BaseM db m) (Uni xs)
+seqPreExpanders ::
+  ( RecApplicative (Ts ts)
+  , LiftPEs xs
+  , SeqE xs
+  , Monad m )
+  => SeqExpander (Uni xs) (Ts ts) db m xs -> ExpanderX (BaseM db m) (Uni xs) (Ts ts)
 seqPreExpanders = seqE . liftPEs
   where
     liftPEs xs = recordToList (rmap (Const . liftPreExpander) xs)
     seqE es r = foldM mappendChangeSet emptyChSet <$> sequence (map (\f -> f r) es)
 
-runSeqExpander :: forall db m xs .
-  ( SeqE xs
+runSeqExpander :: forall db m xs ts .
+  ( RecApplicative (Ts ts)
   , LiftPEs xs
+  , SeqE xs
   , Monad m )
   =>
-  SeqExpander (Uni xs) db m xs
-  -> ExpanderX (DBM db m) (Uni xs)
-runSeqExpander se txs = unBaseM $ seqPreExpanders se txs
+  SeqExpander (Uni xs) (Ts ts) db m xs
+  -> ExpanderX (DBM db m) (Uni xs) (Ts ts)
+runSeqExpander se txs = unBaseM $ seqPreExpanders @ts se txs
 
-type PeType db m et = (Monad m, Good (InOuts et) et, StateQuery db m (Ins et)) => PreExpander (InOuts et) db m et
+type PeType db m et = (Monad m, Good (InOuts et) '[T et] et, StateQuery db m (Ins et)) => PreExpander (InOuts et) '[T et] db m et
 type PeFType db m et = HTransElTy (T et) -> BaseM db m (HChangeSet (Outs et))
 
 -- test
@@ -189,7 +207,7 @@ instance t ∈ comps => StateIterator (SimpleDBTy comps) IO t where
     hmap <- lift $ readIORef hmapRef
     return $ foldl f ini $ M.toList (unHMapEl $ rget @t hmap)
 
--- Don't quite understand if we need this, but implement just in case
+-- Don't quite understand if we need this, but still
 type GetterType db m xs = HChangeSet xs -> QueryType db m xs
 
 chgAccumGetter :: forall db m xs .
@@ -256,14 +274,14 @@ computeHChSetUndo getter sch chs =
     computeUndo (Pair (HChangeSetEl cs) (HMapEl vals)) =
       let processOne m (k, valueop) = case (undo (k `M.lookup` vals) valueop) of
             Op op -> M.insert k op m
-            Err   -> error "CSMappendException"
+            Err   -> error "FIXME: use proper exception"
       in HChangeSetEl $ foldl processOne M.empty (M.toList cs)
 
 -- The simplest and dumbest applier. Use no fancy chgAccums. PoC.
 applyAll ::
     ( RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) uni
     , RZipWith uni)
-    => HTrans uni -> ExpanderX (DBM (SimpleDBTy uni) IO) uni -> DBM (SimpleDBTy uni) IO ()
+    => HTransUnion ts -> ExpanderX (DBM (SimpleDBTy uni) IO) uni ts -> DBM (SimpleDBTy uni) IO ()
 applyAll ts f = do
     chs <- doOrThrow <$> f ts
     SimpleDB hmapRef <- ask
