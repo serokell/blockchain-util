@@ -12,7 +12,7 @@ module Snowdrop.Dba.AVLp.Actions
        , RememberNodesActs
        ) where
 
-import           Data.Vinyl (RecApplicative, rget, rpure, rput)
+import           Data.Vinyl (RecMapMethod(..), RecApplicative, rget, rpure, rput)
 import           Universum
 
 import qualified Data.Tree.AVL as AVL
@@ -25,10 +25,10 @@ import           Data.Vinyl.Recursive (rmap)
 import           Snowdrop.Core (ChgAccum, Undo)
 import           Snowdrop.Dba.AVLp.Accum (AVLChgAccum (..), AVLChgAccums, RootHashes, computeUndo,
                                           iter, modAccum, modAccumU, query)
-import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
+import           Snowdrop.Dba.AVLp.Avl (AvlHashable, AllAvlEntries, AvlProof (..), AvlProofs,
                                         AvlUndo, IsAvlEntry, RootHash (..), RootHashComp (..),
                                         avlRootHash, mkAVL, saveAVL)
-import           Snowdrop.Dba.AVLp.Constraints (RHashable, rmapWithHash)
+import           Snowdrop.Dba.AVLp.Constraints (AvlHashC)
 import           Snowdrop.Dba.AVLp.State (AVLCache (..), AVLCacheT, AVLPureStorage (..),
                                           AVLServerState (..), ClientTempState, RetrieveF,
                                           RetrieveImpl, clientModeToTempSt, runAVLCacheT)
@@ -48,8 +48,8 @@ avlClientDbActions
     , AvlHashable h
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ ()
-    , RHashable h xs
     , RecApplicative xs
+    , RecMapMethod (AvlHashC h) (AVLChgAccum h) xs
     , RetrieveImpl (ReaderT (ClientTempState h xs STM) STM) h
     , Undo conf ~ AvlUndo h xs
     , xs ~ DbComponents conf
@@ -87,7 +87,7 @@ avlClientDbActions retrieveF = fmap mkActions . newTVar
 
     apply :: AvlHashable h => TVar (RootHashes h xs) -> AVLChgAccums h xs -> STM ()
     apply var (Just accums) =
-        writeTVar var $ rmapWithHash @h (RootHashComp . avlRootHash . acaMap) accums
+        writeTVar var $ rmapMethod @(AvlHashC h) (RootHashComp . avlRootHash . acaMap) accums
     apply _ Nothing = pure ()
 
 withProjUndo :: (MonadThrow m, Applicative f) => (NewestFirst [] undo -> a) -> NewestFirst [] undo -> m (f a)
@@ -99,8 +99,8 @@ avlServerDbActions
     , AvlHashable h
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ AvlProofs h xs
-    , RHashable h xs
     , RecApplicative xs
+    , RecMapMethod (AvlHashC h) (AVLChgAccum h) xs
     , RememberNodesActs h xs
     , Undo conf ~ AvlUndo h xs
     , xs ~ DbComponents  conf

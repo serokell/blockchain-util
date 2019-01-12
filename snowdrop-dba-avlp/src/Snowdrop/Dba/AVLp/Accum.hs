@@ -28,7 +28,7 @@ import qualified Data.Tree.AVL as AVL
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as Set
-import           Data.Vinyl (Rec (..))
+import           Data.Vinyl (RecMapMethod (..), Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
@@ -37,7 +37,7 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, H
 import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProofs, AvlUndo, IsAvlEntry,
                                         KVConstraint, RootHash (unRootHash), RootHashComp (..),
                                         RootHashes, avlRootHash, mkAVL)
-import           Snowdrop.Dba.AVLp.Constraints (RHashable (..))
+import           Snowdrop.Dba.AVLp.Constraints (AvlHashC)
 import           Snowdrop.Dba.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl, reThrowAVLEx,
                                           runAVLCacheT)
 import           Snowdrop.Dba.Base (DGetter', DIter', DModify', DbApplyProof, DbComponents,
@@ -184,13 +184,13 @@ modAccumU Nothing (NewestFirst (u:us)) =
 computeUndo
     :: forall h xs ctx .
     ( HasGetter ctx (RootHashes h xs)
-    , RHashable h xs
+    , RecMapMethod (AvlHashC h) (AVLChgAccum h) xs
     )
     => AVLChgAccums h xs
     -> ctx
     -> AvlUndo h xs
 computeUndo Nothing ctx    = gett ctx
-computeUndo (Just accum) _ = rmapWithHash @h (RootHashComp . avlRootHash . acaMap) accum
+computeUndo (Just accum) _ = rmapMethod @(AvlHashC h) (RootHashComp . avlRootHash . acaMap) accum
 
 -- | Constructs a record of getters which return values for requested keys from
 -- optional ca argument. If ca is not provided, then tree is built from root
