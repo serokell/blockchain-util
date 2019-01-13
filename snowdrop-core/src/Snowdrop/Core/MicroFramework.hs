@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE PolyKinds #-}
 
-module Snowdrop.Core.MicroFramework (
+module MicroFramework (
     BaseM -- ABSTRACT!
   , StateQuery (..)
   , query
@@ -15,10 +15,11 @@ module Snowdrop.Core.MicroFramework (
   , PeType
   , PeFType
   , test
-  , chgAccumGetter
-  , chgAccumIter
+  , chgQuery
+  , chgIter
   , computeHChSetUndo
   , applyAll
+  , commit
   )
   where
 
@@ -79,10 +80,10 @@ class StateQuery db m xs | db -> xs where
 query :: forall uni xs db m . (xs ⊆ uni, Monad m, RecApplicative uni, StateQuery db m uni) => HSet xs -> BaseM db m (HMap xs)
 query req = BaseM $ rcast <$> (sQuery $ rreplace req (rpure @uni (HSetEl S.empty)))
 
-type IterType db m t b = b -> (b -> (HKey t, HVal t) -> b) -> DBM db m b
+type IterType db m t = forall b . b -> (b -> (HKey t, HVal t) -> b) -> DBM db m b
 
 class StateIterator db m t where
-  sIterator :: IterType db m t b
+  sIterator :: IterType db m t
 
 iterator :: forall db m t b . (Monad m, StateIterator db m t) => b -> (b -> (HKey t, HVal t) -> b) -> BaseM db m b
 iterator ini dofold = BaseM (sIterator @_ @_ @t ini dofold)
@@ -185,7 +186,15 @@ test = PE fun
       return RNil
 
 -- SimpleDB -----------------
-newtype SimpleDBTy comps = SimpleDB {unSimpleDB :: IORef (HMap comps)}
+data SimpleDBInternalTy comps = SimpleDBInternal {
+    sdbCommitted :: HMap comps
+  -- We will, perhaps, have lists of changesets, and cached undos, and somthing else, perhaps.
+  -- The question is what should be handled by DBMS, and what by the application logic.
+  -- We chose the simplest possible implementation ATM, will add extra things if necessary.
+  , sdbPending :: Maybe (HChangeSet comps)
+  }
+
+newtype SimpleDBTy comps = SimpleDB {unSimpleDB :: IORef (SimpleDBInternalTy comps)}
 
 query1 :: forall t xs . (t ∈ xs, Ord (HKey t)) => HMap xs -> HSetEl t -> HMapEl t
 query1 hmap (HSetEl req) = HMapEl $ M.restrictKeys (unHMapEl $ rget @t hmap) req 
@@ -196,59 +205,68 @@ instance (t ∈ xs, OrdHKey t) => Q xs t
 queryAll :: forall (xs :: [*]) . RecMapMethod (Q xs) HSetEl xs => HMap xs -> HSet xs -> HMap xs
 queryAll hmap = rmapMethod @(Q xs) (query1 hmap)
 
-instance RecMapMethod (Q xs) HSetEl xs => StateQuery (SimpleDBTy xs) IO xs where
-  sQuery req = do
-    SimpleDB hmapRef <- ask
-    flip queryAll req <$> lift (readIORef hmapRef)
-
-instance t ∈ comps => StateIterator (SimpleDBTy comps) IO t where
-  sIterator ini f = do
-    SimpleDB hmapRef <- ask
-    hmap <- lift $ readIORef hmapRef
-    return $ foldl f ini $ M.toList (unHMapEl $ rget @t hmap)
-
--- Don't quite understand if we need this, but still
-type GetterType db m xs = HChangeSet xs -> QueryType db m xs
-
-chgAccumGetter :: forall db m xs .
-  ( Monad m
-  , RecMapMethod OrdHKey (Product HMapEl HMapEl) xs
+type GoodChgQuery xs =
+  ( RecMapMethod OrdHKey (Product HMapEl HMapEl) xs
   , RZipWith xs )
-  => GetterType db m xs -> HChangeSet xs -> GetterType db m xs
-chgAccumGetter q chs = \acc ks ->
-    rzipWithMethod @OrdHKey recombine (hChangeSetToHMap chs) <$> q acc ks
+
+chgQuery :: forall db m xs . (Monad m, GoodChgQuery xs)
+  => QueryType db m xs -> HChangeSet xs -> QueryType db m xs
+chgQuery q chs = \ks ->
+    rzipWithMethod @OrdHKey recombine (hChangeSetToHMap chs) <$> q ks
   where
     recombine (Pair (HMapEl m1) (HMapEl m2)) = HMapEl (M.difference m2 m1 <> M.intersection m1 m2)
 
--- Also don't quite understand if we need this, but still
--- Copypasted from existing SD and edited slightly
-newtype IterAction db m t = IterAction {runIterAction :: forall b . IterType db m t b }
+instance
+  ( RecMapMethod (Q xs) HSetEl xs
+  , GoodChgQuery xs )
+  => StateQuery (SimpleDBTy xs) IO xs where
+  sQuery req = do
+    SimpleDB internalRef <- ask
+    SimpleDBInternal {..} <- lift $ readIORef internalRef
+    let qry = return . queryAll sdbCommitted
+    (maybe qry (chgQuery qry) sdbPending) req
+
+-- Copypasted from SD, edited
+chgIter :: (OrdHKey t, Monad m) => IterType db m t -> HChangeSetEl t -> IterType db m t
+chgIter iter ac'@(HChangeSetEl accum) = \initB foldF -> do
+    let extractMin i m = do
+            (k, v) <- M.lookupMin m
+            (k, v) <$ guard (k <= i)
+        newFoldF (b, newKeys) (i, val) =
+            case (M.lookup i accum, extractMin i newKeys) of
+                (_,   Just (i', v')) -> newFoldF (foldF b (i', v'), M.deleteMin newKeys) (i, val)
+                (Nothing,         _) -> (foldF b (i, val) ,newKeys)
+                (Just Rem,        _) -> (b, newKeys)
+                (Just (Upd newV), _) -> (foldF b (i, newV), newKeys)
+
+                (Just NotExisted, _) -> (b, newKeys) -- TODO shall we throw error here ?
+                (Just (New _),    _) -> (b, newKeys) -- TODO shall we throw error here?
+    (b, remainedNewKeys) <- iter (initB, csNew ac') newFoldF
+    pure $ M.foldlWithKey' (curry . foldF) b remainedNewKeys
+
+instance (t ∈ comps, OrdHKey t) => StateIterator (SimpleDBTy comps) IO t where
+  sIterator ini f = do
+    SimpleDB internalRef <- ask
+    SimpleDBInternal {..} <- lift $ readIORef internalRef
+    let
+      iter :: forall b . b -> (b -> (HKey t, HVal t) -> b) -> DBM (SimpleDBTy comps) IO b
+      iter ini' f' = return $ foldl f' ini' $ M.toList (unHMapEl $ rget @t sdbCommitted)
+    case sdbPending of
+      Nothing -> iter ini f
+      Just hcs -> (chgIter iter (rget @t hcs)) ini f
+
+-- Seems don't need this, but I keep it around for the time being just in case
+newtype IterAction db m t = IterAction {runIterAction :: IterType db m t }
 type DIter db m xs = Rec (IterAction db m) xs
 
-chgAccumIter :: forall db m xs .
+chgIterH :: forall db m xs .
   ( Monad m
   , RecMapMethod OrdHKey (Product (IterAction db m) HChangeSetEl) xs
   , RZipWith xs )
   => DIter db m xs -> HChangeSet xs -> DIter db m xs
-chgAccumIter iter =
-    rzipWithMethod @OrdHKey chgAccumIter' iter
+chgIterH iter = rzipWithMethod @OrdHKey chgIter' iter
   where
-    chgAccumIter' (Pair (IterAction iter') ac'@(HChangeSetEl accum)) =
-      IterAction $ \initB foldF -> do
-        let extractMin i m = do
-                (k, v) <- M.lookupMin m
-                (k, v) <$ guard (k <= i)
-            newFoldF (b, newKeys) (i, val) =
-                case (M.lookup i accum, extractMin i newKeys) of
-                    (_,   Just (i', v')) -> newFoldF (foldF b (i', v'), M.deleteMin newKeys) (i, val)
-                    (Nothing,         _) -> (foldF b (i, val) ,newKeys)
-                    (Just Rem,        _) -> (b, newKeys)
-                    (Just (Upd newV), _) -> (foldF b (i, newV), newKeys)
-
-                    (Just NotExisted, _) -> (b, newKeys) -- TODO shall we throw error here ?
-                    (Just (New _),    _) -> (b, newKeys) -- TODO shall we throw error here?
-        (b, remainedNewKeys) <- iter' (initB, csNew ac') newFoldF
-        pure $ M.foldlWithKey' (curry . foldF) b remainedNewKeys
+    chgIter' (Pair iter' ac) = IterAction (chgIter (runIterAction iter') ac)
 
 -- Reuse ValueOpEx
 -- FIXME? Move to Snowdrop.Core.ChangeSet.ValueOp?
@@ -262,13 +280,12 @@ undo _        _          = Err
 computeHChSetUndo ::
   ( Monad m
   , RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) xs
-  , RZipWith xs )
-  => GetterType db m xs
-  -> HChangeSet xs
+  , RZipWith xs)
+  => QueryType db m xs
   -> HChangeSet xs
   -> DBM db m (HChangeSet xs)
-computeHChSetUndo getter sch chs =
-    computeHChSetUndo' <$> getter sch (hChangeSetToHSet chs)
+computeHChSetUndo qry chs =
+    computeHChSetUndo' <$> qry (hChangeSetToHSet chs)
   where
     computeHChSetUndo' = rzipWithMethod @OrdHKey computeUndo chs
     computeUndo (Pair (HChangeSetEl cs) (HMapEl vals)) =
@@ -277,22 +294,42 @@ computeHChSetUndo getter sch chs =
             Err   -> error "FIXME: use proper exception"
       in HChangeSetEl $ foldl processOne M.empty (M.toList cs)
 
--- The simplest and dumbest applier. Use no fancy chgAccums. PoC.
-applyAll ::
-    ( RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) uni
-    , RZipWith uni)
-    => HTransUnion ts -> ExpanderX (DBM (SimpleDBTy uni) IO) uni ts -> DBM (SimpleDBTy uni) IO ()
-applyAll ts f = do
-    chs <- doOrThrow <$> f ts
-    SimpleDB hmapRef <- ask
-    lift $ atomicModifyIORef hmapRef $ \hmap -> (rzipWithMethod @OrdHKey apply chs hmap, ())
+applyOne :: OrdHKey t => Product HChangeSetEl HMapEl t -> HMapEl t
+applyOne (Pair (HChangeSetEl cs) (HMapEl thevals)) = HMapEl $ M.foldlWithKey app thevals cs
   where
-    doOrThrow (Left _) = error "FIXME: use proper exception"
-    doOrThrow (Right cs) = cs
-    apply (Pair (HChangeSetEl cs) (HMapEl vals)) = HMapEl $ M.foldlWithKey app vals cs
     app vals k c = case (c, k `M.lookup` vals) of
       (NotExisted, Nothing) -> vals
       (New v     , Nothing) -> M.insert k v vals
       (Rem,         Just _) -> M.delete k   vals
       (Upd v     ,  Just _) -> M.insert k v vals
       (_,                _) -> error "FIXME: use proper exception? or simply ignore?"
+
+type GoodApplyChs uni =
+  ( RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) uni
+  , RZipWith uni )
+
+applyChangeSets :: GoodApplyChs uni
+    => HChangeSet uni -> DBM (SimpleDBTy uni) IO ()
+applyChangeSets chs = do
+  SimpleDB internalRef <- ask
+  lift $ atomicModifyIORef internalRef $ \sdbi -> (sdbi {sdbCommitted = rzipWithMethod @OrdHKey applyOne chs (sdbCommitted sdbi)}, ())
+
+-- The simplest and dumbest applier. Use no fancy chgAccums. PoC.
+-- FIXME. Harmonize with commit
+applyAll :: GoodApplyChs uni
+    => HTransUnion ts -> ExpanderX (DBM (SimpleDBTy uni) IO) uni ts -> DBM (SimpleDBTy uni) IO ()
+applyAll ts f = do
+    chs <- doOrThrow <$> f ts
+    applyChangeSets chs
+  where
+    doOrThrow (Left _) = error "FIXME: use proper exception"
+    doOrThrow (Right cs) = cs
+
+-- FIXME: optimize for the case of no pending changes
+commit :: GoodApplyChs uni => DBM (SimpleDBTy uni) IO ()
+commit = do
+    SimpleDB internalRef <- ask
+    lift $ atomicModifyIORef internalRef doCommit
+  where
+    doCommit sdbi@(SimpleDBInternal _ Nothing) = (sdbi, ())
+    doCommit (SimpleDBInternal committed (Just pending)) = (SimpleDBInternal (rzipWithMethod @OrdHKey applyOne pending committed) Nothing, ())
