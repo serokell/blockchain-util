@@ -13,6 +13,8 @@ module Snowdrop.Dba.AVLp.Actions
        , avlClientDbActions
        , RememberNodesActs' (..)
        , RememberNodesActs
+       , RetrieveHashAll
+       , RetrieveHashAll'
        ) where
 
 
@@ -25,6 +27,7 @@ import           Data.Vinyl (RApply (..), RMap, RecApplicative, rget, rpure, rpu
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Functor (Lift (..))
 import           Data.Vinyl.Recursive (rmap)
+import           Data.Vinyl.TypeLevel (AllConstrained)
 
 import           Snowdrop.Core (ChgAccum, Undo)
 import           Snowdrop.Dba.AVLp.Accum (AVLChgAccum (..), AVLChgAccums, RootHashes, computeUndo,
@@ -34,9 +37,10 @@ import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..
                                         avlRootHash, mkAVL, saveAVL)
 import           Snowdrop.Dba.AVLp.Constraints (RHashable, RMapWithC, rmapWithHash)
 import           Snowdrop.Dba.AVLp.State (AVLCache (..), AVLCacheEl (..), AVLCacheElT, AVLCacheT,
-                                          AVLPureStorage (..), AVLServerState (..), RetrieveF,
-                                          RetrieveRes (..), asAVLCache, clientModeToTempSt,
-                                          runAVLCacheElT, runAVLCacheT, upcastAVLCache')
+                                          AVLPureStorage (..), AVLServerState (..), ClientTempState,
+                                          RetrieveEl (..), RetrieveF, RetrieveImpl, asAVLCache,
+                                          clientModeToTempSt, runAVLCacheElT, runAVLCacheT,
+                                          upcastAVLCache')
 import           Snowdrop.Dba.Base (ClientMode (..), DbAccessActions (..), DbAccessActionsM (..),
                                     DbAccessActionsU (..), DbApplyProof, DbComponents,
                                     DbModifyActions (..), RememberForProof (..))
@@ -67,16 +71,16 @@ ignoreNodesActs = rpure (Const (\_ -> pure ()))
 avlClientDbActions
     :: forall conf h xs .
     ( AvlHashable h
-    , RHashable h xs
     , AllAvlEntries h xs
-    , Undo conf ~ AvlUndo h xs
+    , AllConstrained (RetrieveImpl h (ReaderT (ClientTempState h xs STM) STM)) xs
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ ()
-    , xs ~ DbComponents conf
-    , RecApplicative xs
-    , RMapWithC (IsAvlEntry h) xs
-
     , Default (Rec (AVLCacheEl h) xs)
+    , RHashable h xs
+    , RMapWithC (IsAvlEntry h) xs
+    , RecApplicative xs
+    , Undo conf ~ AvlUndo h xs
+    , xs ~ DbComponents conf
     )
     => RetrieveF h STM xs
     -> RootHashes h xs
@@ -117,6 +121,21 @@ avlClientDbActions retrieveF = fmap mkActions . newTVar
 withProjUndo :: (MonadThrow m, Applicative f) => (NewestFirst [] undo -> a) -> NewestFirst [] undo -> m (f a)
 withProjUndo action = pure . pure . action
 
+type RetrieveHashAll h xs = RetrieveHashAll' h xs xs
+
+class RetrieveHashAll' h ys xs where
+    retrieveHashAll :: TVar (AVLServerState h ys) -> RetrieveF h STM xs
+
+instance RetrieveHashAll' h ys '[] where
+    retrieveHashAll _ = RNil
+
+instance (Ord h, RContains ys t, RetrieveHashAll' h ys xs) => RetrieveHashAll' h ys (t ': xs) where
+    retrieveHashAll var = (RetrieveEl retrieve) :& retrieveHashAll var
+      where
+        retrieve :: h -> STM (Maybe (AVL.MapLayer h (HKey t) (HVal t) h))
+        retrieve h = do c <- rget @t . unAVLPureStorage . amsState <$> readTVar var
+                        pure (Map.lookup h (unAVLCacheEl c))
+
 avlServerDbActions
     :: forall conf h xs .
     ( AvlHashable h
@@ -138,6 +157,10 @@ avlServerDbActions
     -- FIXME
     , Default (AVLCache h xs)
     , Default (AVLCache h '[])
+    , RetrieveHashAll h xs
+
+    , AllConstrained (RetrieveImpl h (ReaderT (AVLServerState h xs) STM)) xs
+    , AllConstrained (RetrieveImpl h (ReaderT (AVLPureStorage h xs) STM)) xs
     )
     => AVLServerState h xs
     -> STM ( RememberForProof -> DbModifyActions conf STM
@@ -148,20 +171,8 @@ avlServerDbActions
            )
 avlServerDbActions = fmap mkActions . newTVar
   where
-    -- type RetrieveF h m = h -> m (Maybe ByteString)
-    -- retrieveHash :: TVar (AVLServerState h xs) -> RetrieveF h STM xs
-    -- retrieveHash var h = M.lookup h . unAVLPureStorage . amsState <$> readTVar var
     retrieveHash :: TVar (AVLServerState h xs) -> RetrieveF h STM xs
-    retrieveHash var req = do storage <- unAVLPureStorage . amsState <$> readTVar var
-                              pure (go storage req)
-
-    go :: Rec (AVLCacheEl h) rs -> Rec (Const h) rs -> Rec (RetrieveRes h) rs
-    go RNil RNil             = RNil
-    go a@(_ :& _) b@(_ :& _) = go' a b
-
-    go' :: Rec (AVLCacheEl h) (r ': rs) -> Rec (Const h) (r ': rs) -> Rec (RetrieveRes h) (r ': rs)
-    go' ((unAVLCacheEl -> c) :& cs) ((getConst -> s) :& ss) =
-        (RetrieveRes $ Map.lookup s c) :& go cs ss
+    retrieveHash = retrieveHashAll
 
     mkActions var = (\recForProof ->
                         DbModifyActions
@@ -222,30 +233,45 @@ avlServerDbActions = fmap mkActions . newTVar
         pure (RootHashComp h :& restRoots, AVLCache (acc' :& unAVLCache restAcc))
 
 computeProofAll
-    :: (AllAvlEntries h xs, AvlHashable h, MonadThrow m, MonadCatch m)
+    :: ( AllAvlEntries h xs
+       , AvlHashable h
+       , AllConstrained (RetrieveImpl h m) xs
+       , MonadThrow m
+       , MonadCatch m
+       )
     => RootHashes h xs
     -> Rec (AVLChgAccum h) xs
     -> Rec (Const (Set h)) xs
-    -> AVLCacheT h m xs  (AvlProofs h xs)
+    -> AVLCacheT h xs m (AvlProofs h xs)
 computeProofAll RNil RNil RNil                   = pure RNil
 computeProofAll a@(_ :& _) b@(_ :& _) c@(_ :& _) = computeProofAll' a b c
 
 computeProofAll'
-    :: forall h x xs m . (AllAvlEntries h (x ': xs), AvlHashable h, MonadThrow m, MonadCatch m)
+    :: forall h x xs m .
+     ( AllAvlEntries h (x ': xs)
+     , AllConstrained (RetrieveImpl h m) (x ': xs)
+     , AvlHashable h
+     , MonadCatch m
+     , MonadThrow m
+     )
     => RootHashes h (x ': xs)
     -> Rec (AVLChgAccum h) (x ': xs)
     -> Rec (Const (Set h)) (x ': xs)
-    -> AVLCacheT h m (x ': xs) (AvlProofs h (x ': xs))
+    -> AVLCacheT h (x ': xs) m (AvlProofs h (x ': xs))
 computeProofAll' ((RootHashComp rootH) :& roots) ((AVLChgAccum _ _ accTouched) :& accums) ((getConst -> req) :& reqs) = do
-    proof <- asAVLCache @x @xs ((AvlProof <$> computeProof @x @h @m rootH accTouched req) :: AVLCacheElT h m x (AvlProof h x))  -- rootH accTouched req)
+    proof <- asAVLCache @x @xs ((AvlProof <$> computeProof @x @h @m rootH accTouched req) :: AVLCacheElT h x m (AvlProof h x))
     (proof :&) <$> (upcastAVLCache' $ computeProofAll roots accums reqs)
 
 computeProof
-    :: forall t h m . (IsAvlEntry h t, AvlHashable h, MonadCatch m)
+    :: forall t h m .
+     ( IsAvlEntry h t
+     , AvlHashable h
+     , MonadCatch m
+     , RetrieveImpl h m t)
     => RootHash h
     -> Set h
     -> Set h
-    -> AVLCacheElT h m t (AVL.Proof h (HKey t) (HVal t))
+    -> AVLCacheElT h t m (AVL.Proof h (HKey t) (HVal t))
 computeProof (mkAVL -> oldAvl) accTouched requested =
         AVL.prune (accTouched <> requested) $ oldAvl
 

@@ -37,7 +37,7 @@ import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProofs, A
                                         KVConstraint, RootHash (unRootHash), RootHashComp (..),
                                         RootHashes, avlRootHash, mkAVL)
 import           Snowdrop.Dba.AVLp.Constraints (RHashable (..), RMapWithC, rmapWithC)
-import           Snowdrop.Dba.AVLp.State (AVLCacheEl, AVLCacheElT, reThrowAVLEx, runAVLCacheElT)
+import           Snowdrop.Dba.AVLp.State (RetrieveImpl, AVLCacheEl, AVLCacheElT, reThrowAVLEx, runAVLCacheElT)
 import           Snowdrop.Dba.Base (DGetter', DIter', DModify', DbApplyProof, DbComponents,
                                     IterAction (..))
 import           Snowdrop.Hetero (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, Head)
@@ -101,7 +101,7 @@ resolveAvlCA st Nothing = rmapWithC @(IsAvlEntry h) crAVLChgAccum (gett st)
 modAccum
     :: forall h xs ctx m .
     ( AvlHashable h, HasGetter ctx (RootHashes h xs)
-    -- , RetrieveImpl (ReaderT ctx m) h
+    , AllConstrained (RetrieveImpl h (ReaderT ctx m)) xs
     , MonadCatch m
     , AllAvlEntries h xs
     , RMapWithC (IsAvlEntry h) xs
@@ -114,7 +114,8 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
     Nothing  -> modAccumAll (resolveAvlCA ctx acc') cs'
   where
     modAccumAll
-        :: AllConstrained (IsAvlEntry h) rs
+        :: ( AllConstrained (IsAvlEntry h) rs
+           , AllConstrained (RetrieveImpl h (ReaderT ctx m)) rs)
         => Rec (AVLChgAccum h) rs
         -> OldestFirst [] (HChangeSet rs)
         -> m (Either CSMappendException (OldestFirst [] (Rec (AVLChgAccum h) rs)))
@@ -125,7 +126,8 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
         foldHandler (curAcc, resAccs) hcs = (\acc -> (acc, acc : resAccs)) <$> modAccumOne curAcc hcs
 
     modAccumOne
-        :: AllConstrained (IsAvlEntry h) rs
+        :: ( AllConstrained (IsAvlEntry h) rs
+           , AllConstrained (RetrieveImpl h (ReaderT ctx m)) rs)
         => Rec (AVLChgAccum h) rs
         -> HChangeSet rs
         -> m (Rec (AVLChgAccum h) rs)
@@ -135,7 +137,9 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
 
     modAccumOneDo
         :: forall r .
-        IsAvlEntry h r
+        ( IsAvlEntry h r
+        , RetrieveImpl h (ReaderT ctx m) r
+        )
         => AVLChgAccum h r
         -> HChangeSetEl r
         -> m (AVLChgAccum h r)
@@ -152,17 +156,17 @@ modAVL
       , AVL.Hash h k v
       , AvlHashable h
       , MonadCatch m
-      -- , RetrieveImpl (ReaderT ctx m) h
+      , RetrieveImpl h (ReaderT ctx m) x
       , HKey x ~ k
       , HVal x ~ v
       )
     => (AVL.Map h k v, Set h)
     -> (k, ValueOp v)
-    -> AVLCacheElT h (ReaderT ctx m) x (AVL.Map h k v, Set h)
+    -> AVLCacheElT h x (ReaderT ctx m) (AVL.Map h k v, Set h)
 modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup k avl
   where
     processResp :: ((Maybe v, Set h), AVL.Map h k v)
-                -> AVLCacheElT h (ReaderT ctx m) x (AVL.Map h k v, Set h)
+                -> AVLCacheElT h x (ReaderT ctx m) (AVL.Map h k v, Set h)
     processResp ((lookupRes, (<> touched) -> touched'), avl') =
       let appendTouched = second (<> touched') . swap in
       case (valueop, lookupRes) of
@@ -208,7 +212,7 @@ computeUndo (Just accum) _ = rmapWithHash @h (RootHashComp . avlRootHash . acaMa
 query
     :: forall h xs ctx m .
     ( AvlHashable h, HasGetter ctx (RootHashes h xs)
-    -- , RetrieveImpl (ReaderT ctx m) h
+    , AllConstrained (RetrieveImpl h (ReaderT ctx m)) xs
     , MonadCatch m
     , AllAvlEntries h xs
     , RMapWithC (IsAvlEntry h) xs
@@ -219,12 +223,19 @@ query
     -> DGetter' xs m
 query ctx (Just ca) nodeActs hset = queryAll ca nodeActs hset
   where
-    queryAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> Rec (Const (Set h -> m ())) rs -> HSet rs -> m (HMap rs)
+    queryAll :: forall rs .
+              ( AllConstrained (IsAvlEntry h) rs
+              , AllConstrained (RetrieveImpl h (ReaderT ctx m)) rs )
+              => Rec (AVLChgAccum h) rs -> Rec (Const (Set h -> m ())) rs -> HSet rs -> m (HMap rs)
     queryAll RNil RNil RNil                                 = pure RNil
     queryAll accums'@(_ :& _) acts'@(_ :& _) reqs'@(_ :& _) = query' accums' acts' reqs'
 
     query'
-        :: forall r rs rs' . (rs ~ (r ': rs'), AllConstrained (IsAvlEntry h) rs)
+        :: forall r rs rs' .
+        ( rs ~ (r ': rs')
+        , AllConstrained (IsAvlEntry h) rs
+        , AllConstrained (RetrieveImpl h (ReaderT ctx m)) rs
+        )
         => Rec (AVLChgAccum h) rs
         -> Rec (Const (Set h -> m ())) rs
         -> HSet rs -> m (HMap rs)
@@ -254,7 +265,7 @@ iter
     :: forall h xs ctx m.
     ( AvlHashable h
     , HasGetter ctx (RootHashes h xs)
-    -- , RetrieveImpl (ReaderT ctx m) h
+    , AllConstrained (RetrieveImpl h (ReaderT ctx m)) xs
     , MonadCatch m
     , AllAvlEntries h xs
     , RMapWithC (IsAvlEntry h) xs
@@ -265,7 +276,10 @@ iter
     -> m (DIter' xs m)
 iter ctx (Just ca) nodeActs = pure $ iterAll ca nodeActs
   where
-    iterAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> Rec (Const (Set h -> m ())) rs -> DIter' rs m
+    iterAll :: forall rs .
+             ( AllConstrained (IsAvlEntry h) rs
+             , AllConstrained (RetrieveImpl h (ReaderT ctx m)) rs )
+             => Rec (AVLChgAccum h) rs -> Rec (Const (Set h -> m ())) rs -> DIter' rs m
     iterAll RNil _ = RNil
     iterAll (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& restActs) =
         IterAction
