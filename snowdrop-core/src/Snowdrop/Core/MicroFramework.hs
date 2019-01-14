@@ -308,11 +308,11 @@ type GoodApplyChs uni =
   ( RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) uni
   , RZipWith uni )
 
-applyChangeSets :: GoodApplyChs uni
-    => HChangeSet uni -> DBM (SimpleDBTy uni) IO ()
-applyChangeSets chs = do
-  SimpleDB internalRef <- ask
-  lift $ atomicModifyIORef internalRef $ \sdbi -> (sdbi {sdbCommitted = rzipWithMethod @OrdHKey applyOne chs (sdbCommitted sdbi)}, ())
+atomicSimpleDBMutate :: GoodApplyChs uni
+  => (SimpleDBInternalTy uni -> SimpleDBInternalTy uni) -> DBM (SimpleDBTy uni) IO ()
+atomicSimpleDBMutate f = do
+    SimpleDB internalRef <- ask
+    lift $ atomicModifyIORef internalRef $ \sdbi -> (f sdbi, ())
 
 -- The simplest and dumbest applier. Use no fancy chgAccums. PoC.
 -- FIXME. Harmonize with commit
@@ -320,16 +320,14 @@ applyAll :: GoodApplyChs uni
     => HTransUnion ts -> ExpanderX (DBM (SimpleDBTy uni) IO) uni ts -> DBM (SimpleDBTy uni) IO ()
 applyAll ts f = do
     chs <- doOrThrow <$> f ts
-    applyChangeSets chs
+    atomicSimpleDBMutate (\sdbi -> sdbi {sdbCommitted = rzipWithMethod @OrdHKey applyOne chs (sdbCommitted sdbi)})
   where
     doOrThrow (Left _) = error "FIXME: use proper exception"
     doOrThrow (Right cs) = cs
 
 -- FIXME: optimize for the case of no pending changes
 commit :: GoodApplyChs uni => DBM (SimpleDBTy uni) IO ()
-commit = do
-    SimpleDB internalRef <- ask
-    lift $ atomicModifyIORef internalRef doCommit
+commit = atomicSimpleDBMutate doCommit
   where
-    doCommit sdbi@(SimpleDBInternal _ Nothing) = (sdbi, ())
-    doCommit (SimpleDBInternal committed (Just pending)) = (SimpleDBInternal (rzipWithMethod @OrdHKey applyOne pending committed) Nothing, ())
+    doCommit sdbi@(SimpleDBInternal _ Nothing) = sdbi
+    doCommit (SimpleDBInternal committed (Just pending)) = SimpleDBInternal (rzipWithMethod @OrdHKey applyOne pending committed) Nothing
