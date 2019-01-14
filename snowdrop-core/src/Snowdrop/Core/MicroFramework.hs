@@ -188,7 +188,7 @@ test = PE fun
 -- SimpleDB -----------------
 data SimpleDBInternalTy comps = SimpleDBInternal {
     sdbCommitted :: HMap comps
-  -- We will, perhaps, have lists of changesets, and cached undos, and somthing else, perhaps.
+  -- We will, perhaps, have lists of changesets, and cached undos, and something else, perhaps.
   -- The question is what should be handled by DBMS, and what by the application logic.
   -- We chose the simplest possible implementation ATM, will add extra things if necessary.
   , sdbPending :: Maybe (HChangeSet comps)
