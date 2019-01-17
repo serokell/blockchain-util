@@ -186,6 +186,8 @@ test = PE fun
       _m <- query (hsetFromSet @Comp1 $ S.singleton $ "gago" ++ show n)
       return RNil
 
+-- This serves illustration purpose only and doesn't make sense in practice.
+-- We shall use 2 separate states to be realistic.
 -- SimpleDB -----------------
 data SimpleDBInternalTy comps = SimpleDBInternal {
     sdbCommitted :: HMap comps
@@ -196,6 +198,7 @@ data SimpleDBInternalTy comps = SimpleDBInternal {
   }
 
 newtype SimpleDBTy comps = SimpleDB {unSimpleDB :: IORef (SimpleDBInternalTy comps)}
+-----------------------------
 
 query1 :: forall t xs . (t ∈ xs, Ord (HKey t)) => HMap xs -> HSetEl t -> HMapEl t
 query1 hmap (HSetEl req) = HMapEl $ M.restrictKeys (unHMapEl $ rget @t hmap) req 
