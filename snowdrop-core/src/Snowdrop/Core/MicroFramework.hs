@@ -19,6 +19,7 @@ module MicroFramework (
   , chgIter
   , computeHChSetUndo
   , applyAll
+  , addChange
   , commit
   )
   where
@@ -314,6 +315,17 @@ atomicSimpleDBMutate f = do
     SimpleDB internalRef <- ask
     lift $ atomicModifyIORef internalRef $ \sdbi -> (f sdbi, ())
 
+doOrThrow :: Either l r -> r
+doOrThrow (Left _) = error "FIXME: use proper exception"
+doOrThrow (Right cs) = cs
+
+-- flip because of "oldest first"
+addChange ::
+  ( GoodApplyChs uni
+  , MappendHChSet uni )
+  => HChangeSet uni -> DBM (SimpleDBTy uni) IO ()
+addChange cs = atomicSimpleDBMutate (\sdbi -> sdbi {sdbPending = Just $ maybe cs (doOrThrow . flip (mappendChangeSet) cs) (sdbPending sdbi)})
+
 -- The simplest and dumbest applier. Use no fancy chgAccums. PoC.
 -- FIXME. Harmonize with commit
 applyAll :: GoodApplyChs uni
@@ -321,9 +333,6 @@ applyAll :: GoodApplyChs uni
 applyAll ts f = do
     chs <- doOrThrow <$> f ts
     atomicSimpleDBMutate (\sdbi -> sdbi {sdbCommitted = rzipWithMethod @OrdHKey applyOne chs (sdbCommitted sdbi)})
-  where
-    doOrThrow (Left _) = error "FIXME: use proper exception"
-    doOrThrow (Right cs) = cs
 
 -- FIXME: optimize for the case of no pending changes
 commit :: GoodApplyChs uni => DBM (SimpleDBTy uni) IO ()
