@@ -4,7 +4,7 @@
 {-# LANGUAGE PolyKinds #-}
 
 module Snowdrop.Core.MicroFrameworkAlt (
-    DBM -- ABSTRACT!
+    BaseM -- ABSTRACT!
   , StateQuery (..)
   , query
   , StateIterator (..)
