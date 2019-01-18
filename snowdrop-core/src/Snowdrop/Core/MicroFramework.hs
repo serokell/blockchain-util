@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE PolyKinds #-}
 
-module MicroFramework (
+module Snowdrop.Core.MicroFramework (
     DBM -- ABSTRACT!
   , runDBM
   , StateQuery (..)
