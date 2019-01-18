@@ -4,7 +4,8 @@
 {-# LANGUAGE PolyKinds #-}
 
 module MicroFramework (
-    BaseM -- ABSTRACT!
+    DBM -- ABSTRACT!
+  , runDBM
   , StateQuery (..)
   , query
   , StateIterator (..)
@@ -49,7 +50,7 @@ import           Snowdrop.Core.ChangeSet ( HChangeSet, HChangeSetEl(..), CSMappe
                                          , mappendChangeSet )
 
 --------------------------------------------------------------
--- Vinyl has no somthing like this. Consider adding to Vinyl?
+-- Vinyl has no something like this. Consider adding to Vinyl?
 rzipWithMethod :: forall c f g h xs .
   ( RecMapMethod c (Product f g) xs
   , RZipWith xs )
@@ -57,36 +58,32 @@ rzipWithMethod :: forall c f g h xs .
 rzipWithMethod zipper r1 r2 = rmapMethod @c zipper $ rzipWith Pair r1 r2
 
 --------------------------------------------------------------
-type DBM db m = StateT db m
+-- State monad, but with thread phantom parameter, we shouldn't use
+--   anything except runDBM, to not accidentally mix computations on
+--   different threads
+newtype DBM s db m a = DB (StateT db m a) deriving (Functor, Applicative, Monad)
 
--- We may parametrize BaseM by whatever monad we want (STM anyone?),
--- Since the client hasn't access to BaseM data constructor,
---   she never may inject anything into it.
-newtype BaseM db m a = BaseM { unBaseM :: DBM db m a }
-    deriving Functor
+runDBM :: (forall s. DBM s db m a) -> db -> m (a, db)
+runDBM (DB db) = runStateT db
 
-instance Monad m => Applicative (BaseM db m) where
-  pure a = BaseM $ pure a
-  BaseM a <*> BaseM b = BaseM $ a <*> b
+liftSM :: Monad m => m a -> DBM s db m a
+liftSM = DB . lift
 
-instance Monad m => Monad (BaseM db m) where
-  a >>= b = BaseM $ unBaseM a >>= unBaseM . b
+getSM :: Monad m => DBM s db m db
+getSM = DB get
 
-type QueryType db m xs = HSet xs -> DBM db m (HMap xs)
+type QueryType s db m xs = HSet xs -> DBM s db m (HMap xs)
 
-class StateQuery db m xs | db -> xs where
-  sQuery :: QueryType db m xs
+class StateQuery s db m xs | db -> xs where
+  sQuery :: QueryType s db m xs
 
-query :: forall uni xs db m . (xs ⊆ uni, Monad m, RecApplicative uni, StateQuery db m uni) => HSet xs -> BaseM db m (HMap xs)
-query req = BaseM $ rcast <$> (sQuery $ rreplace req (rpure @uni (HSetEl S.empty)))
+query :: forall s uni xs db m . (xs ⊆ uni, Monad m, RecApplicative uni, StateQuery s db m uni) => HSet xs -> DBM s db m (HMap xs)
+query req = rcast <$> (sQuery $ rreplace req (rpure @uni (HSetEl S.empty)))
 
-type IterType db m t = forall b . b -> (b -> (HKey t, HVal t) -> b) -> DBM db m b
+type IterType s db m t = forall b . b -> (b -> (HKey t, HVal t) -> b) -> DBM s db m b
 
-class StateIterator db m t where
-  sIterator :: IterType db m t
-
-iterator :: forall db m t b . (Monad m, StateIterator db m t) => b -> (b -> (HKey t, HVal t) -> b) -> BaseM db m b
-iterator ini dofold = BaseM (sIterator @_ @_ @t ini dofold)
+class StateIterator s db m t where
+  iterator :: IterType s db m t
 
 -- Deduce uni
 type family Nub (xs :: [k]) where
@@ -124,21 +121,21 @@ type family TxRaw (t :: u) :: *
 newtype HTransElTy (t :: u) = HTransEl {unHTransEl :: TxRaw t}
 type HTransUnion = CoRec HTransElTy
 
-data PreExpander uni ts db m et where
+data PreExpander s uni ts db m et where
   PE :: Good uni ts et
-    => {runPreExpander :: HTransElTy (T et) -> BaseM db m (HChangeSet (Outs et))} -> PreExpander uni ts db m et
+    => {runPreExpander :: HTransElTy (T et) -> DBM s db m (HChangeSet (Outs et))} -> PreExpander s uni ts db m et
 
-type SeqExpander uni ts db m = Rec (PreExpander uni ts db m)
+type SeqExpander s uni ts db m = Rec (PreExpander s uni ts db m)
 
 emptyChSet :: forall xs . RecApplicative xs => HChangeSet xs
 emptyChSet = rpure @xs $ HChangeSetEl M.empty
 
-type Expander db m uni ts = HTransUnion ts -> BaseM db m (HChangeSet uni)
+type Expander s db m uni ts = HTransUnion ts -> DBM s db m (HChangeSet uni)
 
 liftPreExpander ::
   ( RecApplicative ts
   , Monad m)
-  => PreExpander uni ts db m et -> Expander db m uni ts
+  => PreExpander s uni ts db m et -> Expander s db m uni ts
 liftPreExpander (PE f) ts = f' (rget $ coRecToRec ts)
   where
     f' (Compose Nothing) = return emptyChSet
@@ -146,29 +143,19 @@ liftPreExpander (PE f) ts = f' (rget $ coRecToRec ts)
 
 type ExpanderX m uni ts = HTransUnion ts -> m (Either CSMappendException (HChangeSet uni))
 
-seqPreExpanders ::
+runSeqExpander ::
   ( RecApplicative (Ts ts)
   , LiftPEs xs
   , SeqE xs
   , Monad m )
-  => SeqExpander (Uni xs) (Ts ts) db m xs -> ExpanderX (BaseM db m) (Uni xs) (Ts ts)
-seqPreExpanders = seqE . liftPEs
+  => SeqExpander s (Uni xs) (Ts ts) db m xs -> ExpanderX (DBM s db m) (Uni xs) (Ts ts)
+runSeqExpander = seqE . liftPEs
   where
     liftPEs xs = recordToList (rmap (Const . liftPreExpander) xs)
     seqE es r = foldM mappendChangeSet emptyChSet <$> sequence (map (\f -> f r) es)
 
-runSeqExpander :: forall db m xs ts .
-  ( RecApplicative (Ts ts)
-  , LiftPEs xs
-  , SeqE xs
-  , Monad m )
-  =>
-  SeqExpander (Uni xs) (Ts ts) db m xs
-  -> ExpanderX (DBM db m) (Uni xs) (Ts ts)
-runSeqExpander se txs = unBaseM $ seqPreExpanders @ts se txs
-
-type PeType db m et = (Monad m, Good (InOuts et) '[T et] et, StateQuery db m (Ins et)) => PreExpander (InOuts et) '[T et] db m et
-type PeFType db m et = HTransElTy (T et) -> BaseM db m (HChangeSet (Outs et))
+type PeType s db m et = (Monad m, Good (InOuts et) '[T et] et, StateQuery s db m (Ins et)) => PreExpander s (InOuts et) '[T et] db m et
+type PeFType s db m et = HTransElTy (T et) -> DBM s db m (HChangeSet (Outs et))
 
 -- test
 data Tr; type instance TxRaw Tr = Int
@@ -177,10 +164,10 @@ data Comp2; type instance HKeyVal Comp2 = '(Double, String)
 
 type Test = 'ExpanderTypes Tr '[Comp1, Comp2] '[]
 
-test :: forall db m . PeType db m Test
+test :: forall s db m . PeType s db m Test
 test = PE fun
   where
-    fun :: PeFType db m Test
+    fun :: PeFType s db m Test
     fun (HTransEl n) = do
       _m <- query (hsetFromSet @Comp1 $ S.singleton $ "gago" ++ show n)
       return RNil
@@ -205,10 +192,10 @@ queryAll hmap = rmapMethod @(Q xs) (query1 hmap)
 
 type GoodChgQuery xs =
   ( RecMapMethod OrdHKey (Product HMapEl HMapEl) xs
-  , RZipWith xs )
+  , RZipWith xs)
 
-chgQuery :: forall db m xs . (Monad m, GoodChgQuery xs)
-  => QueryType db m xs -> HChangeSet xs -> QueryType db m xs
+chgQuery :: forall s db m xs . (Monad m, GoodChgQuery xs)
+  => QueryType s db m xs -> HChangeSet xs -> QueryType s db m xs
 chgQuery q chs = \ks ->
     rzipWithMethod @OrdHKey recombine (hChangeSetToHMap chs) <$> q ks
   where
@@ -217,15 +204,15 @@ chgQuery q chs = \ks ->
 instance
   ( RecMapMethod (Q xs) HSetEl xs
   , GoodChgQuery xs )
-  => StateQuery (SimpleDBTy xs) IO xs where
+  => StateQuery s (SimpleDBTy xs) IO xs where
   sQuery req = do
-    SimpleDB {..} <- get
-    db <- lift $ readIORef sdbCommitted
+    SimpleDB {..} <- getSM
+    db <- liftSM $ readIORef sdbCommitted
     let qry = return . queryAll db
     (maybe qry (chgQuery qry) sdbPending) req
 
 -- Copypasted from SD, edited
-chgIter :: (OrdHKey t, Monad m) => IterType db m t -> HChangeSetEl t -> IterType db m t
+chgIter :: (OrdHKey t, Monad m) => IterType s db m t -> HChangeSetEl t -> IterType s db m t
 chgIter iter ac'@(HChangeSetEl accum) = \initB foldF -> do
     let extractMin i m = do
             (k, v) <- M.lookupMin m
@@ -242,26 +229,26 @@ chgIter iter ac'@(HChangeSetEl accum) = \initB foldF -> do
     (b, remainedNewKeys) <- iter (initB, csNew ac') newFoldF
     pure $ M.foldlWithKey' (curry . foldF) b remainedNewKeys
 
-instance (t ∈ comps, OrdHKey t) => StateIterator (SimpleDBTy comps) IO t where
-  sIterator ini f = do
-    SimpleDB {..} <- get
-    db <- lift $ readIORef sdbCommitted
+instance (t ∈ comps, OrdHKey t) => StateIterator s (SimpleDBTy comps) IO t where
+  iterator ini f = do
+    SimpleDB {..} <- getSM
+    db <- liftSM $ readIORef sdbCommitted
     let
-      iter :: forall b . b -> (b -> (HKey t, HVal t) -> b) -> DBM (SimpleDBTy comps) IO b
+      iter :: forall b . b -> (b -> (HKey t, HVal t) -> b) -> DBM s (SimpleDBTy comps) IO b
       iter ini' f' = return $ foldl f' ini' $ M.toList (unHMapEl $ rget @t db)
     case sdbPending of
       Nothing -> iter ini f
       Just hcs -> (chgIter iter (rget @t hcs)) ini f
 
 -- Seems don't need this, but I keep it around for the time being just in case
-newtype IterAction db m t = IterAction {runIterAction :: IterType db m t }
-type DIter db m xs = Rec (IterAction db m) xs
+newtype IterAction s db m t = IterAction {runIterAction :: IterType s db m t }
+type DIter s db m xs = Rec (IterAction s db m) xs
 
-chgIterH :: forall db m xs .
+chgIterH :: forall s db m xs .
   ( Monad m
-  , RecMapMethod OrdHKey (Product (IterAction db m) HChangeSetEl) xs
+  , RecMapMethod OrdHKey (Product (IterAction s db m) HChangeSetEl) xs
   , RZipWith xs )
-  => DIter db m xs -> HChangeSet xs -> DIter db m xs
+  => DIter s db m xs -> HChangeSet xs -> DIter s db m xs
 chgIterH iter = rzipWithMethod @OrdHKey chgIter' iter
   where
     chgIter' (Pair iter' ac) = IterAction (chgIter (runIterAction iter') ac)
@@ -278,10 +265,10 @@ undo _        _          = Err
 computeHChSetUndo ::
   ( Monad m
   , RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) xs
-  , RZipWith xs )
-  => QueryType db m xs
+  , RZipWith xs)
+  => QueryType s db m xs
   -> HChangeSet xs
-  -> DBM db m (HChangeSet xs)
+  -> DBM s db m (HChangeSet xs)
 computeHChSetUndo qry chs =
     computeHChSetUndo' <$> qry (hChangeSetToHSet chs)
   where
@@ -304,21 +291,21 @@ applyOne (Pair (HChangeSetEl cs) (HMapEl thevals)) = HMapEl $ M.foldlWithKey app
 
 type GoodApplyChs uni = 
   ( RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) uni
-  , RZipWith uni )
+  , RZipWith uni)
 
 -- flip because of "oldest first"
 addChange ::
   ( GoodApplyChs uni
   , MappendHChSet uni )
-  => HChangeSet uni -> DBM (SimpleDBTy uni) IO ()
-addChange cs = modify (\sdb -> sdb {sdbPending = Just $ maybe cs (doOrThrow . flip (mappendChangeSet) cs) (sdbPending sdb)})
+  => HChangeSet uni -> DBM s (SimpleDBTy uni) IO ()
+addChange cs = DB $ modify (\sdb -> sdb {sdbPending = Just $ maybe cs (doOrThrow . flip (mappendChangeSet) cs) (sdbPending sdb)})
   where
     doOrThrow (Left _) = error "FIXME: use proper exception"
     doOrThrow (Right v) = v
 
-commit :: GoodApplyChs uni => DBM (SimpleDBTy uni) IO ()
+commit :: GoodApplyChs uni => DBM s (SimpleDBTy uni) IO ()
 commit = do
-    SimpleDB {..} <- get
+    SimpleDB {..} <- getSM
     let doCommit = maybe id (\pending -> rzipWithMethod @OrdHKey applyOne pending) sdbPending
-    lift $ atomicModifyIORef sdbCommitted (embed doCommit)
+    liftSM $ atomicModifyIORef sdbCommitted (embed doCommit)
   where embed f = \a -> (f a, ())
