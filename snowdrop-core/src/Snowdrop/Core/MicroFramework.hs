@@ -61,6 +61,7 @@ rzipWithMethod zipper r1 r2 = rmapMethod @c zipper $ rzipWith Pair r1 r2
 -- State monad, but with thread phantom parameter, we shouldn't use
 --   anything except runDBM, to not accidentally mix computations on
 --   different threads
+-- FIXME: not sure this is fully correct and/or terribly elegant
 newtype DBM s db m a = DB (StateT db m a) deriving (Functor, Applicative, Monad)
 
 runDBM :: (forall s. DBM s db m a) -> db -> m (a, db)
