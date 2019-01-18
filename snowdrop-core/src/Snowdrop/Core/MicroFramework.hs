@@ -18,7 +18,6 @@ module MicroFramework (
   , chgQuery
   , chgIter
   , computeHChSetUndo
-  , applyAll
   , addChange
   , commit
   )
@@ -58,7 +57,7 @@ rzipWithMethod :: forall c f g h xs .
 rzipWithMethod zipper r1 r2 = rmapMethod @c zipper $ rzipWith Pair r1 r2
 
 --------------------------------------------------------------
-type DBM db m = ReaderT db m
+type DBM db m = StateT db m
 
 -- We may parametrize BaseM by whatever monad we want (STM anyone?),
 -- Since the client hasn't access to BaseM data constructor,
@@ -66,7 +65,7 @@ type DBM db m = ReaderT db m
 newtype BaseM db m a = BaseM { unBaseM :: DBM db m a }
     deriving Functor
 
-instance Applicative m => Applicative (BaseM db m) where
+instance Monad m => Applicative (BaseM db m) where
   pure a = BaseM $ pure a
   BaseM a <*> BaseM b = BaseM $ a <*> b
 
@@ -186,19 +185,14 @@ test = PE fun
       _m <- query (hsetFromSet @Comp1 $ S.singleton $ "gago" ++ show n)
       return RNil
 
--- This serves illustration purpose only and doesn't make sense in practice.
--- We shall use 2 separate states to be realistic.
 -- SimpleDB -----------------
-data SimpleDBInternalTy comps = SimpleDBInternal {
-    sdbCommitted :: HMap comps
-  -- We will, perhaps, have lists of changesets, and cached undos, and something else, perhaps.
+data SimpleDBTy comps = SimpleDB {
+    sdbCommitted :: IORef (HMap comps)
+  -- We will, perhaps, have lists of changesets, and cached undos, and somthing else, perhaps.
   -- The question is what should be handled by DBMS, and what by the application logic.
   -- We chose the simplest possible implementation ATM, will add extra things if necessary.
   , sdbPending :: Maybe (HChangeSet comps)
   }
-
-newtype SimpleDBTy comps = SimpleDB {unSimpleDB :: IORef (SimpleDBInternalTy comps)}
------------------------------
 
 query1 :: forall t xs . (t ∈ xs, Ord (HKey t)) => HMap xs -> HSetEl t -> HMapEl t
 query1 hmap (HSetEl req) = HMapEl $ M.restrictKeys (unHMapEl $ rget @t hmap) req 
@@ -225,9 +219,9 @@ instance
   , GoodChgQuery xs )
   => StateQuery (SimpleDBTy xs) IO xs where
   sQuery req = do
-    SimpleDB internalRef <- ask
-    SimpleDBInternal {..} <- lift $ readIORef internalRef
-    let qry = return . queryAll sdbCommitted
+    SimpleDB {..} <- get
+    db <- lift $ readIORef sdbCommitted
+    let qry = return . queryAll db
     (maybe qry (chgQuery qry) sdbPending) req
 
 -- Copypasted from SD, edited
@@ -250,11 +244,11 @@ chgIter iter ac'@(HChangeSetEl accum) = \initB foldF -> do
 
 instance (t ∈ comps, OrdHKey t) => StateIterator (SimpleDBTy comps) IO t where
   sIterator ini f = do
-    SimpleDB internalRef <- ask
-    SimpleDBInternal {..} <- lift $ readIORef internalRef
+    SimpleDB {..} <- get
+    db <- lift $ readIORef sdbCommitted
     let
       iter :: forall b . b -> (b -> (HKey t, HVal t) -> b) -> DBM (SimpleDBTy comps) IO b
-      iter ini' f' = return $ foldl f' ini' $ M.toList (unHMapEl $ rget @t sdbCommitted)
+      iter ini' f' = return $ foldl f' ini' $ M.toList (unHMapEl $ rget @t db)
     case sdbPending of
       Nothing -> iter ini f
       Just hcs -> (chgIter iter (rget @t hcs)) ini f
@@ -284,7 +278,7 @@ undo _        _          = Err
 computeHChSetUndo ::
   ( Monad m
   , RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) xs
-  , RZipWith xs)
+  , RZipWith xs )
   => QueryType db m xs
   -> HChangeSet xs
   -> DBM db m (HChangeSet xs)
@@ -308,38 +302,23 @@ applyOne (Pair (HChangeSetEl cs) (HMapEl thevals)) = HMapEl $ M.foldlWithKey app
       (Upd v     ,  Just _) -> M.insert k v vals
       (_,                _) -> error "FIXME: use proper exception? or simply ignore?"
 
-type GoodApplyChs uni =
+type GoodApplyChs uni = 
   ( RecMapMethod OrdHKey (Product HChangeSetEl HMapEl) uni
   , RZipWith uni )
-
-atomicSimpleDBMutate :: GoodApplyChs uni
-  => (SimpleDBInternalTy uni -> SimpleDBInternalTy uni) -> DBM (SimpleDBTy uni) IO ()
-atomicSimpleDBMutate f = do
-    SimpleDB internalRef <- ask
-    lift $ atomicModifyIORef internalRef $ \sdbi -> (f sdbi, ())
-
-doOrThrow :: Either l r -> r
-doOrThrow (Left _) = error "FIXME: use proper exception"
-doOrThrow (Right cs) = cs
 
 -- flip because of "oldest first"
 addChange ::
   ( GoodApplyChs uni
   , MappendHChSet uni )
   => HChangeSet uni -> DBM (SimpleDBTy uni) IO ()
-addChange cs = atomicSimpleDBMutate (\sdbi -> sdbi {sdbPending = Just $ maybe cs (doOrThrow . flip (mappendChangeSet) cs) (sdbPending sdbi)})
-
--- The simplest and dumbest applier. Use no fancy chgAccums. PoC.
--- FIXME. Harmonize with commit
-applyAll :: GoodApplyChs uni
-    => HTransUnion ts -> ExpanderX (DBM (SimpleDBTy uni) IO) uni ts -> DBM (SimpleDBTy uni) IO ()
-applyAll ts f = do
-    chs <- doOrThrow <$> f ts
-    atomicSimpleDBMutate (\sdbi -> sdbi {sdbCommitted = rzipWithMethod @OrdHKey applyOne chs (sdbCommitted sdbi)})
-
--- FIXME: optimize for the case of no pending changes
-commit :: GoodApplyChs uni => DBM (SimpleDBTy uni) IO ()
-commit = atomicSimpleDBMutate doCommit
+addChange cs = modify (\sdb -> sdb {sdbPending = Just $ maybe cs (doOrThrow . flip (mappendChangeSet) cs) (sdbPending sdb)})
   where
-    doCommit sdbi@(SimpleDBInternal _ Nothing) = sdbi
-    doCommit (SimpleDBInternal committed (Just pending)) = SimpleDBInternal (rzipWithMethod @OrdHKey applyOne pending committed) Nothing
+    doOrThrow (Left _) = error "FIXME: use proper exception"
+    doOrThrow (Right v) = v
+
+commit :: GoodApplyChs uni => DBM (SimpleDBTy uni) IO ()
+commit = do
+    SimpleDB {..} <- get
+    let doCommit = maybe id (\pending -> rzipWithMethod @OrdHKey applyOne pending) sdbPending
+    lift $ atomicModifyIORef sdbCommitted (embed doCommit)
+  where embed f = \a -> (f a, ())
