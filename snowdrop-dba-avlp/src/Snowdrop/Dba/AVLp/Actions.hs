@@ -17,22 +17,23 @@ module Snowdrop.Dba.AVLp.Actions
        , RetrieveHashAll'
        ) where
 
+import           Data.Vinyl (RecMapMethod(..), RecApplicative, rget, rpure, rput)
 
 import           Universum
 
 import           Data.Default (Default (def))
 import qualified Data.Map as Map
 import qualified Data.Tree.AVL as AVL
-import           Data.Vinyl (RApply (..), RMap, Rec (..), RecApplicative, rget, rpure, rput)
+import           Data.Vinyl (RApply (..), RMap, Rec (..))
 import           Data.Vinyl.Functor (Lift (..))
 import           Data.Vinyl.Recursive (rmap)
 import           Snowdrop.Core (ChgAccum, Undo)
 import           Snowdrop.Dba.AVLp.Accum (AVLChgAccum (..), AVLChgAccums, RootHashes, computeUndo,
                                           iter, modAccum, modAccumU, query)
-import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
+import           Snowdrop.Dba.AVLp.Avl (AvlHashable, AllAvlEntries, AvlProof (..), AvlProofs,
                                         AvlUndo, IsAvlEntry, RootHash (..), RootHashComp (..),
                                         avlRootHash, mkAVL, saveAVL)
-import           Snowdrop.Dba.AVLp.Constraints (RHashable, RMapWithC, rmapWithHash)
+import           Snowdrop.Dba.AVLp.Constraints (AvlHashC)
 import           Snowdrop.Dba.AVLp.State (AVLCache (..), AVLCacheEl (..), AVLCacheElT, AVLCacheT,
                                           AVLPureStorage (..), AVLServerState (..), RetrieveEl (..),
                                           RetrieveF, asAVLCache, avlCacheElToRetrieve,
@@ -67,16 +68,16 @@ ignoreNodesActs = rpure (Const (\_ -> pure ()))
 
 avlClientDbActions
     :: forall conf h xs .
-    ( AvlHashable h
-    , AllAvlEntries h xs
+    ( AllAvlEntries h xs
+    , AvlHashable h
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ ()
-    , Default (Rec (AVLCacheEl h) xs)
-    , RHashable h xs
-    , RMapWithC (IsAvlEntry h) xs
     , RecApplicative xs
+    , RecMapMethod (AvlHashC h) (AVLChgAccum h) xs
     , Undo conf ~ AvlUndo h xs
     , xs ~ DbComponents conf
+    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
+    , Default (Rec (AVLCacheEl h) xs)
     )
     => RetrieveF h STM xs
     -> RootHashes h xs
@@ -111,7 +112,7 @@ avlClientDbActions retrieveF = fmap mkActions . newTVar
 
     apply :: AvlHashable h => TVar (RootHashes h xs) -> AVLChgAccums h xs -> STM ()
     apply var (Just accums) =
-        writeTVar var $ rmapWithHash @h (RootHashComp . avlRootHash . acaMap) accums
+        writeTVar var $ rmapMethod @(AvlHashC h) (RootHashComp . avlRootHash . acaMap) accums
     apply _ Nothing = pure ()
 
 withProjUndo :: (MonadThrow m, Applicative f) => (NewestFirst [] undo -> a) -> NewestFirst [] undo -> m (f a)
@@ -134,19 +135,17 @@ instance (Ord h, RContains ys t, RetrieveHashAll' h ys xs) => RetrieveHashAll' h
 
 avlServerDbActions
     :: forall conf h xs .
-    ( AvlHashable h
-    , AllAvlEntries h xs
-    , RHashable h xs
-
-    , RecApplicative xs
-    , RememberNodesActs' h xs xs
-
-    , Undo conf ~ AvlUndo h xs
+    ( AllAvlEntries h xs
+    , AvlHashable h
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ AvlProofs h xs
+    , RecApplicative xs
+    , RecMapMethod (AvlHashC h) (AVLChgAccum h) xs
+    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
+    , RememberNodesActs h xs
+    , Undo conf ~ AvlUndo h xs
     , xs ~ DbComponents  conf
 
-    , RMapWithC (IsAvlEntry h) xs
     , RMap xs
     , RApply xs
 
@@ -182,8 +181,8 @@ avlServerDbActions = fmap mkActions . newTVar
 
         daa = DbAccessActions
                 (\cA req -> readTVar var >>= \ctx -> query ctx cA nodeActs req)
-
                 (\cA -> readTVar var >>= \ctx -> iter ctx cA nodeActs)
+
         daaM = DbAccessActionsM daa (\cA cs -> (readTVar var) >>= \ctx -> modAccum ctx cA cs)
         daaU = DbAccessActionsU daaM
                   (withProjUndo . modAccumU)
@@ -267,10 +266,10 @@ computeProof
 computeProof (mkAVL -> oldAvl) accTouched requested =
         AVL.prune (accTouched <> requested) $ oldAvl
 
+-- Build a record where each element is an effectful action which appends set of
+-- hashes to a set which belongs to a given record component
 type RememberNodesActs h xs = RememberNodesActs' h xs xs
 
--- Build record where each element is an effectful action which appends set of
--- hashes to a set which belongs to a given record component
 class RememberNodesActs' h ys xs where
     rememberNodesActs :: TVar (AVLServerState h ys) -> Rec (Const (Set h -> STM ())) xs
 
@@ -284,6 +283,6 @@ rememberNodesSingleAct :: forall x xs h . (Ord h, RContains xs x) => TVar (AVLSe
 rememberNodesSingleAct var xs = modifyTVar' var appendToOneSet
   where
     appendToOneSet st@AMS{..} =
-      let v' = mappend xs (getConst (rget @x amsVisited))
-          newVisited = rput @x (Const v') amsVisited
+      let v :: Set h = mappend xs (getConst (rget @x amsVisited))
+          newVisited = rput @x (Const v) amsVisited
       in st { amsVisited = newVisited }

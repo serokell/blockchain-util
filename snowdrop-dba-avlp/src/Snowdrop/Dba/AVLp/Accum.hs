@@ -27,7 +27,7 @@ import qualified Data.Tree.AVL as AVL
 import           Data.Default (Default (def))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as Set
-import           Data.Vinyl (Rec (..))
+import           Data.Vinyl (RecMapMethod (..), Rec (..))
 import           Data.Vinyl.Recursive (rmap)
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
@@ -36,7 +36,7 @@ import           Snowdrop.Core (CSMappendException (..), ChgAccum, HChangeSet, H
 import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProofs, AvlUndo, IsAvlEntry,
                                         KVConstraint, RootHash (unRootHash), RootHashComp (..),
                                         RootHashes, avlRootHash, mkAVL)
-import           Snowdrop.Dba.AVLp.Constraints (RHashable (..), RMapWithC, rmapWithC)
+import           Snowdrop.Dba.AVLp.Constraints (AvlHashC)
 import           Snowdrop.Dba.AVLp.State (AVLCacheEl, AVLCacheElT, RetrieveEl, RetrieveF,
                                           reThrowAVLEx, runAVLCacheElT)
 import           Snowdrop.Dba.Base (DGetter', DIter', DModify', DbApplyProof, DbComponents,
@@ -80,13 +80,13 @@ resolveAvlCA
     ( AvlHashable h
     , HasGetter state (RootHashes h xs)
     , AllAvlEntries h xs
-    , RMapWithC (IsAvlEntry h) xs
+    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
     )
     => state
     -> AVLChgAccums h xs
     -> Rec (AVLChgAccum h) xs
 resolveAvlCA _ (Just cA) = cA
-resolveAvlCA st Nothing = rmapWithC @(IsAvlEntry h) crAVLChgAccum (gett st)
+resolveAvlCA st Nothing = rmapMethod @(IsAvlEntry h) crAVLChgAccum (gett st)
   where
     crAVLChgAccum :: IsAvlEntry h x => RootHashComp h x -> AVLChgAccum h x
     crAVLChgAccum (RootHashComp rh) = AVLChgAccum
@@ -102,7 +102,7 @@ modAccum
     , HasGetter ctx (RetrieveF h m xs)
     , MonadCatch m
     , AllAvlEntries h xs
-    , RMapWithC (IsAvlEntry h) xs
+    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
     )
     => ctx
     -> AVLChgAccums h xs
@@ -158,14 +158,14 @@ modAVL
     => (AVL.Map h k v, Set h)
     -> (k, ValueOp v)
     -> AVLCacheElT h x m (AVL.Map h k v, Set h)
-modAVL (avl, touched) (k, valueop) = processResp =<< AVL.lookup k avl
+modAVL (avl, touched0) (k, valueop) = processResp =<< AVL.lookup k avl
   where
     processResp :: ((Maybe v, Set h), AVL.Map h k v)
                 -> AVLCacheElT h x m (AVL.Map h k v, Set h)
-    processResp ((lookupRes, (<> touched) -> touched'), avl') =
-      let appendTouched = second (<> touched') . swap in
+    processResp ((lookupRes, (<> touched0) -> touched), avl') =
+      let appendTouched = second (<> touched) . swap in
       case (valueop, lookupRes) of
-        (NotExisted, Nothing) -> pure (avl', touched')
+        (NotExisted, Nothing) -> pure (avl', touched)
         (New v     , Nothing) -> appendTouched <$> AVL.insert k v avl'
         (Rem       , Just _)  -> appendTouched <$> AVL.delete k avl'
         (Upd v     , Just _)  -> appendTouched <$> AVL.insert k v avl'
@@ -192,18 +192,18 @@ modAccumU Nothing (NewestFirst (u:us)) =
 computeUndo
     :: forall h xs ctx .
     ( HasGetter ctx (RootHashes h xs)
-    , RHashable h xs
+    , RecMapMethod (AvlHashC h) (AVLChgAccum h) xs
     )
     => AVLChgAccums h xs
     -> ctx
     -> AvlUndo h xs
 computeUndo Nothing ctx    = gett ctx
-computeUndo (Just accum) _ = rmapWithHash @h (RootHashComp . avlRootHash . acaMap) accum
+computeUndo (Just accum) _ = rmapMethod @(AvlHashC h) (RootHashComp . avlRootHash . acaMap) accum
 
 -- | Constructs a record of getters which return values for requested keys from
 -- optional ca argument. If ca is not provided, then tree is built from root
 -- hashes from ctx argument. nodeActs is a record of effectful actions called on
--- all "touched" AVL nodes (i.e. all nodes).
+-- all "touched" AVL nodes (i.e. all visited nodes).
 query
     :: forall h xs ctx m .
     ( AvlHashable h
@@ -211,7 +211,7 @@ query
     , HasGetter ctx (RetrieveF h m xs)
     , MonadCatch m
     , AllAvlEntries h xs
-    , RMapWithC (IsAvlEntry h) xs
+    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
     )
     => ctx
     -> AVLChgAccums h xs
@@ -268,7 +268,7 @@ iter
     , HasGetter ctx (RetrieveF h m xs)
     , MonadCatch m
     , AllAvlEntries h xs
-    , RMapWithC (IsAvlEntry h) xs
+    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
     )
     => ctx
     -> AVLChgAccums h xs

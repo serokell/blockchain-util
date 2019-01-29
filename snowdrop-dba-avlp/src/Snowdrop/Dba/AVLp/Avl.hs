@@ -29,7 +29,6 @@ import           Data.Vinyl.TypeLevel (AllConstrained)
 import qualified Data.Text.Buildable as Buildable
 import           Snowdrop.Dba.Base (DbApplyProofWrapper (..))
 import           Snowdrop.Hetero (HKey, HVal)
-
 type AvlHashable h = (Ord h, Show h, Typeable h)
 type KVConstraint k v = (Typeable k, Ord k, Show k, Show v, Typeable v, Eq v)
 
