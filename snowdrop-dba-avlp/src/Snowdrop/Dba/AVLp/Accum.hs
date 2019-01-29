@@ -75,9 +75,6 @@ deriving instance (Show h, Show (HVal t), Show (HKey t), Show (AVLCacheEl h t)) 
 -- where `rootHash` is root hash of current state
 type AVLChgAccums h xs = Maybe (Rec (AVLChgAccum h) xs)
 
-class Ord (HVal x) => HKeyOrd x
-instance Ord (HVal x) => HKeyOrd x
-
 resolveAvlCA
     :: forall h xs state .
     ( AvlHashable h
@@ -133,8 +130,8 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
         -> RetrieveF h m rs
         -> m (Rec (AVLChgAccum h) rs)
     modAccumOne RNil RNil RNil                          = pure RNil
-    modAccumOne (ca :& caRest) (cs :& csRest) (r :& rs) =
-        liftA2 (:&) (modAccumOneDo ca cs r) (modAccumOne caRest csRest rs)
+    modAccumOne (ca :& caRest) (cs :& csRest) (rv :& rRest) =
+        liftA2 (:&) (modAccumOneDo ca cs rv) (modAccumOne caRest csRest rRest)
 
     modAccumOneDo
         :: forall r . IsAvlEntry h r
