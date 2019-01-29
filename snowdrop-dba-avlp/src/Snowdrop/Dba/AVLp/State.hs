@@ -24,7 +24,8 @@ module Snowdrop.Dba.AVLp.State
        , asAVLCache
        , upcastAVLCache
        , upcastAVLCache'
-       , RetrieveImpl (..)
+       , avlCacheElToRetrieve
+       , avlPureStorageToRetrieve
        ) where
 
 import           Data.Vinyl (RecSubset, rcast, rget, rput, rreplace)
@@ -125,7 +126,7 @@ clientModeToTempSt _ (ProofMode proofs') rootHashes =
     convert :: forall r . IsAvlEntry h r => AvlProof h r -> RootHash h -> AVLCacheEl h r -> m (AVLCacheEl h r)
     convert (AvlProof p@(AVL.Proof avl)) rootH cache = reThrowAVLEx @(HKey r) @h $ do
         when (not $ AVL.checkProof (unRootHash rootH) p) $ throwM BrokenProofError
-        snd <$> runAVLCacheElT (saveAVL avl) def cache
+        snd <$> runAVLCacheElT (saveAVL avl) def (avlCacheElToRetrieve cache)
 
 clientModeToTempSt retrieveF RemoteMode rootH = pure $ ClientTempState (Right retrieveF) rootH
 
@@ -172,7 +173,7 @@ initAVLPureStorage xs = initAVLPureStorageAll xs (unAVLPureStorage def)
             let body = do t <- AVL.fromList kvs
                           h <- saveAVL t
                           pure (t, h)
-            in runAVLCacheElT body def cache
+            in runAVLCacheElT body def (avlCacheElToRetrieve cache)
         logDebug . fromString $ "Built AVL+ tree: " <> show rootH <> "\n" <> (AVL.showMap tree)
         AMS{..} <- initAVLPureStorageAll accums restCache
         let newCache = AVLPureStorage $ cache' :& (unAVLPureStorage amsState)
@@ -193,15 +194,25 @@ newtype AVLCache h xs = AVLCache { unAVLCache :: Rec (AVLCacheEl h) xs }
 instance Default (Rec (AVLCacheEl h) xs) => Default (AVLCache h xs) where
     def = AVLCache def
 
--- | Monad transformer for caching `save` operations resulting from AVL+ actions
-newtype AVLCacheT h xs m a = AVLCacheT (StateT (AVLCache h xs) m a)
-    deriving (Functor, Applicative, Monad, MonadThrow,
-              MonadCatch, MonadState (AVLCache h xs), MonadTrans)
+-- newtype RetrieveEl h x = RetrieveEl { unRetrieveEl :: h (MapLayer h (HKey x) (HVal x) h) } deriving (Semigroup)
+
+-- newtype Retrieve h xs = Retrieve { unRetrieve ::
 
 -- | Monad transformer for caching `save` operations resulting from AVL+ actions
-newtype AVLCacheElT h x m a = AVLCacheElT (StateT (AVLCacheEl h x) m a)
+newtype AVLCacheT h xs m a = AVLCacheT { unAVLCacheT :: StateT (AVLCache h xs) (ReaderT (RetrieveF h m xs) m) a }
+    deriving (Functor, Applicative, Monad, MonadThrow, MonadCatch, MonadState (AVLCache h xs), MonadReader (RetrieveF h m xs))
+
+instance MonadTrans (AVLCacheT h xs) where
+    lift :: Monad m => m a -> (AVLCacheT h xs) m a
+    lift = AVLCacheT . lift . lift
+
+-- | Monad transformer for caching `save` operations resulting from AVL+ actions
+newtype AVLCacheElT h x m a = AVLCacheElT (StateT (AVLCacheEl h x) (ReaderT (RetrieveEl m h x) m) a)
     deriving (Functor, Applicative, Monad, MonadThrow,
-              MonadCatch, MonadState (AVLCacheEl h x), MonadTrans)
+              MonadCatch, MonadState (AVLCacheEl h x), MonadReader (RetrieveEl m h x))
+
+instance MonadTrans (AVLCacheElT h x) where
+    lift = AVLCacheElT . lift . lift
 
 deriving instance MonadIO m => MonadIO (AVLCacheT h xs m)
 deriving instance MonadIO m => MonadIO (AVLCacheElT h x m)
@@ -211,14 +222,14 @@ instance ( MonadThrow m
          , RContains xs x
          , k ~ HKey x
          , v ~ HVal x
-         , RetrieveImpl h m x
          )
          => AVL.KVRetrieve h (AVL.MapLayer h k v h) (AVLCacheT h xs m) where
     retrieve :: h -> AVLCacheT h xs m (AVL.MapLayer h k v h)
-    -- TODO: refactor using Maybe monad
+    -- FIXME: refactor using Maybe monad
     retrieve h = do cache <- rget @x . unAVLCache <$> get
                     case (M.lookup h (unAVLCacheEl cache)) of
-                        Nothing -> do mx <- lift (retrieveImpl @_ @_ @x h)
+                        Nothing -> do retrieve <- asks (rget @x)
+                                      mx <- lift (runRetrieveEL retrieve h)
                                       case mx of
                                           Nothing -> throwM $ DbProtocolError $ "Not found key: " <> show h
                                           Just x -> pure x
@@ -228,13 +239,13 @@ instance ( MonadThrow m
          , AvlHashable h
          , k ~ HKey x
          , v ~ HVal x
-         , RetrieveImpl h m x
          )
          => AVL.KVRetrieve h (AVL.MapLayer h k v h) (AVLCacheElT h x m) where
     retrieve :: h -> AVLCacheElT h x m (AVL.MapLayer h k v h)
     retrieve h = do cache <- get
                     case M.lookup h (unAVLCacheEl cache) of
-                        Nothing -> do mx <- lift (retrieveImpl @_ @_ @x h)
+                        Nothing -> do retrieve <- ask
+                                      mx <- lift (runRetrieveEL retrieve h)
                                       case mx of
                                           Nothing -> throwM $ DbProtocolError $ "Not found key: " <> show h
                                           Just x -> pure x
@@ -267,24 +278,25 @@ instance ( MonadThrow m
 
 runAVLCacheT
     :: MonadThrow m
-    => AVLCacheT h xs (ReaderT ctx m) a
+    => AVLCacheT h xs m a
     -> AVLCache h xs
-    -> ctx
+    -> RetrieveF h m xs
     -> m (a, AVLCache h xs)
 runAVLCacheT (AVLCacheT ma) initSt ctx = runReaderT (runStateT ma initSt) ctx
 
 runAVLCacheElT
     :: MonadThrow m
-    => AVLCacheElT h x (ReaderT ctx m) a
+    => AVLCacheElT h x m a
     -> AVLCacheEl h x
-    -> ctx
+    -> RetrieveEl m h x
     -> m (a, AVLCacheEl h x)
 runAVLCacheElT (AVLCacheElT ma) initSt ctx = runReaderT (runStateT ma initSt) ctx
 
 asAVLCache :: forall x xs h m a . Monad m => AVLCacheElT h x m a -> AVLCacheT h (x ': xs) m a
 asAVLCache (AVLCacheElT f) =
     AVLCacheT $ do (AVLCache cache) <- get
-                   (a, s) <- lift $ runStateT f (rget @x cache)
+                   rs <- ask
+                   (a, s) <- lift . lift $ runReaderT (runStateT f (rget @x cache)) (rget @x rs)
                    put (AVLCache $ rput @x s cache)
                    return a
 
@@ -294,7 +306,8 @@ upcastAVLCache' :: forall x xs h m a
                 -> AVLCacheT h (x ': xs) m a
 upcastAVLCache' (AVLCacheT f) =
     AVLCacheT $ do (AVLCache (c :& cs)) <- get
-                   (a, AVLCache s) <- lift $ runStateT f (AVLCache cs)
+                   (_ :& rs) <- ask
+                   (a, AVLCache s) <- lift . lift $ runReaderT (runStateT f (AVLCache cs)) rs
                    put (AVLCache $ c :& s)
                    return a
 
@@ -306,7 +319,8 @@ upcastAVLCache :: forall big small h m a
                -> AVLCacheT h big   m a
 upcastAVLCache (AVLCacheT f) =
     AVLCacheT $ do (AVLCache cache) <- get
-                   (a, AVLCache s) <- lift $ runStateT f (AVLCache $ rcast cache)
+                   rs <- ask
+                   (a, AVLCache s) <- lift . lift $ runReaderT (runStateT f (AVLCache $ rcast cache)) (rcast rs)
                    put (AVLCache $ rreplace s cache)
                    return a
 
@@ -318,22 +332,22 @@ newtype RetrieveEl m h x = RetrieveEl { runRetrieveEL :: h -> m (Maybe (AVL.MapL
 
 type RetrieveF h m xs    = Rec (RetrieveEl m h) xs
 
--- TODO replace with AVL.KVRetrieveM after this type is introduced into library
-class Monad m => RetrieveImpl h m x where
-    retrieveImpl :: h -> m (Maybe (AVL.MapLayer h (HKey x) (HVal x) h))
+avlCacheElToRetrieve :: (Ord h, Monad m) => AVLCacheEl h r -> RetrieveEl m h r
+avlCacheElToRetrieve r = RetrieveEl $ \h -> pure $ M.lookup h (unAVLCacheEl r)
 
-instance (Monad m, RContains xs x) => RetrieveImpl h (ReaderT (RetrieveF h m xs) m) x where
-    retrieveImpl h = ask >>= lift . (\t -> runRetrieveEL t h) . rget @x
+instance Ord h => HasGetter (ClientTempState h xs STM) (RetrieveF h STM xs) where
+    gett = either avlPureStorageToRetrieve id . ctRetrieve
 
-instance (Monad m, Ord h) => RetrieveImpl h (ReaderT (AVLCacheEl h x) m) x where
-    retrieveImpl h = M.lookup h . unAVLCacheEl <$> ask
+instance Ord h => HasGetter (AVLServerState h xs) (RetrieveF h STM xs) where
+    gett :: AVLServerState h xs -> RetrieveF h STM xs
+    gett = avlPureStorageToRetrieve . amsState
 
-instance (Monad m, AvlHashable h, RContains xs x) => RetrieveImpl h (ReaderT (AVLServerState h xs) m) x where
-    retrieveImpl h = asks ( M.lookup h . unAVLCacheEl . rget @x . unAVLPureStorage . amsState)
+avlPureStorageToRetrieve :: (Ord h, Monad m) => AVLPureStorage h xs -> RetrieveF h m xs
+avlPureStorageToRetrieve ss = go (unAVLPureStorage ss)
+  where
+    go :: (Ord h, Monad m) => Rec (AVLCacheEl h) rs -> RetrieveF h m rs
+    go RNil = RNil
+    go x@(_ :& _) = go' x
 
-instance (Monad m, AvlHashable h, RContains xs x) => RetrieveImpl h (ReaderT (AVLPureStorage h xs) m) x where
-    retrieveImpl h = asks ( M.lookup h . unAVLCacheEl . rget @x . unAVLPureStorage)
-
-instance (AvlHashable h, MonadCatch m, RContains xs x) => RetrieveImpl h (ReaderT (ClientTempState h xs m) m) x where
-    retrieveImpl k = asks ctRetrieve >>=
-        lift . either (runReaderT $ retrieveImpl @_ @_ @x k) (runReaderT $ retrieveImpl @_ @_ @x k)
+    go' :: (Ord h, Monad m) => Rec (AVLCacheEl h) (r ': rs) -> RetrieveF h m (r ': rs)
+    go' (r :& rs) = avlCacheElToRetrieve r :& go rs

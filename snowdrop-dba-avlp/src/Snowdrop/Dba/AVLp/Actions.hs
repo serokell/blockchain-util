@@ -27,8 +27,6 @@ import           Data.Vinyl (RApply (..), RMap, RecApplicative, rget, rpure, rpu
 import           Data.Vinyl (Rec (..))
 import           Data.Vinyl.Functor (Lift (..))
 import           Data.Vinyl.Recursive (rmap)
-import           Data.Vinyl.TypeLevel (AllConstrained)
-
 import           Snowdrop.Core (ChgAccum, Undo)
 import           Snowdrop.Dba.AVLp.Accum (AVLChgAccum (..), AVLChgAccums, RootHashes, computeUndo,
                                           iter, modAccum, modAccumU, query)
@@ -37,10 +35,10 @@ import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..
                                         avlRootHash, mkAVL, saveAVL)
 import           Snowdrop.Dba.AVLp.Constraints (RHashable, RMapWithC, rmapWithHash)
 import           Snowdrop.Dba.AVLp.State (AVLCache (..), AVLCacheEl (..), AVLCacheElT, AVLCacheT,
-                                          AVLPureStorage (..), AVLServerState (..), ClientTempState,
-                                          RetrieveEl (..), RetrieveF, RetrieveImpl, asAVLCache,
-                                          clientModeToTempSt, runAVLCacheElT, runAVLCacheT,
-                                          upcastAVLCache')
+                                          AVLPureStorage (..), AVLServerState (..), RetrieveEl (..),
+                                          RetrieveF, asAVLCache, avlCacheElToRetrieve,
+                                          avlPureStorageToRetrieve, clientModeToTempSt,
+                                          runAVLCacheElT, runAVLCacheT, upcastAVLCache')
 import           Snowdrop.Dba.Base (ClientMode (..), DbAccessActions (..), DbAccessActionsM (..),
                                     DbAccessActionsU (..), DbApplyProof, DbComponents,
                                     DbModifyActions (..), RememberForProof (..))
@@ -72,7 +70,6 @@ avlClientDbActions
     :: forall conf h xs .
     ( AvlHashable h
     , AllAvlEntries h xs
-    , AllConstrained (RetrieveImpl h (ReaderT (ClientTempState h xs STM) STM)) xs
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ ()
     , Default (Rec (AVLCacheEl h) xs)
@@ -159,8 +156,6 @@ avlServerDbActions
     , Default (AVLCache h '[])
     , RetrieveHashAll h xs
 
-    , AllConstrained (RetrieveImpl h (ReaderT (AVLServerState h xs) STM)) xs
-    , AllConstrained (RetrieveImpl h (ReaderT (AVLPureStorage h xs) STM)) xs
     )
     => AVLServerState h xs
     -> STM ( RememberForProof -> DbModifyActions conf STM
@@ -208,7 +203,7 @@ avlServerDbActions = fmap mkActions . newTVar
             runAVLCacheT
               (computeProofAll (amsRootHashes oldAms) accums (amsVisited oldAms))
               def
-              (amsState oldAms)
+              (avlPureStorageToRetrieve . amsState $ oldAms)
 
     applyDo
         :: (RMap xs, RApply xs, RecApplicative xs)
@@ -228,14 +223,13 @@ avlServerDbActions = fmap mkActions . newTVar
     saveAVLs :: AllAvlEntries h rs => AVLPureStorage h rs -> Rec (AVLChgAccum h) rs -> STM (RootHashes h rs, AVLCache h rs)
     saveAVLs (AVLPureStorage RNil) RNil = pure (RNil, def)
     saveAVLs (AVLPureStorage (storage :& restStorage)) (AVLChgAccum accAvl acc _ :& accums) = do
-        (h, acc') :: (RootHash h, AVLCacheEl h r) <- runAVLCacheElT (saveAVL accAvl) acc storage
+        (h, acc') :: (RootHash h, AVLCacheEl h r) <- runAVLCacheElT (saveAVL accAvl) acc (avlCacheElToRetrieve storage)
         (restRoots, restAcc) <- saveAVLs (AVLPureStorage restStorage) accums
         pure (RootHashComp h :& restRoots, AVLCache (acc' :& unAVLCache restAcc))
 
 computeProofAll
     :: ( AllAvlEntries h xs
        , AvlHashable h
-       , AllConstrained (RetrieveImpl h m) xs
        , MonadThrow m
        , MonadCatch m
        )
@@ -249,7 +243,6 @@ computeProofAll a@(_ :& _) b@(_ :& _) c@(_ :& _) = computeProofAll' a b c
 computeProofAll'
     :: forall h x xs m .
      ( AllAvlEntries h (x ': xs)
-     , AllConstrained (RetrieveImpl h m) (x ': xs)
      , AvlHashable h
      , MonadCatch m
      , MonadThrow m
@@ -267,7 +260,7 @@ computeProof
      ( IsAvlEntry h t
      , AvlHashable h
      , MonadCatch m
-     , RetrieveImpl h m t)
+     )
     => RootHash h
     -> Set h
     -> Set h
