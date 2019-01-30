@@ -28,8 +28,12 @@ extra-deps:
     - code/network
     - code/prelude
 
-- git: https://github.com/serokell/auth-data-structures.git
-  commit: c46d81fac79bbc1e4efcc6c4568a1500b273bd60
+- git: https://github.com/serokell/avl-plus
+  commit: 04377fc71adeaab30e1392f62405ceca40381cb6
+
+# for avl-plus
+- git: git@github.com:serokell/zipp.git
+  commit: 7bf77875305c4b1930b024e21aa6691387c156fc
 
 # Forced by lootbox #
 - base-noprelude-4.10.1.0

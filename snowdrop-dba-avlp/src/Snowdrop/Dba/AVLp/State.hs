@@ -1,12 +1,12 @@
 {-# LANGUAGE DataKinds           #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE InstanceSigs        #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Snowdrop.Dba.AVLp.State
        ( AVLServerState (..)
-       , AMSRequested (..)
        , ClientTempState (..)
        , clientModeToTempSt
        , ClientError (..)
@@ -24,18 +24,17 @@ import           Universum
 
 import           Data.Default (Default (..))
 import qualified Data.Map.Strict as M
-import qualified Data.Set as S
-import           Data.Tree.AVL (KVStoreMonad (..), Serialisable (..))
+import           Data.Tree.AVL (MapLayer)
 import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
 import           Loot.Log (MonadLogging, logDebug)
 
 import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
                                         IsAvlEntry, RootHash (..), RootHashComp (..), RootHashes,
-                                        deserialiseM, materialize, mkAVL, saveAVL)
+                                        deserialiseM, saveAVL)
 import           Snowdrop.Dba.Base (ClientMode (..), DbActionsException (..))
-import           Snowdrop.Hetero (HKey, HMap, HVal, unHMapEl)
-import           Snowdrop.Util (HasGetter (..))
+import           Snowdrop.Hetero (HKey, HMap, unHMapEl)
+import           Snowdrop.Util (HasGetter (..), Serialisable (..))
 
 ----------------------------------------------------------------------------
 -- Server state
@@ -45,9 +44,9 @@ import           Snowdrop.Util (HasGetter (..))
 data AVLServerState h xs = AMS
     { amsRootHashes :: RootHashes h xs  -- ^ Root hash of tree kept in storage
     , amsState      :: AVLPureStorage h -- ^ Storage of whole AVL tree (including old nodes)
-    , amsRequested  :: Rec AMSRequested xs
-    -- ^ Set of keys that were requested since the last `apply` operation.
-    -- Note, that keys which were requested with `RememberForProof False` passed to
+    , amsVisited    :: Rec (Const (Set h)) xs
+    -- ^ Set of nodes visited since the last `apply` operation.
+    -- Note, that nodes which were requested with `RememberForProof False` passed to
     -- `avlServerDbActions` are not being added to this set.
     }
 
@@ -56,27 +55,6 @@ instance HasGetter (AVLServerState h xs) (RootHashes h xs) where
 
 instance HasGetter (AVLServerState h xs) (AVLPureStorage h) where
     gett = amsState
-
-
--- | Data type for tracking keys which were requested from access actions.
-data AMSRequested t
-    = AMSWholeTree
-    -- ^ Constructor, identifying that all keys of tree were requested
-    -- (which happens with current implementation of iteration)
-    | AMSKeys (Set (HKey t))
-    -- ^ Constructor, containing set of keys that were requested
-
-instance Default (AMSRequested t) where
-    def = AMSKeys S.empty
-
-instance Ord (HKey t) => Semigroup (AMSRequested t) where
-    AMSWholeTree <> _ = AMSWholeTree
-    _ <> AMSWholeTree = AMSWholeTree
-    AMSKeys s1 <> AMSKeys s2 = AMSKeys $ s1 <> s2
-
-instance Ord (HKey t) => Monoid (AMSRequested t) where
-    mempty = AMSKeys mempty
-    mappend = (<>)
 
 ----------------------------------------------------------------------------
 -- Client state
@@ -95,7 +73,6 @@ instance Exception ClientError
 reThrowAVLEx :: forall k h m a . (MonadCatch m, Show h, Typeable h, Show k, Typeable k) => m a -> m a
 reThrowAVLEx m =
     m `catch` (\(e :: ClientError) -> throwM $ DbProtocolError $ show e)
-      `catch` (\(e :: AVL.DeserialisationError) -> throwM $ DbProtocolError $ show e)
       `catch` (\(e :: AVL.NotFound k) -> throwM $ DbProtocolError $ "Not found key: " <> show e)
       `catch` (\(e :: AVL.NotFound h) -> throwM $ DbProtocolError $ "Not found hash: " <> show e)
 
@@ -165,21 +142,15 @@ initAVLPureStorage xs = initAVLPureStorageAll xs def
         -> m (AVLServerState h rs)
     initAVLPureStorage' ((M.toList . unHMapEl -> kvs) :& accums) cache = reThrowAVLEx @(HKey r) @h $ do
         logDebug "Initializing AVL+ pure storage"
-        (rootH, unAVLCache -> cache') <-
-            runAVLCacheT
-                (foldM (\b (k, v) -> snd <$> AVL.insert @h k v b) AVL.empty kvs >>= saveAVL)
-                def
-                cache
+        ((tree, rootH), unAVLCache -> cache') <-
+            let body = do t <- AVL.fromList kvs
+                          h <- saveAVL t
+                          pure (t, h)
+            in runAVLCacheT body def cache
+        logDebug . fromString $ "Built AVL+ tree: " <> show rootH <> "\n" <> (AVL.showMap tree)
         let newCache = AVLPureStorage $ unAVLPureStorage cache <> cache'
-        logDebug "Materializing AVL+ pure storage"
-        fullAVL <-
-            runAVLCacheT @_ @h
-                (materialize @h @(HKey r) @(HVal r) $ mkAVL rootH)
-                def
-                newCache
-        logDebug . fromString $ "Built AVL+ tree:\n" <> (AVL.showMap $ fst fullAVL)
         AMS{..} <- initAVLPureStorageAll accums newCache
-        pure $ AMS (RootHashComp rootH :& amsRootHashes) amsState (def :& amsRequested)
+        pure $ AMS (RootHashComp rootH :& amsRootHashes) amsState (mempty :& amsVisited)
 
 -- | Accumulator for changes emerging from `save` operations
 -- being performed on AVL tree
@@ -191,13 +162,24 @@ newtype AVLCacheT h m a = AVLCacheT (StateT (AVLCache h) m a)
     deriving (Functor, Applicative, Monad, MonadThrow,
               MonadCatch, MonadState (AVLCache h), MonadTrans)
 
-instance (MonadThrow m, AvlHashable h, RetrieveImpl m h)
-         => KVStoreMonad h (AVLCacheT h m) where
+deriving instance MonadIO m => MonadIO (AVLCacheT h m)
+
+instance (MonadThrow m, AvlHashable h, RetrieveImpl m h, Serialisable (MapLayer h k v h))
+         => AVL.KVRetrieve h (AVL.MapLayer h k v h) (AVLCacheT h m) where
+    retrieve :: h -> AVLCacheT h m (AVL.MapLayer h k v h)
     retrieve k = checkInAccum >>= deserialiseM
       where
         checkInAccum = M.lookup k . unAVLCache <$> get >>= maybe checkInState pure
         checkInState = lift (retrieveImpl k) >>= maybe (throwM $ AVL.NotFound k) pure
-    store k v = modify' $ AVLCache . M.insert k (serialise v) . unAVLCache
+
+instance (MonadThrow m, AvlHashable h, RetrieveImpl m h, Serialisable (MapLayer h k v h))
+         => AVL.KVStore h (AVL.MapLayer h k v h) (AVLCacheT h m) where
+    massStore :: [(h, AVL.MapLayer h k v h)] -> AVLCacheT h m ()
+    massStore = mapM_ store
+
+store :: (MonadThrow m, AvlHashable h, RetrieveImpl m h, Serialisable (MapLayer h k v h))
+      => (h, MapLayer h k v h) -> AVLCacheT h m ()
+store (k, v) = modify' $ AVLCache . M.insert k (serialise v) . unAVLCache
 
 runAVLCacheT
     :: MonadThrow m

@@ -37,9 +37,10 @@ library
       Snowdrop.Dba.AVLp
 
   other-modules:
-      Snowdrop.Dba.AVLp.Avl
       Snowdrop.Dba.AVLp.Accum
       Snowdrop.Dba.AVLp.Actions
+      Snowdrop.Dba.AVLp.Avl
+      Snowdrop.Dba.AVLp.Constraints
       Snowdrop.Dba.AVLp.State
 
   default-language:    Haskell2010

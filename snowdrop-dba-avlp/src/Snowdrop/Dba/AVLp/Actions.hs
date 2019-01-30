@@ -8,12 +8,13 @@ module Snowdrop.Dba.AVLp.Actions
        ( AVLChgAccum
        , avlServerDbActions
        , avlClientDbActions
-       , AllWholeTree
+       , RememberNodesActs' (..)
+       , RememberNodesActs
        ) where
 
+import           Data.Vinyl (RecMapMethod(..), RecApplicative, rget, rpure, rput)
 import           Universum
 
-import           Data.Tree.AVL (MapLayer (..), Serialisable (..))
 import qualified Data.Tree.AVL as AVL
 
 import           Data.Default (Default (def))
@@ -24,30 +25,33 @@ import           Data.Vinyl.Recursive (rmap)
 import           Snowdrop.Core (ChgAccum, Undo)
 import           Snowdrop.Dba.AVLp.Accum (AVLChgAccum (..), AVLChgAccums, RootHashes, computeUndo,
                                           iter, modAccum, modAccumU, query)
-import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..),
-                                        AvlProofs, AvlUndo, IsAvlEntry, KVConstraint,
-                                        RootHash (..), RootHashComp (..), avlRootHash,
-                                        materialize, mkAVL, saveAVL)
-import           Snowdrop.Dba.AVLp.State (AMSRequested (..), AVLCache (..),
-                                                          AVLCacheT, AVLPureStorage (..),
-                                                          AVLServerState (..), ClientTempState,
-                                                          RetrieveF, RetrieveImpl,
-                                                          clientModeToTempSt, runAVLCacheT)
+import           Snowdrop.Dba.AVLp.Avl (AvlHashable, AllAvlEntries, AvlProof (..), AvlProofs,
+                                        AvlUndo, IsAvlEntry, RootHash (..), RootHashComp (..),
+                                        avlRootHash, mkAVL, saveAVL)
+import           Snowdrop.Dba.AVLp.Constraints (AvlHashC)
+import           Snowdrop.Dba.AVLp.State (AVLCache (..), AVLCacheT, AVLPureStorage (..),
+                                          AVLServerState (..), ClientTempState, RetrieveF,
+                                          RetrieveImpl, clientModeToTempSt, runAVLCacheT)
 import           Snowdrop.Dba.Base (ClientMode (..), DbAccessActions (..), DbAccessActionsM (..),
                                     DbAccessActionsU (..), DbApplyProof, DbComponents,
                                     DbModifyActions (..), RememberForProof (..))
-import           Snowdrop.Hetero (HKey, HVal, unHSetEl)
+import           Snowdrop.Hetero (HKey, HVal, RContains)
 import           Snowdrop.Util (NewestFirst)
+
+
+ignoreNodesActs :: RecApplicative xs => Rec (Const (Set h -> STM ())) xs
+ignoreNodesActs = rpure (Const (\_ -> pure ()))
 
 avlClientDbActions
     :: forall conf h xs .
-    ( AvlHashable h
-    , RetrieveImpl (ReaderT (ClientTempState h xs STM) STM) h
-    , AllAvlEntries h xs
-
-    , Undo conf ~ AvlUndo h xs
+    ( AllAvlEntries h xs
+    , AvlHashable h
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ ()
+    , RecApplicative xs
+    , RecMapMethod (AvlHashC h) (AVLChgAccum h) xs
+    , RetrieveImpl (ReaderT (ClientTempState h xs STM) STM) h
+    , Undo conf ~ AvlUndo h xs
     , xs ~ DbComponents conf
     )
     => RetrieveF h STM
@@ -71,19 +75,19 @@ avlClientDbActions retrieveF = fmap mkActions . newTVar
         daa =
           DbAccessActions
             -- adding keys to amsRequested
-          (\cA req -> createState >>= \ctx -> query ctx cA req)
+          (\cA req -> createState >>= \ctx -> query ctx cA ignoreNodesActs req)
             -- setting amsRequested to AMSWholeTree as iteration with
             -- current implementation requires whole tree traversal
-          (\cA -> createState >>= \ctx -> iter ctx cA)
+          (\cA -> createState >>= \ctx -> iter ctx cA ignoreNodesActs)
         daaM = DbAccessActionsM daa (\cA cs -> createState >>= \ctx -> modAccum ctx cA cs)
         daaU = DbAccessActionsU daaM
                   (withProjUndo . modAccumU)
                   (\cA _cs -> pure . Right . computeUndo cA =<< createState)
-        createState = clientModeToTempSt retrieveF ctMode =<< ((readTVar var))
+        createState = clientModeToTempSt retrieveF ctMode =<< readTVar var
 
     apply :: AvlHashable h => TVar (RootHashes h xs) -> AVLChgAccums h xs -> STM ()
     apply var (Just accums) =
-        writeTVar var $ rmap (RootHashComp . avlRootHash . acaMap) accums
+        writeTVar var $ rmapMethod @(AvlHashC h) (RootHashComp . avlRootHash . acaMap) accums
     apply _ Nothing = pure ()
 
 withProjUndo :: (MonadThrow m, Applicative f) => (NewestFirst [] undo -> a) -> NewestFirst [] undo -> m (f a)
@@ -91,15 +95,14 @@ withProjUndo action = pure . pure . action
 
 avlServerDbActions
     :: forall conf h xs .
-    ( AvlHashable h
-    , AllAvlEntries h xs
-
-    , AllWholeTree xs
-    , Monoid (Rec AMSRequested xs)
-
-    , Undo conf ~ AvlUndo h xs
+    ( AllAvlEntries h xs
+    , AvlHashable h
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ AvlProofs h xs
+    , RecApplicative xs
+    , RecMapMethod (AvlHashC h) (AVLChgAccum h) xs
+    , RememberNodesActs h xs
+    , Undo conf ~ AvlUndo h xs
     , xs ~ DbComponents  conf
     )
     => AVLServerState h xs
@@ -119,35 +122,21 @@ avlServerDbActions = fmap mkActions . newTVar
                         retrieveHash var)
     mkAccessActions var recForProof = daaU
       where
+        nodeActs :: Rec (Const (Set h -> STM ())) xs
+        nodeActs = case recForProof of
+            RememberForProof True  -> rememberNodesActs var
+            RememberForProof False -> ignoreNodesActs
+
         daa = DbAccessActions
-                -- adding keys to amsRequested
-                (\cA req ->
-                  (retrieveAMS var recForProof $ rmap (AMSKeys . unHSetEl) req)
-                      >>= \ctx -> query ctx cA req
-                )
-                -- setting amsRequested to AMSWholeTree as iteration with
-                -- current implementation requires whole tree traversal
-                (\cA ->
-                  (retrieveAMS var recForProof allWholeTree)
-                    >>= \ctx -> iter ctx cA
-                )
+                (\cA req -> readTVar var >>= \ctx -> query ctx cA nodeActs req)
+                (\cA -> readTVar var >>= \ctx -> iter ctx cA nodeActs)
+
         daaM = DbAccessActionsM daa (\cA cs -> (readTVar var) >>= \ctx -> modAccum ctx cA cs)
         daaU = DbAccessActionsU daaM
                   (withProjUndo . modAccumU)
                   (\cA _cs -> pure . Right . computeUndo cA =<< (readTVar var))
 
-    retrieveAMS
-        :: Monoid (Rec AMSRequested xs)
-        => TVar (AVLServerState h xs)
-        -> RememberForProof
-        -> Rec AMSRequested xs
-        -> STM (AVLServerState h xs)
-    retrieveAMS var (RememberForProof True) amsReq = do
-        ams <- readTVar var
-        writeTVar var (ams { amsRequested = amsRequested ams `mappend` amsReq }) $> ams
-    retrieveAMS var _ _ = readTVar var
-
-    apply :: Monoid (Rec AMSRequested xs)
+    apply :: RecApplicative xs
           => TVar (AVLServerState h xs)
           -> AVLChgAccums h xs
           -> STM (AvlProofs h xs)
@@ -156,12 +145,12 @@ avlServerDbActions = fmap mkActions . newTVar
     apply var (Just accums) =
         applyDo var accums >>= \oldAms -> fst <$>
             runAVLCacheT
-              (computeProofAll (amsRootHashes oldAms) accums (amsRequested oldAms))
+              (computeProofAll (amsRootHashes oldAms) accums (amsVisited oldAms))
               def
               (amsState oldAms)
 
     applyDo
-        :: Monoid (Rec AMSRequested xs)
+        :: RecApplicative xs
         => TVar (AVLServerState h xs)
         -> Rec (AVLChgAccum h) xs
         -> STM (AVLServerState h xs)
@@ -171,7 +160,7 @@ avlServerDbActions = fmap mkActions . newTVar
         let newState = AMS {
               amsRootHashes = roots
             , amsState = AVLPureStorage $ unAVLCache accCache <> unAVLPureStorage (amsState s)
-            , amsRequested = mempty
+            , amsVisited = rpure (Const mempty)
             }
         writeTVar var newState $> s
 
@@ -186,7 +175,7 @@ computeProofAll
     :: (AllAvlEntries h xs, AvlHashable h)
     => RootHashes h xs
     -> Rec (AVLChgAccum h) xs
-    -> Rec AMSRequested xs
+    -> Rec (Const (Set h)) xs
     -> AVLCacheT h (ReaderT (AVLPureStorage h) STM) (AvlProofs h xs)
 computeProofAll RNil RNil RNil = pure RNil
 computeProofAll (RootHashComp rootH :& roots) (AVLChgAccum _ _ accTouched :& accums) (req :& reqs) = do
@@ -197,38 +186,28 @@ computeProof
     :: forall t h . (IsAvlEntry h t, AvlHashable h)
     => RootHash h
     -> Set h
-    -> AMSRequested t
+    -> Const (Set h) t
     -> AVLCacheT h (ReaderT (AVLPureStorage h) STM) (AVL.Proof h (HKey t) (HVal t))
-computeProof (mkAVL -> oldAvl) accTouched requested =
-    case requested of
-        AMSWholeTree -> computeProofWhole oldAvl
-        AMSKeys ks   -> computeProofKeys oldAvl ks
+computeProof (mkAVL -> oldAvl) accTouched (getConst -> requested) =
+        AVL.prune (accTouched <> requested) $ oldAvl
+
+-- Build a record where each element is an effectful action which appends set of
+-- hashes to a set which belongs to a given record component
+type RememberNodesActs h xs = RememberNodesActs' h xs xs
+
+class RememberNodesActs' h ys xs where
+    rememberNodesActs :: TVar (AVLServerState h ys) -> Rec (Const (Set h -> STM ())) xs
+
+instance RememberNodesActs' h ys '[] where
+    rememberNodesActs _ = RNil
+
+instance (RememberNodesActs' h ys xs', RContains ys t,  Ord h) => RememberNodesActs' h ys (t ': xs') where
+    rememberNodesActs var = Const (rememberNodesSingleAct @t var) :& rememberNodesActs var
+
+rememberNodesSingleAct :: forall x xs h . (Ord h, RContains xs x) => TVar (AVLServerState h xs) -> Set h -> STM ()
+rememberNodesSingleAct var xs = modifyTVar' var appendToOneSet
   where
-    computeProofWhole
-        :: AVL.Map h (HKey t) (HVal t)
-        -> AVLCacheT h (ReaderT (AVLPureStorage h) STM) (AVL.Proof h (HKey t) (HVal t))
-    computeProofWhole = fmap AVL.Proof . materialize
-
-    computeProofKeys
-        :: AVL.Map h (HKey t) (HVal t)
-        -> Set (HKey t)
-        -> AVLCacheT h (ReaderT (AVLPureStorage h) STM) (AVL.Proof h (HKey t) (HVal t))
-    computeProofKeys tree ks = do
-        (avl', allTouched) <- foldM computeTouched (tree, mempty) ks
-        AVL.prune (allTouched <> accTouched) =<< materialize avl'
-
-    computeTouched
-        :: (KVConstraint k v, AVL.Hash h k v, Serialisable (MapLayer h k v h))
-        => (AVL.Map h k v, Set h)
-        -> k
-        -> AVLCacheT h (ReaderT (AVLPureStorage h) STM) (AVL.Map h k v, Set h)
-    computeTouched (avl, touched) key = do
-        ((_res, touched'), avl') <- AVL.lookup' key avl
-        pure (avl', touched' <> touched)
-
-class AllWholeTree xs where
-    allWholeTree :: Rec AMSRequested xs
-instance AllWholeTree '[] where
-    allWholeTree = RNil
-instance AllWholeTree xs' => AllWholeTree (t ': xs') where
-    allWholeTree = AMSWholeTree :& allWholeTree
+    appendToOneSet st@AMS{..} =
+      let v :: Set h = mappend xs (getConst (rget @x amsVisited))
+          newVisited = rput @x (Const v) amsVisited
+      in st { amsVisited = newVisited }
