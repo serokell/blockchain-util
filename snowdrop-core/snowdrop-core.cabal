@@ -69,11 +69,11 @@ library
       Snowdrop.Core.ERoComp
       Snowdrop.Core.ERoComp.Helpers
       Snowdrop.Core.ERoComp.Types
-      Snowdrop.Core.ERwComp
       Snowdrop.Core.Expand
       Snowdrop.Core.Expand.Type
       Snowdrop.Core.Expand.Sequential
       Snowdrop.Core.Transaction
+      Snowdrop.Core.TxConf
       Snowdrop.Core.Validate
 
   default-language: Haskell2010

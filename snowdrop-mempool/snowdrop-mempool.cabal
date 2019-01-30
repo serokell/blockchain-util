@@ -21,6 +21,7 @@ library
       data-default
     , formatting < 6.3
     , lens
+    , loot-base
     , mtl
     , snowdrop-core
     , snowdrop-dba
@@ -36,6 +37,9 @@ library
 
   other-modules:
       Snowdrop.Mempool.Core
+      Snowdrop.Mempool.ERwComp
+      Snowdrop.Mempool.ERwComp.IOExecutor
+      Snowdrop.Mempool.ERwComp.Type
       Snowdrop.Mempool.Logic
 
   default-language:    Haskell2010
@@ -54,3 +58,6 @@ library
                       TypeFamilies
                       OverloadedStrings
                       ScopedTypeVariables
+                      StandaloneDeriving
+                      DeriveFunctor
+                      GeneralizedNewtypeDeriving

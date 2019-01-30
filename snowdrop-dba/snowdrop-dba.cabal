@@ -31,6 +31,7 @@ library
     , snowdrop-util
     , text-format
     , vinyl
+    , union
   build-tool-depends:
       autoexporter:autoexporter
 
@@ -42,6 +43,7 @@ library
       Snowdrop.Dba.Base.DbActions.Types
       Snowdrop.Dba.Base.DbActions.Composite
       Snowdrop.Dba.Base.IOExecutor
+      Snowdrop.Dba.Base.DefaultConf
 
   default-language:    Haskell2010
 

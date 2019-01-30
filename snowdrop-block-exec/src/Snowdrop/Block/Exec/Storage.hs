@@ -1,8 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 
 module Snowdrop.Block.Exec.Storage
-       ( BlockUndo
-       , Blund (..)
+       ( Blund (..)
        , TipComponent
        , BlundComponent
 
@@ -28,30 +27,21 @@ import           Snowdrop.Dba.Base (DbModifyActions)
 import           Snowdrop.Dba.Simple (HMapLensEl (..), SimpleConf, simpleDbActions)
 import           Snowdrop.Hetero (HKeyVal)
 
--- | Block undo type, parametrized by unified parameter of block configuration @blkType@
-type family BlockUndo blkType :: *
-
 -- | Type for a block header with respective undo object.
 -- Isomorphic to a tuple @(header, undo)@.
 -- Note, payload is not stored as for the block handling it's of no interest.
-data Blund blkType = Blund
-    { buRawBlk :: RawBlk blkType
-    , buUndo   :: BlockUndo blkType
+data Blund rawBlk undo = Blund
+    { buRawBlk :: rawBlk
+    , buUndo   :: undo
     }
-    deriving Generic
+    deriving (Eq, Show, Generic)
 
-deriving instance (Eq (RawBlk blkType), Eq (BlockUndo blkType)) => Eq (Blund blkType)
-deriving instance (Show (RawBlk blkType), Show (BlockUndo blkType)) => Show (Blund blkType)
-
-instance ( Hashable (RawBlk blkType)
-         , Hashable (BlockUndo blkType)
-         ) => Hashable (Blund blkType)
+instance (Hashable rawBlk, Hashable undo) => Hashable (Blund rawBlk undo)
 
 data TipComponent blkType
-data BlundComponent blkType
+data BlundComponent blkType undo
 type instance HKeyVal (TipComponent blkType) = '(TipKey, TipValue (BlockRef blkType))
-type instance HKeyVal (BlundComponent blkType)  =
-      '(BlockRef blkType, Blund blkType)
+type instance HKeyVal (BlundComponent blkType undo) = '(BlockRef blkType, Blund (RawBlk blkType) undo)
 
 data TipKey = TipKey
   deriving (Eq, Ord, Show, Generic)
@@ -62,8 +52,8 @@ instance Buildable TipKey where
 data TipValue blockRef = TipValue {unTipValue :: blockRef}
   deriving (Eq, Ord, Show, Generic)
 
-data BlockStorage blkType = BlockStorage
-    { _bsBlunds :: Map (BlockRef blkType) (Blund blkType)
+data BlockStorage blkType undo = BlockStorage
+    { _bsBlunds :: Map (BlockRef blkType) (Blund (RawBlk blkType) undo)
     , _bsTip    :: Maybe (TipValue (BlockRef blkType))
     }
 
@@ -74,19 +64,19 @@ bsTipMap
      , Buildable (BlockRef blkType)
      , Typeable (BlockRef blkType)
      )
-  => Lens' (BlockStorage blkType) (Map TipKey (TipValue (BlockRef blkType)))
+  => Lens' (BlockStorage blkType undo) (Map TipKey (TipValue (BlockRef blkType)))
 bsTipMap = bsTip . maybeToMapLens
   where
     maybeToMapLens = lens (maybe def $ M.singleton TipKey) $ const (M.lookup TipKey)
 
 simpleBlockDbActions
-  :: forall blkType .
+  :: forall blkType undo .
     ( Ord (BlockRef blkType)
     , Show (BlockRef blkType)
     , Buildable (BlockRef blkType)
     , Typeable (BlockRef blkType)
     )
-  => STM (DbModifyActions (SimpleConf '[TipComponent blkType, BlundComponent blkType]) STM)
+ => STM (DbModifyActions (SimpleConf '[TipComponent blkType, BlundComponent blkType undo]) STM)
 simpleBlockDbActions =
     simpleDbActions (BlockStorage def def)
         (HMapLensEl (bsTipMap @blkType) :& HMapLensEl bsBlunds :& RNil)

@@ -25,13 +25,13 @@ import           Data.Default (Default (..))
 import           Data.Vinyl (rget)
 
 import           Snowdrop.Core (BException, CSMappendException, ChgAccum, ChgAccumCtx,
-                                ConvertEffect, Ctx, DbAccessM, ERwComp, ExpandOneTxMode,
-                                HasBException, HasBExceptions, SeqExp (..), SeqExpanders,
-                                StatePException, StateTx (..), TxComponents, TxRaw, UpCastableERoM,
-                                convertERwComp, convertEffect, expandOneTx, liftERoComp,
-                                modifyAccumOne)
-import           Snowdrop.Dba.Base (DbActions, IOCtx, IOExecEffect, runERwCompIO)
+                                ConvertEffect, Ctx, DbAccessM, ExpandOneTxMode, HasBException,
+                                HasBExceptions, SeqExp (..), SeqExpanders, StatePException,
+                                StateTx (..), TxComponents, TxRaw, UpCastableERoM, convertEffect,
+                                expandOneTx, modifyAccumOne)
+import           Snowdrop.Dba.Base (DbActions, IOCtx)
 import           Snowdrop.Hetero (Both, RContains, SomeData (..), usingSomeData)
+import           Snowdrop.Mempool.ERwComp (ERwComp, convertERwComp, liftERoComp, runERwCompIO)
 import           Snowdrop.Util (ExecM, HasGetter (..), HasLens (..))
 
 ---------------------------
@@ -39,7 +39,7 @@ import           Snowdrop.Util (ExecM, HasGetter (..), HasLens (..))
 ---------------------------
 
 type RwMempoolAct conf xs rawtx a =
-    ERwComp conf (DbAccessM conf xs) (MempoolState conf rawtx) a
+    ERwComp conf (DbAccessM (ChgAccum conf) xs) (MempoolState conf rawtx) a
 
 newtype StateTxHandler conf rawtx txtype = StateTxHandler
     { getStateTxHandler :: RwMempoolAct conf (TxComponents txtype) rawtx (StateTx txtype)
@@ -83,14 +83,14 @@ instance Default chgAccum => Default (Versioned (MempoolState' chgAccum rawtx)) 
     def = Versioned def 0
 
 actionWithMempool
-    :: forall daa xs conf rawtx a chgAccum .
+    ::
       ( Show (BException conf), Typeable (BException conf)
       , Default chgAccum
       , HasBException conf StatePException
       , chgAccum ~ ChgAccum conf
-      , DbActions (IOExecEffect conf) daa chgAccum ExecM
-      , ConvertEffect (DbAccessM conf xs) (IOExecEffect conf)
-      , Ctx conf ~ IOCtx conf
+      , DbActions da daa chgAccum ExecM
+      , ConvertEffect (DbAccessM (ChgAccum conf) xs) da
+      , Ctx conf ~ IOCtx da chgAccum
       )
     => Mempool conf rawtx
     -> daa ExecM
@@ -165,5 +165,5 @@ defaultMempoolConfig exps = MempoolConfig handler
     processTx rawtx = do
         let exd = unSeqExp $ rget @txtype exps
         tx@StateTx{..} <- liftERoComp (expandOneTx exd rawtx)
-        liftERoComp (modifyAccumOne @_ @conf txBody) >>= modify . flip sett
+        liftERoComp (modifyAccumOne @conf txBody) >>= modify . flip sett
         pure tx

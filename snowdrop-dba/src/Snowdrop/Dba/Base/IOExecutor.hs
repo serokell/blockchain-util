@@ -5,15 +5,11 @@
 
 module Snowdrop.Dba.Base.IOExecutor
        (
-         IOExecEffect
-       , runBaseMIO
-       , BaseMIOExec (..)
+         BaseMIOExec (..)
        , BaseMIO
        , BaseMException (..)
        , IOCtx (..)
-       , runERwCompIO
        , runERoCompIO
-       , applyERwComp
        -- * Lens
        , ctxChgAccum
        , ctxExec
@@ -32,17 +28,13 @@ import           Loot.Base.HasLens (HasLens', lensOf)
 import qualified Loot.Base.HasLens as Loot
 import qualified Loot.Log.Rio as Rio
 
-import           Snowdrop.Core (BException, BaseM (..), ChgAccum, ChgAccumCtx (..), Ctx,
-                                CtxConcurrently (..), ERwComp, Effectful (..), HasBException,
-                                StatePException, getCAOrDefault, runERwComp)
-import           Snowdrop.Dba.Base.DbActions (DbAccessActionsU, DbActions (..), DbApplyProof,
-                                              DbModifyActions (..))
+import           Snowdrop.Core (BaseM (..), ChgAccumMaybe (..), CtxConcurrently (..),
+                                Effectful (..), getCAOrDefault)
+import           Snowdrop.Dba.Base.DbActions (DbActions (..))
 import           Snowdrop.Util (ExecM, HasGetter (gett), HasLens (sett))
 import qualified Snowdrop.Util as Log
 
-type family IOExecEffect conf :: * -> *
-
-newtype BaseMIOExec eff ctx = BaseMIOExec { unBaseMIOExec :: forall x . ctx -> eff x -> ExecM x }
+newtype BaseMIOExec eff chgAcc = BaseMIOExec { unBaseMIOExec :: forall x . ChgAccumMaybe chgAcc -> eff x -> ExecM x }
 
 newtype BaseMException e = BaseMException e
     deriving Show
@@ -75,85 +67,71 @@ deriving instance HasLens ctx CtxConcurrently => MonadIO (BaseMIO e eff ctx)
 
 instance (Loot.HasLens' ctx Log.LoggingIO, HasLens ctx CtxConcurrently)
         => Log.MonadLogging (BaseMIO e eff ctx) where
-    log = Rio.defaultLog
-    logName = Rio.defaultLogName
+   log = Rio.defaultLog
+   logName = Rio.defaultLogName
 
 instance (Loot.HasLens' ctx Log.LoggingIO, HasLens ctx CtxConcurrently)
         => Log.ModifyLogName (BaseMIO e eff ctx) where
-    modifyLogNameSel = Rio.defaultModifyLogNameSel
+   modifyLogNameSel = Rio.defaultModifyLogNameSel
 
-instance (HasGetter ctx (BaseMIOExec eff ctx),
-          HasLens ctx CtxConcurrently) => Effectful eff (BaseMIO e eff ctx) where
-    effect eff = BaseMIO $ ReaderT $ \ctx -> unBaseMIOExec (gett ctx) ctx eff
+instance ( HasGetter (IOCtx eff chgAccum) (BaseMIOExec eff chgAccum)
+         , HasLens (IOCtx eff chgAccum) CtxConcurrently
+         , HasGetter (IOCtx eff chgAccum) (ChgAccumMaybe chgAccum)
+         ) => Effectful eff (BaseMIO e eff (IOCtx eff chgAccum)) where
+   effect eff = BaseMIO $ ReaderT $ \ctx -> unBaseMIOExec @_ @chgAccum (gett ctx) (gett ctx) eff
 
 instance (Show e, Typeable e, HasLens ctx CtxConcurrently) => MonadError e (BaseMIO e eff ctx) where
     throwError e = BaseMIO $ throwM $ BaseMException e
     catchError (BaseMIO ma) handler = BaseMIO $
         ma `catch` (\(BaseMException e) -> unBaseMIO $ handler e)
 
-runBaseMIO
-    :: forall e eff ctx a .
-    (
-      Show e, Typeable e, HasGetter ctx (BaseMIOExec eff ctx)
-    , HasLens ctx CtxConcurrently
-    , (Loot.HasLens Log.LoggingIO ctx Log.LoggingIO)
-    )
-    => BaseM e eff ctx a
-    -> ctx
-    -> ExecM a
-runBaseMIO bm ctx = runReaderT (unBaseMIO @e @eff $ unBaseM bm) ctx
-
-data IOCtx conf = IOCtx
-    { _ctxChgAccum   :: ChgAccumCtx conf
-    , _ctxExec       :: BaseMIOExec (IOExecEffect conf) (IOCtx conf)
+data IOCtx effect chgAccum = IOCtx
+    { _ctxChgAccum   :: ChgAccumMaybe chgAccum
+    , _ctxExec       :: BaseMIOExec effect chgAccum
     , _ctxLogger     :: Log.LoggingIO
     , _ctxConcurrent :: CtxConcurrently
     }
 
 makeLenses ''IOCtx
 
-instance Loot.HasLens Log.LoggingIO (IOCtx da) Log.LoggingIO where
+instance Loot.HasLens Log.LoggingIO (IOCtx da chgAcc) Log.LoggingIO where
     lensOf = ctxLogger
 
-instance da ~ IOExecEffect conf => HasLens
-           (IOCtx conf)
-           (BaseMIOExec da (IOCtx conf)) where
+instance HasLens (IOCtx da chgAcc) (BaseMIOExec da chgAcc) where
     sett ctx val = ctx { _ctxExec = val }
 
-instance da ~ IOExecEffect conf => HasGetter
-           (IOCtx conf)
-           (BaseMIOExec da (IOCtx conf)) where
+instance HasGetter (IOCtx da chgAcc) (BaseMIOExec da chgAcc) where
     gett = _ctxExec
 
-instance HasLens (IOCtx conf) (ChgAccumCtx conf) where
+instance HasLens (IOCtx da chgAcc) (ChgAccumMaybe chgAcc) where
     sett ctx val = ctx { _ctxChgAccum = val }
 
-instance HasGetter (IOCtx conf) (ChgAccumCtx conf) where
+instance HasGetter (IOCtx da chgAcc) (ChgAccumMaybe chgAcc) where
     gett = _ctxChgAccum
 
-instance HasLens (IOCtx conf) CtxConcurrently where
+instance HasLens (IOCtx da chgAcc) CtxConcurrently where
     sett ctx val = ctx { _ctxConcurrent = val }
 
-instance HasGetter (IOCtx conf) CtxConcurrently where
+instance HasGetter (IOCtx da chgAcc) CtxConcurrently where
     gett = _ctxConcurrent
 
 runERoCompIO
-  :: forall ctx daa conf m a .
-    ( Show (BException conf)
-    , Typeable (BException conf)
-    , Default (ChgAccum conf)
+  :: forall chgAccum da daa ctx e m a.
+    ( Show e
+    , Typeable e
+    , Default chgAccum
     , MonadIO m
     , MonadReader ctx m
     , HasLens' ctx Log.LoggingIO
-    , DbActions (IOExecEffect conf) daa (ChgAccum conf) ExecM
+    , DbActions da daa chgAccum ExecM
     )
     => daa ExecM
-    -> Maybe (ChgAccum conf)
-    -> BaseM (BException conf) (IOExecEffect conf) (IOCtx conf) a
+    -> Maybe chgAccum
+    -> BaseM e da (IOCtx da chgAccum) a
     -> m a
 runERoCompIO daa initAcc comp = do
     logger <- view (lensOf @Log.LoggingIO)
-    liftIO $ Log.runRIO logger $ runBaseMIO comp $
+    liftIO $ Log.runRIO logger $ runReaderT (unBaseMIO @_ @da (unBaseM comp))
         IOCtx
           { _ctxChgAccum = maybe CANotInitialized CAInitialized initAcc
           , _ctxExec = exec
@@ -161,48 +139,4 @@ runERoCompIO daa initAcc comp = do
           , _ctxConcurrent = def
           }
   where
-    exec = BaseMIOExec $ \(getCAOrDefault . _ctxChgAccum -> chgAccum) da -> executeEffect da daa chgAccum
-
-runERwCompIO
-  :: forall ctx daa s conf m a .
-    ( Show (BException conf)
-    , Typeable (BException conf)
-    , Default (ChgAccum conf)
-    , HasBException conf StatePException
-    , MonadIO m
-    , MonadReader ctx m
-    , HasLens' ctx Log.LoggingIO
-    , DbActions (IOExecEffect conf) daa (ChgAccum conf) ExecM
-    , Ctx conf ~ IOCtx conf
-    )
-    => daa ExecM
-    -> s
-    -> ERwComp conf (IOExecEffect conf) s a
-    -> m (a, s)
-runERwCompIO daa initS comp = do
-    logger <- view (lensOf @Log.LoggingIO)
-    liftIO $ Log.runRIO logger $ runBaseMIO (runERwComp comp initS) $
-        IOCtx
-          { _ctxChgAccum = CANotInitialized
-          , _ctxExec = exec
-          , _ctxLogger = logger
-          , _ctxConcurrent = def
-          }
-  where
-    exec = BaseMIOExec $ \(getCAOrDefault . _ctxChgAccum -> chgAccum) dAccess -> executeEffect dAccess daa chgAccum
-
-applyERwComp
-    :: forall conf a.
-    ( Default (ChgAccum conf)
-    , Show (BException conf)
-    , Typeable (BException conf)
-    , HasBException conf StatePException
-    , Ctx conf ~ IOCtx conf
-    , DbActions (IOExecEffect conf) (DbAccessActionsU conf) (ChgAccum conf) ExecM
-    )
-    => DbModifyActions conf ExecM
-    -> ERwComp conf (IOExecEffect conf) (ChgAccum conf) a
-    -> ExecM (a, DbApplyProof conf)
-applyERwComp dma rwComp = do
-    (a, cs) <- runERwCompIO (dmaAccess dma) def rwComp
-    (a,) <$> dmaApply dma cs
+    exec = BaseMIOExec @_ @chgAccum $ \(getCAOrDefault -> chgAccum) da -> executeEffect da daa chgAccum

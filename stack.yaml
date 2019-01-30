@@ -48,9 +48,6 @@ extra-deps:
 - git: https://github.com/mokus0/dependent-sum
   commit: f8909cb323b4ffa63af6c4e7cb3a9745e6199080
 
-# for serialise
-- cborg-0.2.0.0
-
 # for universum (greater versions conflict)
 - formatting-6.2.5
 

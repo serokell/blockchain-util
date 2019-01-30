@@ -25,7 +25,7 @@ import           Data.Vinyl.TypeLevel (AllConstrained)
 import           Snowdrop.Core.ChangeSet (CSMappendException (..), HChangeSet, HChangeSetEl,
                                           HUpCastableChSet, MappendHChSet, SumChangeSet (..),
                                           SumChangeSet (..), mappendChangeSet)
-import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx (..), Ctx, ERoCompM, HasBException,
+import           Snowdrop.Core.ERoComp (ChgAccum, ChgAccumCtx, Ctx, ERoCompM, HasBException,
                                         UpCastableERoM, convertEffect, modifyAccumOne,
                                         upcastEffERoCompM, withAccum)
 import           Snowdrop.Core.Expand.Type (DiffChangeSet (..), ExpInpComps, ExpOutComps,
@@ -80,8 +80,8 @@ runSeqExpandersSequentially seqExps allTxs =  do
     handleTxs [] = pure []
     handleTxs (rawTx : restTxs) = do
         (tx, cs) <- applySomeData (fmap (second castStrip) . constructStateTx) rawTx
-        acc' <- modifyAccumOne cs
-        (:) (tx, acc') <$> withAccum @conf acc' (handleTxs restTxs)
+        acc' <- modifyAccumOne @conf cs
+        (:) (tx, acc') <$> withAccum acc' (handleTxs restTxs)
 
     constructStateTx
         :: forall txtype . (ExpandableTx txtypes txtype, c txtype)
@@ -125,7 +125,7 @@ runSeqExpanderForTx tx exps = runSeqExpanderForTxAll exps
         -> ERoCompM conf components (SumChangeSet (TxComponents txtype))
     runSeqExpanderForTx' (ex :& rest) = do
         sm <- runSeqExpanderForTxAll rest
-        upcastEffERoCompM @(ExpInpComps r) $ applyPreExpander @txtype tx ex sm
+        upcastEffERoCompM @(ExpInpComps r) @_ @conf $ applyPreExpander @txtype tx ex sm
 
 applyPreExpander
     :: forall txtype rawtx conf ioRestr .

@@ -18,12 +18,13 @@ import           Data.Default (Default (..))
 import           Formatting (sformat, (%))
 
 import           Snowdrop.Core (BException, ChgAccum, ChgAccumCtx, Ctx, HasBException,
-                                StatePException, upcastEffERwCompM)
-import           Snowdrop.Mempool.Core (Mempool, MempoolConfig (..), MempoolTx,
-                                        RwMempoolAct, StateTxHandler (..), getMempoolTxs, msTxsL)
+                                StatePException)
 import           Snowdrop.Hetero (Both, usingSomeData)
-import           Snowdrop.Util (ExecM, DBuildable, HasLens (..), bareListF, dbuild, dlater,
-                                logDoc, logInfo, indented, newlineF)
+import           Snowdrop.Mempool.Core (Mempool, MempoolConfig (..), MempoolTx, RwMempoolAct,
+                                        StateTxHandler (..), getMempoolTxs, msTxsL)
+import           Snowdrop.Mempool.ERwComp (upcastEffERwCompM)
+import           Snowdrop.Util (DBuildable, ExecM, HasLens (..), bareListF, dbuild, dlater,
+                                indented, logDoc, logInfo, newlineF)
 
 ---------------------------
 -- Logic

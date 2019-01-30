@@ -15,7 +15,8 @@ module Snowdrop.Core.ERoComp.Helpers
        , queryOne
        , queryOneExists
 
-       , ChgAccumCtx (..)
+       , ChgAccumMaybe (..)
+       , ChgAccumCtx
        , StatePException (..)
 
        , computeUndo
@@ -76,7 +77,7 @@ query
 query req = do
     let hreq :: HSet '[t]
         hreq = hsetFromSet req
-    effect @(DbAccess conf xs) $
+    effect $
         DbQuery
             (hupcast @_ @_ @xs hreq)
             (hmapToMap . flip (hintersect @xs @'[t]) hreq)
@@ -87,35 +88,33 @@ iterator
     => b
     -> (b -> (HKey t, HVal t) -> b)
     -> ERoComp conf xs b
-iterator e foldf = effect $ DbIterator @conf @xs @b @t rget (FoldF (e, foldf, id))
+iterator e foldf = effect $ DbIterator @xs @b @t rget (FoldF (e, foldf, id))
 
 -- | Creates a DbComputeUndo operation.
 computeUndo
   :: forall xs conf . HasBException conf CSMappendException
   => ChgAccum conf -> ERoCompU conf xs (Undo conf)
-computeUndo chgAcc = effect (DbComputeUndo @conf @xs chgAcc id) >>= either throwLocalError pure
+computeUndo chgAcc = effect (DbComputeUndo @_ @_ @xs chgAcc id) >>= either throwLocalError pure
 
 -- | Creates a DbModifyAccumUndo operation.
 modifyAccumUndo
   :: forall xs conf . HasBException conf CSMappendException
   => NewestFirst [] (Undo conf) -> ERoCompU conf xs (ChgAccum conf)
-modifyAccumUndo undos = effect (DbModifyAccumUndo @conf @xs undos id) >>= either throwLocalError pure
+modifyAccumUndo undos = effect (DbModifyAccumUndo @_ @_ @xs undos id) >>= either throwLocalError pure
 
 -- | Creates a DbModifyAccum operation.
 modifyAccum
-    :: forall xs conf .
-      HasBException conf CSMappendException
+    :: HasBException conf CSMappendException
     => OldestFirst [] (HChangeSet xs)
     -> ERoCompM conf xs (OldestFirst [] (ChgAccum conf))
-modifyAccum css = effect (DbModifyAccum @conf css id) >>= either throwLocalError pure
+modifyAccum css = effect (DbModifyAccum css id) >>= either throwLocalError pure
 
 modifyAccumOne
-    :: forall xs conf .
-        HasBException conf CSMappendException
+    :: HasBException conf CSMappendException
     => HChangeSet xs
     -> ERoCompM conf xs (ChgAccum conf)
 modifyAccumOne cs =
-    effect (DbModifyAccum @conf (OldestFirst [cs]) (fmap $ head' . unOldestFirst))
+    effect (DbModifyAccum (OldestFirst [cs]) (fmap $ head' . unOldestFirst))
         >>= either throwLocalError pure
   where
     head' []    = error "modifyAccumOne: unexpected empty effect execution result"
@@ -148,22 +147,24 @@ instance Buildable StatePException where
 deriveIdView withInj ''StatePException
 
 -- | Auxiliary datatype for context-dependant computations.
-data ChgAccumCtx conf = CANotInitialized | CAInitialized (ChgAccum conf)
+data ChgAccumMaybe chgAcc = CANotInitialized | CAInitialized chgAcc
+
+type ChgAccumCtx conf = ChgAccumMaybe (ChgAccum conf)
 
 -- | Gets value of Change Accumulator or default value if it's not initialized.
-getCAOrDefault :: Default (ChgAccum conf) => ChgAccumCtx conf -> ChgAccum conf
+getCAOrDefault :: Default chgAcc => ChgAccumMaybe chgAcc -> chgAcc
 getCAOrDefault CANotInitialized   = def
 getCAOrDefault (CAInitialized cA) = cA
 
 withAccum
-  :: forall conf ctx m a .
+  :: forall ctx chgAcc m a .
     ( MonadReader ctx m
-    , HasLens ctx (ChgAccumCtx conf)
+    , HasLens ctx (ChgAccumMaybe chgAcc)
     )
-  => ChgAccum conf
+  => chgAcc
   -> m a
   -> m a
-withAccum acc comp = local ( lensFor @ctx @(ChgAccumCtx conf) .~ CAInitialized @conf acc ) comp
+withAccum acc comp = local ( lensFor @ctx .~ CAInitialized acc ) comp
 
 ----------------------------------------------------
 --- Functions to modify computation's context
@@ -181,7 +182,7 @@ initAccumCtx
 initAccumCtx acc' comp = do
     gett @_ @(ChgAccumCtx conf) <$> ask >>= \case
         CAInitialized _ -> throwLocalError ChgAccumCtxUnexpectedlyInitialized
-        CANotInitialized -> withAccum @conf acc' comp
+        CANotInitialized -> withAccum acc' comp
 
 ------------------------
 -- Cast and hoist
@@ -198,16 +199,16 @@ type UpCastableERoM xs supxs =
     )
 
 upcastDbAccessM
-    :: forall xs supxs conf a . UpCastableERoM xs supxs
-    => DbAccessM conf xs a
-    -> DbAccessM conf supxs a
+    :: UpCastableERoM xs supxs
+    => DbAccessM chgAccum xs a
+    -> DbAccessM chgAccum supxs a
 upcastDbAccessM (DbAccess da)            = DbAccess (upcastDbAccess da)
 upcastDbAccessM (DbModifyAccum css cont) = DbModifyAccum (hupcast <$> css) cont
 
 upcastDbAccess
-    :: forall xs supxs conf a . UpCastableERo xs supxs
-    => DbAccess conf xs a
-    -> DbAccess conf supxs a
+    :: forall xs supxs a . UpCastableERo xs supxs
+    => DbAccess xs a
+    -> DbAccess supxs a
 upcastDbAccess (DbQuery s cont) =
     DbQuery (hupcast @_ @xs @supxs s) (\resp -> cont (hintersect @supxs @xs resp s))
 upcastDbAccess (DbIterator pr foldf) = DbIterator (pr . hdowncast) foldf
@@ -222,57 +223,57 @@ upcastEffERoCompM
     :: forall xs supxs conf a . UpCastableERoM xs supxs
     => ERoCompM conf xs a
     -> ERoCompM conf supxs a
-upcastEffERoCompM (BaseM action) = BaseM ( runUpCastERoT @DbAccessM @supxs action )
+upcastEffERoCompM (BaseM action) = BaseM ( runUpCastERoT @(DbAccessM (ChgAccum conf)) @supxs action )
 
-newtype UpCastERoT (eff :: * -> [*] -> * -> *) (xs :: [*]) m a = UpCastERoT { runUpCastERoT :: m a }
+newtype UpCastERoT (eff :: [*] -> * -> *) (xs :: [*]) m a = UpCastERoT { runUpCastERoT :: m a }
     deriving ( Functor, Applicative, Monad, MonadError e
              , MonadReader ctx, Log.MonadLogging, Log.ModifyLogName)
 
-instance (Effectful (DbAccess conf supxs) m, UpCastableERo xs supxs)
-    => Effectful (DbAccess conf xs) (UpCastERoT DbAccess supxs m) where
+instance (Effectful (DbAccess supxs) m, UpCastableERo xs supxs)
+    => Effectful (DbAccess xs) (UpCastERoT DbAccess supxs m) where
     effect = UpCastERoT . effect . upcastDbAccess @_ @supxs
 
-instance (Effectful (DbAccessM conf supxs) m, UpCastableERoM xs supxs)
-  => Effectful (DbAccessM conf xs) (UpCastERoT DbAccessM supxs m) where
+instance (Effectful (DbAccessM chgAccum supxs) m, UpCastableERoM xs supxs)
+  => Effectful (DbAccessM chgAccum xs) (UpCastERoT (DbAccessM chgAccum) supxs m) where
     effect = UpCastERoT . effect . upcastDbAccessM @_ @supxs
 
 class ConvertEffect eff1 eff2 where
     convertEffect :: BaseM e eff1 ctx a -> BaseM e eff2 ctx a
 
-newtype DbAccessT (eff1 :: * -> [*] -> * -> *) (eff2 :: * -> [*] -> * -> *) m a = DbAccessT { runDbAccessT :: m a }
+newtype DbAccessT (eff1 :: [*] -> * -> *) (eff2 :: [*] -> * -> *) m a = DbAccessT { runDbAccessT :: m a }
     deriving ( Functor, Applicative, Monad, MonadError e
              , MonadReader ctx, Log.MonadLogging, Log.ModifyLogName)
 
-instance (Effectful (DbAccessM conf xs) m)
-    => Effectful (DbAccess conf xs)
-                 (DbAccessT DbAccess DbAccessM m) where
-    effect da = DbAccessT $ effect (DbAccess @conf da)
+instance (Effectful (DbAccessM chgAccum xs) m)
+    => Effectful (DbAccess xs)
+                 (DbAccessT DbAccess (DbAccessM chgAccum) m) where
+    effect da = DbAccessT $ effect (DbAccess @chgAccum da)
 
 
-instance (Effectful (DbAccessU conf xs) m)
-    => Effectful (DbAccess conf xs)
-                 (DbAccessT DbAccess DbAccessU m) where
-    effect da = DbAccessT $ effect (DbAccessM @conf $ DbAccess da)
+instance (Effectful (DbAccessU undo chgAccum xs) m)
+    => Effectful (DbAccess xs)
+                 (DbAccessT DbAccess (DbAccessU undo chgAccum) m) where
+    effect da = DbAccessT $ effect (DbAccessM @undo @chgAccum $ DbAccess da)
 
-instance (Effectful (DbAccessU conf xs) m)
-    => Effectful (DbAccessM conf xs)
-                 (DbAccessT DbAccessM DbAccessU m) where
-    effect da = DbAccessT $ effect (DbAccessM @conf da)
+instance (Effectful (DbAccessU undo chgAccum xs) m)
+    => Effectful (DbAccessM chgAccum xs)
+                 (DbAccessT (DbAccessM chgAccum) (DbAccessU undo chgAccum) m) where
+    effect da = DbAccessT $ effect (DbAccessM @undo da)
 
-instance ConvertEffect (DbAccess conf xs) (DbAccessM conf xs) where
-    convertEffect (BaseM action) = BaseM ( runDbAccessT @DbAccess @DbAccessM action )
+instance ConvertEffect (DbAccess xs) (DbAccessM chgAccum xs) where
+    convertEffect (BaseM action) = BaseM ( runDbAccessT @DbAccess @(DbAccessM chgAccum) action )
 
-instance ConvertEffect (DbAccessM conf xs) (DbAccessU conf xs) where
-    convertEffect (BaseM action) = BaseM ( runDbAccessT @DbAccessM @DbAccessU action )
+instance ConvertEffect (DbAccessM chgAccum xs) (DbAccessU undo chgAccum xs) where
+    convertEffect (BaseM action) = BaseM ( runDbAccessT @(DbAccessM chgAccum) @(DbAccessU undo chgAccum) action )
 
-instance ConvertEffect (DbAccess conf xs) (DbAccessU conf xs) where
-    convertEffect (BaseM action) = BaseM ( runDbAccessT @DbAccess @DbAccessU action )
+instance ConvertEffect (DbAccess xs) (DbAccessU undo chgAccum xs) where
+    convertEffect (BaseM action) = BaseM ( runDbAccessT @DbAccess @(DbAccessU undo chgAccum) action )
 
-instance ConvertEffect (DbAccessU conf xs) (DbAccessU conf xs) where
+instance ConvertEffect (DbAccessU undo chgAccum xs) (DbAccessU undo chgAccum xs) where
     convertEffect = id
 
-instance ConvertEffect (DbAccessM conf xs) (DbAccessM conf xs) where
+instance ConvertEffect (DbAccessM chgAccum xs) (DbAccessM chgAccum xs) where
     convertEffect = id
 
-instance ConvertEffect (DbAccess conf xs) (DbAccess conf xs) where
+instance ConvertEffect (DbAccess xs) (DbAccess xs) where
     convertEffect = id

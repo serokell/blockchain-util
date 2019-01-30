@@ -21,9 +21,9 @@ import           Snowdrop.Block (BlkConfiguration (..), BlkStateConfiguration (.
                                  unCurrentBlockRef)
 import           Snowdrop.Block.Exec.RawTx (CloseBlockRawTx (..), CloseBlockRawTxType,
                                             OpenBlockRawTx (..), OpenBlockRawTxType)
-import           Snowdrop.Block.Exec.Storage (BlockUndo, Blund (..), BlundComponent, TipComponent,
-                                              TipKey (..), TipValue (..))
-import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx (..), Ctx, ERoCompU,
+import           Snowdrop.Block.Exec.Storage (Blund (..), BlundComponent, TipComponent, TipKey (..),
+                                              TipValue (..))
+import           Snowdrop.Core (CSMappendException (..), ChgAccum, ChgAccumCtx, Ctx, ERoCompU,
                                 ExpandableTx, HasBExceptions, QueryERo, SeqExpanders, TxComponents,
                                 TxRaw (..), Undo, UnionSeqExpandersInps, UnionSeqExpandersOuts,
                                 UpCastableERoM, convertEffect, modifyAccumUndo, queryOne,
@@ -39,15 +39,15 @@ instance ( RContains txtypes txtype
          , UpCastableERoM (TxComponents txtype) xs
          ) => BlkProcConstr txtypes xs txtype
 
-type BlkProcComponents blkType (txtypes :: [*])
-    = UnionTypes [TipComponent blkType, BlundComponent blkType]
+type BlkProcComponents blkType blkUndo (txtypes :: [*])
+    = UnionTypes [TipComponent blkType, BlundComponent blkType blkUndo]
                  (UnionSeqExpandersOuts txtypes)
 
 -- | An implementation of `BlkStateConfiguration` on top of `ERwComp`.
 -- It uniformly accesses state and block storage (via `DataAccess` interface).
 inmemoryBlkStateConfiguration
-  :: forall blkType txtypes conf openExpRestr closeExpRestr xs c openBlockTxType closeBlockTxType txtypes' .
-    ( xs ~ BlkProcComponents blkType txtypes'
+  :: forall blkType blkUndo txtypes conf openExpRestr closeExpRestr xs c openBlockTxType closeBlockTxType txtypes' .
+    ( xs ~ BlkProcComponents blkType blkUndo txtypes'
     , c ~ Both (ExpandableTx txtypes') (BlkProcConstr txtypes' xs)
     , openBlockTxType ~ OpenBlockRawTxType (BlockHeader blkType) openExpRestr
     , closeBlockTxType ~ CloseBlockRawTxType (BlockHeader blkType) closeExpRestr
@@ -57,12 +57,12 @@ inmemoryBlkStateConfiguration
                            , IterationException (BlockRef blkType)
                            ]
     , NotIntersect '[ openBlockTxType, closeBlockTxType ] txtypes
-    , HasReview (Undo conf) (BlockUndo blkType)
+    , HasReview (Undo conf) blkUndo
     , HasGetter (RawBlk blkType) (BlockHeader blkType)
     , Element (RawBlk blkType) ~ Union TxRaw txtypes
     , Container (RawBlk blkType)
     , HasLens (Ctx conf) (ChgAccumCtx conf)
-    , QueryERo xs (BlundComponent blkType)
+    , QueryERo xs (BlundComponent blkType blkUndo)
     , QueryERo xs (TipComponent blkType)
     , UpCastableERoM (UnionSeqExpandersInps txtypes') xs
     , AllConstrained c txtypes'
@@ -83,28 +83,28 @@ inmemoryBlkStateConfiguration cfg  expander = fix $ \this ->
             flatRawTxs = gett @_ @(SomeData TxRaw c) <$> mconcat (toList $ unOldestFirst rawTxs)
         OldestFirst txsWithAccs <-
             convertEffect $
-              upcastEffERoCompM @_ @xs $
-              withAccum @conf acc0 $
+              upcastEffERoCompM @_ @xs @conf $
+              withAccum acc0 $
               runSeqExpandersSequentially expander flatRawTxs
         let accs = acc0 : (snd <$> txsWithAccs)
         pure $ OldestFirst $ pickElements (NE.zip lengths indicies) accs
     , bscGetHeader = \blockRef -> convertEffect $ do
-        blund <- queryOne @(BlundComponent blkType) @xs @conf $ blockRef
+        blund <- queryOne @(BlundComponent blkType blkUndo) @xs @conf $ blockRef
         pure $ gett . buRawBlk <$> blund
     --  sequentially rollback every block from the tip down to blockRef
     , bscInmemRollback = \acc0 mBlockRef -> do
         mTip <- bscGetTip this
         blunds <- getBlunds mBlockRef mTip
         let refs = unCurrentBlockRef . bcBlockRef cfg . gett . buRawBlk <$> blunds
-        fmap (, refs) $ withAccum @conf acc0 $
+        fmap (, refs) $ withAccum acc0 $
           modifyAccumUndo @xs @conf $ inj . buUndo <$> blunds
-    , bscBlockExists = convertEffect . queryOneExists @(BlundComponent blkType) @xs @conf
+    , bscBlockExists = convertEffect . queryOneExists @(BlundComponent blkType blkUndo) @xs @conf
     , bscGetTip = unTipValue <<$>> convertEffect (queryOne @(TipComponent blkType) @xs @conf TipKey)
     }
     where
       getBlunds fromRef toRef =
           loadBlocksFromTo
-              (convertEffect . queryOne @(BlundComponent blkType) @xs @conf)
+              (convertEffect . queryOne @(BlundComponent blkType blkUndo) @xs @conf)
               (bcPrevBlockRef cfg . gett @(RawBlk blkType) . buRawBlk)
               (bcMaxForkDepth cfg)
               (Just $ FromRef fromRef)
