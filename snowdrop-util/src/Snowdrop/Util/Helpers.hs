@@ -12,6 +12,7 @@ module Snowdrop.Util.Helpers
        , PublicKey
        , Signature
        , Signed (..)
+       , Serialisable (..)
        , HFunctor (..)
        , Sign (..)
        , SecretKey
@@ -144,6 +145,10 @@ runExceptTV = fmap eitherToVerRes . runExceptT
 -- | Simple helper which is equivallent to expression @\(fa, b) -> (,b) <$> fa@
 propagateSecondF :: Functor f => (f a, b) -> f (a, b)
 propagateSecondF (fa, b) = (,b) <$> fa
+
+class Serialisable a where
+    serialise   :: a -> ByteString
+    deserialise :: ByteString -> Either String a
 
 -- | Higher-order version of Functor class.
 class HFunctor t where
