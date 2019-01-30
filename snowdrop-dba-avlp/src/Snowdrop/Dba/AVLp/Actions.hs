@@ -139,21 +139,16 @@ avlServerDbActions
     , AvlHashable h
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ AvlProofs h xs
+    , Default (AVLCache h xs)
+    , RApply xs
+    , RMap xs
     , RecApplicative xs
     , RecMapMethod (AvlHashC h) (AVLChgAccum h) xs
     , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
     , RememberNodesActs h xs
+    , RetrieveHashAll h xs
     , Undo conf ~ AvlUndo h xs
     , xs ~ DbComponents  conf
-
-    , RMap xs
-    , RApply xs
-
-    -- FIXME
-    , Default (AVLCache h xs)
-    , Default (AVLCache h '[])
-    , RetrieveHashAll h xs
-
     )
     => AVLServerState h xs
     -> STM ( RememberForProof -> DbModifyActions conf STM
