@@ -72,12 +72,12 @@ avlClientDbActions
     , AvlHashable h
     , ChgAccum conf ~ AVLChgAccums h xs
     , DbApplyProof conf ~ ()
+    , Default (Rec (AVLCacheEl h) xs)
     , RecApplicative xs
     , RecMapMethod (AvlHashC h) (AVLChgAccum h) xs
+    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
     , Undo conf ~ AvlUndo h xs
     , xs ~ DbComponents conf
-    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
-    , Default (Rec (AVLCacheEl h) xs)
     )
     => RetrieveF h STM xs
     -> RootHashes h xs

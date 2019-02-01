@@ -117,11 +117,11 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
         -> RetrieveF h m rs
         -> OldestFirst [] (HChangeSet rs)
         -> m (Either CSMappendException (OldestFirst [] (Rec (AVLChgAccum h) rs)))
-    modAccumAll initAcc rs css =
+    modAccumAll initAcc retrieve css =
         fmap Right impl `catch` \(e :: CSMappendException) -> pure $ Left e
       where
         impl = OldestFirst . reverse . snd <$> foldM foldHandler (initAcc, []) css
-        foldHandler (curAcc, resAccs) hcs = (\acc -> (acc, acc : resAccs)) <$> modAccumOne curAcc hcs rs
+        foldHandler (curAcc, resAccs) hcs = (\acc -> (acc, acc : resAccs)) <$> modAccumOne curAcc hcs retrieve
 
     modAccumOne
         :: AllConstrained (IsAvlEntry h) rs
@@ -130,8 +130,8 @@ modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
         -> RetrieveF h m rs
         -> m (Rec (AVLChgAccum h) rs)
     modAccumOne RNil RNil RNil                          = pure RNil
-    modAccumOne (ca :& caRest) (cs :& csRest) (rv :& rRest) =
-        liftA2 (:&) (modAccumOneDo ca cs rv) (modAccumOne caRest csRest rRest)
+    modAccumOne (ca :& caRest) (cs :& csRest) (rv :& rvRest) =
+        liftA2 (:&) (modAccumOneDo ca cs rv) (modAccumOne caRest csRest rvRest)
 
     modAccumOneDo
         :: forall r . IsAvlEntry h r
