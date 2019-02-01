@@ -14,6 +14,9 @@ import           Snowdrop.Util (OldestFirst (..), VerRes)
 
 newtype BlockIntegrityVerifier blkType = BIV { unBIV :: RawBlk blkType -> VerRes Text () }
 
+instance Semigroup (BlockIntegrityVerifier blkType) where
+    BIV f <> BIV g = BIV $ \rawB -> f rawB <> g rawB
+
 instance Monoid (BlockIntegrityVerifier blkType) where
     mempty = BIV mempty
     BIV f `mappend` BIV g = BIV $ \rawB -> f rawB <> g rawB
