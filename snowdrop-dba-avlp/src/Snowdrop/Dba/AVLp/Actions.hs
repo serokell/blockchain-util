@@ -1,9 +1,7 @@
 {-# LANGUAGE DataKinds           #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE InstanceSigs        #-}
 {-# LANGUAGE NamedFieldPuns      #-}
-{-# LANGUAGE PolyKinds           #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 

@@ -85,16 +85,12 @@ reThrowAVLEx m =
       `catch` (\(e :: AVL.NotFound k) -> throwM $ DbProtocolError $ "Not found key: " <> show e)
       `catch` (\(e :: AVL.NotFound h) -> throwM $ DbProtocolError $ "Not found hash: " <> show e)
 
-class    Default (AVLCacheEl h x) => DefaultCacheEl h x
-instance Default (AVLCacheEl h x) => DefaultCacheEl h x
-
 clientModeToTempSt
     :: forall h xs m n .
-    ( AvlHashable h
-    , MonadCatch m, MonadCatch n
-    , AllAvlEntries h xs
-
+    ( AllAvlEntries h xs
+    , AvlHashable h
     , Default (Rec (AVLCacheEl h) xs)
+    , MonadCatch m, MonadCatch n
     )
     => RetrieveF h n xs
     -> ClientMode (AvlProofs h xs)
@@ -137,6 +133,7 @@ instance HasGetter (ClientTempState h xs n) (RootHashes h xs) where
 -- AVL-storage datatypes
 ----------------------------------------------------------------------------
 
+-- | Pure implementation of permanent storage
 newtype AVLPureStorage h xs = AVLPureStorage { unAVLPureStorage :: Rec (AVLCacheEl h) xs }
 
 instance Default (Rec (AVLCacheEl h) xs) => Default (AVLPureStorage h xs) where
@@ -225,8 +222,7 @@ instance ( MonadThrow m
          )
          => AVL.KVRetrieve h (AVL.MapLayer h k v h) (AVLCacheT h xs m) where
     retrieve :: h -> AVLCacheT h xs m (AVL.MapLayer h k v h)
-    -- FIXME: refactor using Maybe monad
-    retrieve h = do cache <- rget @x . unAVLCache <$> get
+    retrieve h = do cache <- gets (rget @x . unAVLCache)
                     case (M.lookup h (unAVLCacheEl cache)) of
                         Nothing -> do retrieve <- asks (rget @x)
                                       mx <- lift (runRetrieveEL retrieve h)

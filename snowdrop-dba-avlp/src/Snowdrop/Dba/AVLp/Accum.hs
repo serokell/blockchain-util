@@ -239,7 +239,7 @@ query ctx (Just ca) nodeActs hset = queryAll ca nodeActs hset (gett ctx)
         -> HSet rs
         -> RetrieveF h m rs
         -> m (HMap rs)
-    query' (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& acts) (HSetEl req :& reqs) (r :& rs) = reThrowAVLEx @(HKey r) @h $ do
+    query' (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& acts) (HSetEl req :& reqs) (rv :& rvs) = reThrowAVLEx @(HKey r) @h $ do
         let queryDo = fst <$> foldM queryDoOne ((mempty, mempty), initAvl) req
 
             queryDoOne (resp, avl) key = first (combineLookupRes resp key) <$> AVL.lookup key avl
@@ -252,9 +252,9 @@ query ctx (Just ca) nodeActs hset = queryAll ca nodeActs hset (gett ctx)
                 let newVals = maybe accumVals (\val -> M.insert key val accumVals) maybeVal
                 in (newVals, Set.union accumTouched touched)
 
-        (responses, touchedNodes) <- fst <$> runAVLCacheElT queryDo initAcc r
+        (responses, touchedNodes) <- fst <$> runAVLCacheElT queryDo initAcc rv
         nodeAct touchedNodes
-        (HMapEl responses :&) <$> queryAll accums acts reqs rs
+        (HMapEl responses :&) <$> queryAll accums acts reqs rvs
 query ctx cA nodeAct req = query ctx (Just $ resolveAvlCA ctx cA) nodeAct req
 
 -- | Constructs a record of iterators which iterate through all nodes from
@@ -282,13 +282,13 @@ iter ctx (Just ca) nodeActs = pure $ iterAll ca nodeActs (gett ctx)
              -> RetrieveF h m rs
              -> DIter' rs m
     iterAll RNil RNil RNil = RNil
-    iterAll (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& restActs) (r :& rs) =
+    iterAll (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& restActs) (rv :& rvs) =
         IterAction
             (\initB f -> do
                 ((res, touchedNodes), _) <- reThrowAVLEx @(HKey (Head rs)) @h $
-                    runAVLCacheElT (AVL.fold (initB, flip f, id) initAvl) initAcc r
+                    runAVLCacheElT (AVL.fold (initB, flip f, id) initAvl) initAcc rv
                 nodeAct touchedNodes
                 pure res
             )
-            :& iterAll accums restActs rs
+            :& iterAll accums restActs rvs
 iter ctx cA f = iter ctx (Just $ resolveAvlCA ctx cA) f
