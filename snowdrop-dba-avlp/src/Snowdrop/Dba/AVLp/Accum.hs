@@ -22,7 +22,6 @@ module Snowdrop.Dba.AVLp.Accum
 
 import           Universum
 
-import           Data.Tree.AVL (MapLayer)
 import qualified Data.Tree.AVL as AVL
 
 import           Data.Default (Default (def))
@@ -38,13 +37,12 @@ import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProofs, A
                                         KVConstraint, RootHash (unRootHash), RootHashComp (..),
                                         RootHashes, avlRootHash, mkAVL)
 import           Snowdrop.Dba.AVLp.Constraints (AvlHashC)
-import           Snowdrop.Dba.AVLp.State (AVLCache, AVLCacheT, RetrieveImpl, reThrowAVLEx,
-                                          runAVLCacheT)
+import           Snowdrop.Dba.AVLp.State (AVLCacheEl, AVLCacheElT, RetrieveEl, RetrieveF,
+                                          reThrowAVLEx, runAVLCacheElT)
 import           Snowdrop.Dba.Base (DGetter', DIter', DModify', DbApplyProof, DbComponents,
                                     IterAction (..))
 import           Snowdrop.Hetero (HKey, HMap, HMapEl (..), HSet, HSetEl (..), HVal, Head)
-import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..),
-                                Serialisable (..))
+import           Snowdrop.Util (HasGetter (..), NewestFirst (..), OldestFirst (..))
 
 data AvlClientConf hash (xs :: [*])
 
@@ -64,13 +62,13 @@ type instance DbApplyProof (AvlServerConf hash xs) = AvlProofs hash xs
 data AVLChgAccum h t = AVLChgAccum
     { acaMap     :: AVL.Map h (HKey t) (HVal t)
     -- ^ AVL map, which contains avl tree with most-recent updates
-    , acaStorage :: AVLCache h
+    , acaStorage :: AVLCacheEl h t
     -- ^ AVL tree cache, which stores results of all `save` operations performed on AVL tree
     , acaTouched :: Set h
     -- ^ Set of nodes, which were touched during all of change operations applied on tree
     }
 
-deriving instance (Show h, Show (HVal t), Show (HKey t)) => Show (AVLChgAccum h t)
+deriving instance (Show h, Show (HVal t), Show (HKey t), Show (AVLCacheEl h t)) => Show (AVLChgAccum h t)
 
 -- | Change accumulator type for AVL tree, wrapped with Maybe.
 -- `Nothing` is treated identically to `Just $ AVLChgAccum (Pure rootHash) def mempty`,
@@ -78,13 +76,19 @@ deriving instance (Show h, Show (HVal t), Show (HKey t)) => Show (AVLChgAccum h 
 type AVLChgAccums h xs = Maybe (Rec (AVLChgAccum h) xs)
 
 resolveAvlCA
-    :: (AvlHashable h, HasGetter state (RootHashes h xs))
+    :: forall h xs state .
+    ( AvlHashable h
+    , HasGetter state (RootHashes h xs)
+    , AllAvlEntries h xs
+    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
+    )
     => state
     -> AVLChgAccums h xs
     -> Rec (AVLChgAccum h) xs
 resolveAvlCA _ (Just cA) = cA
-resolveAvlCA st Nothing = rmap crAVLChgAccum (gett st)
+resolveAvlCA st Nothing = rmapMethod @(IsAvlEntry h) crAVLChgAccum (gett st)
   where
+    crAVLChgAccum :: IsAvlEntry h x => RootHashComp h x -> AVLChgAccum h x
     crAVLChgAccum (RootHashComp rh) = AVLChgAccum
       { acaMap = pure $ unRootHash rh
       , acaStorage = mempty
@@ -93,67 +97,71 @@ resolveAvlCA st Nothing = rmap crAVLChgAccum (gett st)
 
 modAccum
     :: forall h xs ctx m .
-    ( AvlHashable h, HasGetter ctx (RootHashes h xs)
-    , RetrieveImpl (ReaderT ctx m) h
+    ( AvlHashable h
+    , HasGetter ctx (RootHashes h xs)
+    , HasGetter ctx (RetrieveF h m xs)
     , MonadCatch m
     , AllAvlEntries h xs
+    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
     )
     => ctx
     -> AVLChgAccums h xs
     -> DModify' (AVLChgAccums h xs) xs m
 modAccum ctx acc' cs' = fmap Just <<$>> case acc' of
-    Just acc -> modAccumAll acc cs'
-    Nothing  -> modAccumAll (resolveAvlCA ctx acc') cs'
+    Just acc -> modAccumAll acc (gett ctx) cs'
+    Nothing  -> modAccumAll (resolveAvlCA ctx acc') (gett ctx) cs'
   where
     modAccumAll
         :: AllConstrained (IsAvlEntry h) rs
         => Rec (AVLChgAccum h) rs
+        -> RetrieveF h m rs
         -> OldestFirst [] (HChangeSet rs)
         -> m (Either CSMappendException (OldestFirst [] (Rec (AVLChgAccum h) rs)))
-    modAccumAll initAcc css =
+    modAccumAll initAcc retrieve css =
         fmap Right impl `catch` \(e :: CSMappendException) -> pure $ Left e
       where
         impl = OldestFirst . reverse . snd <$> foldM foldHandler (initAcc, []) css
-        foldHandler (curAcc, resAccs) hcs = (\acc -> (acc, acc : resAccs)) <$> modAccumOne curAcc hcs
+        foldHandler (curAcc, resAccs) hcs = (\acc -> (acc, acc : resAccs)) <$> modAccumOne curAcc hcs retrieve
 
     modAccumOne
         :: AllConstrained (IsAvlEntry h) rs
         => Rec (AVLChgAccum h) rs
         -> HChangeSet rs
+        -> RetrieveF h m rs
         -> m (Rec (AVLChgAccum h) rs)
-    modAccumOne RNil RNil                     = pure RNil
-    modAccumOne (ca :& caRest) (cs :& csRest) =
-        liftA2 (:&) (modAccumOneDo ca cs) (modAccumOne caRest csRest)
+    modAccumOne RNil RNil RNil                          = pure RNil
+    modAccumOne (ca :& caRest) (cs :& csRest) (rv :& rvRest) =
+        liftA2 (:&) (modAccumOneDo ca cs rv) (modAccumOne caRest csRest rvRest)
 
     modAccumOneDo
-        :: forall r .
-          IsAvlEntry h r
+        :: forall r . IsAvlEntry h r
         => AVLChgAccum h r
         -> HChangeSetEl r
+        -> RetrieveEl m h r
         -> m (AVLChgAccum h r)
-    modAccumOneDo (AVLChgAccum avl acc touched) (hChangeSetElToList -> cs) =
+    modAccumOneDo (AVLChgAccum avl acc touched) (hChangeSetElToList -> cs) retrv =
         reThrowAVLEx @(HKey r) @h $
-        doUncurry AVLChgAccum <$> runAVLCacheT (foldM modAVL (avl, touched) cs) acc ctx
+        doUncurry AVLChgAccum <$> runAVLCacheElT (foldM modAVL (avl, touched) cs) acc retrv
 
     doUncurry :: (a -> b -> c -> d) -> ((a, c), b) -> d
     doUncurry f ((a, c), b) = f a b c
 
 modAVL
-    :: forall k v h m ctx .
+    :: forall k v h x m .
       ( KVConstraint k v
-      , Serialisable (MapLayer h k v h)
       , AVL.Hash h k v
       , AvlHashable h
       , MonadCatch m
-      , RetrieveImpl (ReaderT ctx m) h
+      , HKey x ~ k
+      , HVal x ~ v
       )
     => (AVL.Map h k v, Set h)
     -> (k, ValueOp v)
-    -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
+    -> AVLCacheElT h x m (AVL.Map h k v, Set h)
 modAVL (avl, touched0) (k, valueop) = processResp =<< AVL.lookup k avl
   where
     processResp :: ((Maybe v, Set h), AVL.Map h k v)
-                -> AVLCacheT h (ReaderT ctx m) (AVL.Map h k v, Set h)
+                -> AVLCacheElT h x m (AVL.Map h k v, Set h)
     processResp ((lookupRes, (<> touched0) -> touched), avl') =
       let appendTouched = second (<> touched) . swap in
       case (valueop, lookupRes) of
@@ -198,27 +206,40 @@ computeUndo (Just accum) _ = rmapMethod @(AvlHashC h) (RootHashComp . avlRootHas
 -- all "touched" AVL nodes (i.e. all visited nodes).
 query
     :: forall h xs ctx m .
-    ( AvlHashable h, HasGetter ctx (RootHashes h xs)
-    , RetrieveImpl (ReaderT ctx m) h
+    ( AvlHashable h
+    , HasGetter ctx (RootHashes h xs)
+    , HasGetter ctx (RetrieveF h m xs)
     , MonadCatch m
     , AllAvlEntries h xs
+    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
     )
     => ctx
     -> AVLChgAccums h xs
     -> Rec (Const (Set h -> m ())) xs
     -> DGetter' xs m
-query ctx (Just ca) nodeActs hset = queryAll ca nodeActs hset
+query ctx (Just ca) nodeActs hset = queryAll ca nodeActs hset (gett ctx)
   where
-    queryAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> Rec (Const (Set h -> m ())) rs -> HSet rs -> m (HMap rs)
-    queryAll RNil RNil RNil                                 = pure RNil
-    queryAll accums'@(_ :& _) acts'@(_ :& _) reqs'@(_ :& _) = query' accums' acts' reqs'
+    queryAll :: forall rs .
+              AllConstrained (IsAvlEntry h) rs
+              => Rec (AVLChgAccum h) rs
+              -> Rec (Const (Set h -> m ())) rs
+              -> HSet rs
+              -> RetrieveF h m rs
+              -> m (HMap rs)
+    queryAll RNil RNil RNil RNil                            = pure RNil
+    queryAll accums'@(_ :& _) acts'@(_ :& _) reqs'@(_ :& _) rs@(_ :& _) = query' accums' acts' reqs' rs
 
     query'
-        :: forall r rs rs' . (rs ~ (r ': rs'), AllConstrained (IsAvlEntry h) rs)
+        :: forall r rs rs' .
+        ( rs ~ (r ': rs')
+        , AllConstrained (IsAvlEntry h) rs
+        )
         => Rec (AVLChgAccum h) rs
         -> Rec (Const (Set h -> m ())) rs
-        -> HSet rs -> m (HMap rs)
-    query' (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& acts) (HSetEl req :& reqs) = reThrowAVLEx @(HKey r) @h $ do
+        -> HSet rs
+        -> RetrieveF h m rs
+        -> m (HMap rs)
+    query' (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& acts) (HSetEl req :& reqs) (rv :& rvs) = reThrowAVLEx @(HKey r) @h $ do
         let queryDo = fst <$> foldM queryDoOne ((mempty, mempty), initAvl) req
 
             queryDoOne (resp, avl) key = first (combineLookupRes resp key) <$> AVL.lookup key avl
@@ -231,9 +252,9 @@ query ctx (Just ca) nodeActs hset = queryAll ca nodeActs hset
                 let newVals = maybe accumVals (\val -> M.insert key val accumVals) maybeVal
                 in (newVals, Set.union accumTouched touched)
 
-        (responses, touchedNodes) <- fst <$> runAVLCacheT queryDo initAcc ctx
+        (responses, touchedNodes) <- fst <$> runAVLCacheElT queryDo initAcc rv
         nodeAct touchedNodes
-        (HMapEl responses :&) <$> queryAll accums acts reqs
+        (HMapEl responses :&) <$> queryAll accums acts reqs rvs
 query ctx cA nodeAct req = query ctx (Just $ resolveAvlCA ctx cA) nodeAct req
 
 -- | Constructs a record of iterators which iterate through all nodes from
@@ -244,26 +265,30 @@ iter
     :: forall h xs ctx m.
     ( AvlHashable h
     , HasGetter ctx (RootHashes h xs)
-    , RetrieveImpl (ReaderT ctx m) h
+    , HasGetter ctx (RetrieveF h m xs)
     , MonadCatch m
     , AllAvlEntries h xs
+    , RecMapMethod (IsAvlEntry h) (RootHashComp h) xs
     )
     => ctx
     -> AVLChgAccums h xs
     -> Rec (Const (Set h -> m ())) xs
     -> m (DIter' xs m)
-iter ctx (Just ca) nodeActs = pure $ iterAll ca nodeActs
+iter ctx (Just ca) nodeActs = pure $ iterAll ca nodeActs (gett ctx)
   where
-    iterAll :: forall rs . AllConstrained (IsAvlEntry h) rs => Rec (AVLChgAccum h) rs -> Rec (Const (Set h -> m ())) rs -> DIter' rs m
-    iterAll RNil _ = RNil
-    iterAll (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& restActs) =
+    iterAll :: forall rs . AllConstrained (IsAvlEntry h) rs
+             => Rec (AVLChgAccum h) rs
+             -> Rec (Const (Set h -> m ())) rs
+             -> RetrieveF h m rs
+             -> DIter' rs m
+    iterAll RNil RNil RNil = RNil
+    iterAll (AVLChgAccum initAvl initAcc _ :& accums) ((getConst -> nodeAct) :& restActs) (rv :& rvs) =
         IterAction
             (\initB f -> do
-                -- TODO: this is lie, ctx is not used
                 ((res, touchedNodes), _) <- reThrowAVLEx @(HKey (Head rs)) @h $
-                    runAVLCacheT (AVL.fold (initB, flip f, id) initAvl) initAcc ctx
+                    runAVLCacheElT (AVL.fold (initB, flip f, id) initAvl) initAcc rv
                 nodeAct touchedNodes
                 pure res
             )
-            :& iterAll accums restActs
+            :& iterAll accums restActs rvs
 iter ctx cA f = iter ctx (Just $ resolveAvlCA ctx cA) f

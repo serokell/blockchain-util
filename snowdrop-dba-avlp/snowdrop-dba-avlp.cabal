@@ -28,8 +28,8 @@ library
     , snowdrop-hetero
     , snowdrop-util
     , text-format
-    , vinyl
     , universum
+    , vinyl
   build-tool-depends:
       autoexporter:autoexporter
 
