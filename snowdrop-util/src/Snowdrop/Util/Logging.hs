@@ -29,8 +29,8 @@ import           Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow)
 import           Control.Monad.Trans.Control (MonadBaseControl (..))
 
 import           System.FilePath ((</>), (<.>))
-import           Formatting
-import           Formatting.Time
+import           Formatting ((%), format, shown, string)
+import           Formatting.Time (datetime)
 import           Data.Time.Clock (getCurrentTime)
 
 -- | Conventional RIO monad, being used as a base monad for logging in Snowdrop
