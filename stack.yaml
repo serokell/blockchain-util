@@ -35,18 +35,8 @@ extra-deps:
 - git: git@github.com:serokell/zipp.git
   commit: 7bf77875305c4b1930b024e21aa6691387c156fc
 
-# Forced by lootbox #
-- base-noprelude-4.10.1.0
-- serialise-0.2.0.0
-- vinyl-0.9.3
-- union-0.1.2
-
-- git: https://github.com/int-index/caps
-  commit: 2f46fc6d5480bdef0a17f64359ad6eb29510dba4
-
-# for caps
-- git: https://github.com/mokus0/dependent-sum
-  commit: f8909cb323b4ffa63af6c4e7cb3a9745e6199080
+# It picks vinyl-0.7 without this #
+- vinyl-0.11.0
 
 # for universum (greater versions conflict)
 - formatting-6.2.5

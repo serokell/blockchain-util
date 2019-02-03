@@ -22,7 +22,6 @@ library
     , containers
     , data-default
     , free
-    , loot-log
     , snowdrop-core
     , snowdrop-dba
     , snowdrop-hetero
