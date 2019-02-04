@@ -75,8 +75,7 @@ newtype TestExecutorT e chgAccum m a = TestExecutorT
 
 -- Dummy logging
 instance Monad m => MonadLogging (TestExecutorT e conf m) where
-    log _ _ _ = pure ()
-    logName = pure (GivenName "")
+    log _ _ = pure ()
 
 applyDiff
     :: forall e m xs .
