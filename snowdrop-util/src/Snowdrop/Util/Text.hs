@@ -33,6 +33,7 @@ import           Universum hiding (head, init, last)
 import           Control.Lens (makeLenses, (+~))
 import           Data.Default (Default (..))
 import qualified Data.Text.Buildable as Buildable
+import qualified Data.Text.Lazy as T
 import           Data.Text.Lazy.Builder (Builder)
 import           Data.Union (Union, absurdUnion, union)
 import           Data.Vinyl.TypeLevel (RecAll)
@@ -211,7 +212,7 @@ printDoc :: DBuildable a => a -> IO ()
 printDoc x = putDoc $ \dp -> sformat (docF dp) x
 
 -- | Ability to use a logger.
-logDoc :: (String -> ExecM ()) -> DText -> ExecM ()
+logDoc :: (T.Text -> ExecM ()) -> DText -> ExecM ()
 logDoc logger doc = logger $ format "{}" (doc printParams)
 
 deriving instance Buildable x => Buildable (Identity x)

@@ -28,8 +28,10 @@ import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow)
 import           Control.Monad.Trans.Control (MonadBaseControl (..))
 
+import qualified Data.Text.Lazy as T
+import qualified Data.Text.Lazy.IO as T
 import           System.FilePath ((</>), (<.>))
-import           Formatting ((%), format, shown, string)
+import           Formatting ((%), format, shown, string, text)
 import           Formatting.Time (datetime)
 import           Data.Time.Clock (getCurrentTime)
 
@@ -58,21 +60,21 @@ data Level
     deriving (Eq, Generic, Show)
 
 class MonadLogging m where
-    log :: Level -> String -> m ()
+    log :: Level -> T.Text -> m ()
 
 data LoggingIO = LoggingIO {
-    lioLog :: Maybe String -> Level -> String -> IO ()
+    lioLog :: Maybe String -> Level -> T.Text -> IO ()
   , lioSuffix :: Maybe String
   }
 
-logDebug, logInfo, logWarning, logError :: MonadLogging m => String -> m ()
+logDebug, logInfo, logWarning, logError :: MonadLogging m => T.Text -> m ()
 logDebug   = log Debug
 logInfo    = log Info
 logWarning = log Warning
 logError   = log Error
 
 -- Don't bother with typeclasses in these
-defLog :: (MonadReader ctx m, MonadIO m) => (ctx -> LoggingIO) -> Level -> String -> m ()
+defLog :: (MonadReader ctx m, MonadIO m) => (ctx -> LoggingIO) -> Level -> T.Text -> m ()
 defLog f l s = do
   lg <- f <$> ask
   liftIO $ lioLog lg (lioSuffix lg) l s
@@ -91,10 +93,9 @@ mkLogger fp = LoggingIO doLog Nothing
   where
     doLog suff l s = do
       ct <- getCurrentTime
-      let msg = toStrict $
-                  format ("[" % string % string % ":" % shown % "] [" % datetime % "] " % string % "\n")
+      let msg = format ("[" % string % string % ":" % shown % "] [" % datetime % "] " % text % "\n")
                            fp (maybe "" ('.':) suff) l ct s
-      appendFile ("log" </> fp <.> "log") msg >> putStr msg
+      T.appendFile ("log" </> fp <.> "log") msg >> T.putStr msg
 
 withLogger :: String -> ExecM () -> ExecM ()
 withLogger fp action = local (const $ mkLogger fp) action
