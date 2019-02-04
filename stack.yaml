@@ -36,7 +36,7 @@ extra-deps:
   commit: 7bf77875305c4b1930b024e21aa6691387c156fc
 
 # It picks vinyl-0.7 without this #
-- vinyl-0.11.0
+- vinyl-0.9.3
 
 # for universum (greater versions conflict)
 - formatting-6.2.5
