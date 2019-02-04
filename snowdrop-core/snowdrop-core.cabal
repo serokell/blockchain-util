@@ -119,7 +119,6 @@ test-suite snowdrop-core-test
     , dlist
     , free
     , lens
-    , loot-log
     , hedgehog
     , hspec
     , mtl

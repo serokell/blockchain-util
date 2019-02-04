@@ -20,14 +20,6 @@ extra-deps:
 - teardown-0.5.0.0
 - universum-1.1.1
 
-- git: https://github.com/serokell/lootbox.git
-  commit: 15b4f1c5db6d25fb241031e82f771fa89c4f29b0
-  subdirs:
-    - code/base
-    - code/log
-    - code/network
-    - code/prelude
-
 - git: https://github.com/serokell/avl-plus
   commit: 04377fc71adeaab30e1392f62405ceca40381cb6
 
