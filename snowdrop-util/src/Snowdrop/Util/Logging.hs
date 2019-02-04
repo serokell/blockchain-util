@@ -109,7 +109,7 @@ mkLogger fp = LoggingIO doLog Nothing
       T.appendFile ("log" </> fp <.> "log") msg >> T.putStr msg
 
 -- | Creates new logger for passed ExecM computation.
--- the first parameter is logger name, log goes to 'log/fp.log' and is doubled to console
+-- the first parameter is logger name, let's name is "logname", then the log goes to "log/logname.log" and is doubled to console.
 withLogger :: String -> ExecM () -> ExecM ()
 withLogger fp action = local (const $ mkLogger fp) action
 
