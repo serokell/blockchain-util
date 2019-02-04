@@ -33,9 +33,6 @@ library
     , fmt
     , lens
     , lifted-async
-    , log-warper
-    , loot-base
-    , loot-log
     , monad-control
     , mtl
     , random
@@ -122,7 +119,6 @@ test-suite snowdrop-core-test
     , dlist
     , free
     , lens
-    , loot-log
     , hedgehog
     , hspec
     , mtl

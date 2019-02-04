@@ -20,13 +20,12 @@ import qualified Data.Map.Strict as M
 import           Data.Vinyl.Core (Rec (..))
 import           Data.Vinyl.TypeLevel (AllConstrained)
 
-import           Loot.Log (NameSelector (..))
 import           Snowdrop.Core (BException, CSMappendException (..), ChgAccum, ChgAccumMaybe (..),
                                 Ctx, DbAccess (..), ERoComp, Effectful (..), FoldF (..), HChangeSet,
                                 HChangeSetEl, ValueOp (..), getCAOrDefault, hChangeSetElToList,
                                 unBaseM)
 import           Snowdrop.Hetero (ExnHKey, HIntersectable, HMap, HMapEl (..), hintersect)
-import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..), ModifyLogName (..),
+import           Snowdrop.Util (HasGetter (..), HasLens (..), HasReview (..),
                                 MonadLogging (..), throwLocalError)
 
 -- | SumChangeSet holds some change set which is sum of several ChangeSet
@@ -76,11 +75,7 @@ newtype TestExecutorT e chgAccum m a = TestExecutorT
 
 -- Dummy logging
 instance Monad m => MonadLogging (TestExecutorT e conf m) where
-    log _ _ _ = pure ()
-    logName = pure (GivenName "")
-
-instance Monad m => ModifyLogName (TestExecutorT e conf m) where
-    modifyLogNameSel _ = id
+    log _ _ = pure ()
 
 applyDiff
     :: forall e m xs .

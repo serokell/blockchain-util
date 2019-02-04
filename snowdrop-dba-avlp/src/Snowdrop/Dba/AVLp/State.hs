@@ -27,14 +27,13 @@ import qualified Data.Map.Strict as M
 import           Data.Tree.AVL (MapLayer)
 import qualified Data.Tree.AVL as AVL
 import           Data.Vinyl.Core (Rec (..))
-import           Loot.Log (MonadLogging, logDebug)
 
 import           Snowdrop.Dba.AVLp.Avl (AllAvlEntries, AvlHashable, AvlProof (..), AvlProofs,
                                         IsAvlEntry, RootHash (..), RootHashComp (..), RootHashes,
                                         deserialiseM, saveAVL)
 import           Snowdrop.Dba.Base (ClientMode (..), DbActionsException (..))
 import           Snowdrop.Hetero (HKey, HMap, unHMapEl)
-import           Snowdrop.Util (HasGetter (..), Serialisable (..))
+import           Snowdrop.Util (HasGetter (..), Serialisable (..), MonadLogging, logDebug)
 
 ----------------------------------------------------------------------------
 -- Server state
