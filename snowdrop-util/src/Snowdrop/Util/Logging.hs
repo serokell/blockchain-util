@@ -50,7 +50,6 @@ deriving instance Semigroup a => Semigroup (RIO ctx a)
 runRIO :: MonadIO m => ctx -> RIO ctx a -> m a
 runRIO ctx (RIO act) = liftIO $ runReaderT act ctx
 
--- Copypaste (edited) from Loot
 -- | Logging level.
 data Level
     = Debug     -- ^ Things nobody should see unless it's explicitly stated.
@@ -59,19 +58,31 @@ data Level
     | Error     -- ^ Errors.
     deriving (Eq, Generic, Show)
 
+-- | Monad which can log
 class MonadLogging m where
     log :: Level -> T.Text -> m ()
 
+-- | Logs 'Debug' message.
+logDebug :: MonadLogging m => T.Text -> m ()
+logDebug   = log Debug
+
+-- | Logs 'Info' message.
+logInfo :: MonadLogging m => T.Text -> m ()
+logInfo    = log Info
+
+-- | Logs 'Warning' message.
+logWarning :: MonadLogging m => T.Text -> m ()
+logWarning = log Warning
+
+-- | Logs 'Error' message.
+logError :: MonadLogging m => T.Text -> m ()
+logError   = log Error
+
+-- | The simplest implementation used by Snowdrop.
 data LoggingIO = LoggingIO {
     lioLog :: Maybe String -> Level -> T.Text -> IO ()
   , lioSuffix :: Maybe String
   }
-
-logDebug, logInfo, logWarning, logError :: MonadLogging m => T.Text -> m ()
-logDebug   = log Debug
-logInfo    = log Info
-logWarning = log Warning
-logError   = log Error
 
 -- Don't bother with typeclasses in these
 defLog :: (MonadReader ctx m, MonadIO m) => (ctx -> LoggingIO) -> Level -> T.Text -> m ()
@@ -82,7 +93,7 @@ defLog f l s = do
 ----------------------------------------
 
 -- | Default execution monad for Snowdrop's execution code.
--- Provides this simplest logging.
+-- Provides the simplest logging to run demo.
 type ExecM = RIO LoggingIO
 
 instance MonadLogging ExecM where
@@ -97,8 +108,12 @@ mkLogger fp = LoggingIO doLog Nothing
                            fp (maybe "" ('.':) suff) l ct s
       T.appendFile ("log" </> fp <.> "log") msg >> T.putStr msg
 
+-- | Creates new logger for passed ExecM computation.
+-- the first parameter is logger name, log goes to 'log/fp.log' and is doubled to console
 withLogger :: String -> ExecM () -> ExecM ()
 withLogger fp action = local (const $ mkLogger fp) action
 
+-- | Modifies the logger for passed ExecM computation.
+-- Each log message is annotated by the given suffix (the first parameter)
 withLogSuffix :: String -> ExecM () -> ExecM ()
 withLogSuffix s action = local (\lio -> lio {lioSuffix = Just s}) action
