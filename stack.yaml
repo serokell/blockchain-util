@@ -29,6 +29,7 @@ extra-deps:
 
 # It picks vinyl-0.7 without this #
 - vinyl-0.9.3
+- union-0.1.2
 
 # for universum (greater versions conflict)
 - formatting-6.2.5
