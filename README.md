@@ -1,6 +1,6 @@
 # Blockchain utility
 
-A repository with abstract building blocks, maintained by [Serokell](https://serokell.io), to be used for the construction of blockchain solutions.
+A repository with abstract building blocks, to be used for the construction of blockchain solutions.
 The repository provides the following packages:
 
 * Package `snowdrop-core`
@@ -17,7 +17,7 @@ The repository provides the following packages:
     * Defines a monad for execution of `ERoComp` in `IO` (module `Snowdrop.Execution.IOExecutor`)
 * Package `snowdrop-util`
     * Defines various helper data types and functions needed for other packages.
-     
+
 The db access functor `DbAccess` is designed for usage with key-value databases.
 The processing of blocks is viewed as a read-only state access operation that returns a state
 modification object as result (or an error).
@@ -46,6 +46,11 @@ To build haddock use the following command (currently building Haddock for one o
 ```
 stack haddock --fast --no-haddock-deps
 ```
+
+## For Contributors
+
+Please see [CONTRIBUTING.md](.github/CONTRIBUTING.md) for more information.
+
 ## About Serokell
 
 `blockchain-util` is maintained and funded with :heart: by [Serokell](https://serokell.io/). The names and logo for Serokell are trademark of Serokell OÜ.
